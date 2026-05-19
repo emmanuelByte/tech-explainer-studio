@@ -158,6 +158,7 @@ export const resources = {
       },
       timeline: {
         loop: 'Loop',
+        playbackSpeed: 'Playback speed',
         allProps: 'All props',
         valueGraph: 'Value graph',
         durationShort: 'Dur',
@@ -540,6 +541,7 @@ export const resources = {
       },
       timeline: {
         loop: 'Smyčka',
+        playbackSpeed: 'Rychlost přehrávání',
         allProps: 'Všechny vlastnosti',
         valueGraph: 'Graf hodnot',
         durationShort: 'Délka',

@@ -120,6 +120,14 @@ function renderAnimatedText(layer: Layer, charProgress: number) {
   })
 }
 
+function isGroupLayer(layer: Layer) {
+  return layer.type === 'group' || layer.isGroup
+}
+
+function isLayerActive(layer: Layer, frame: number) {
+  return layer.visible && frame >= (layer.startFrame ?? 0) && frame <= (layer.endFrame ?? Infinity)
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
@@ -128,7 +136,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   isSelected: boolean
   onSelect: (multi: boolean) => void
 }) {
-  if (layer.type === 'group' && (layer.layoutMode ?? 'none') !== 'none') {
+  if (isGroupLayer(layer)) {
     return (
       <GroupElement
         layer={layer}
@@ -140,9 +148,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       />
     )
   }
-  if (layer.type === 'group') return null
-  if (!layer.visible) return null
-  if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
+  if (!isLayerActive(layer, frame)) return null
 
   const resolved = resolveLayerAnimation(layer, frame)
   const animatedLayer = resolved.layer
@@ -316,8 +322,7 @@ function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   isSelected: boolean
   onSelect: (multi: boolean) => void
 }) {
-  if (!layer.visible) return null
-  if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
+  if (!isLayerActive(layer, frame)) return null
 
   const resolved = resolveLayerAnimation(layer, frame)
   const animatedLayer = resolved.layer
@@ -360,6 +365,49 @@ function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   return <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick} />
 }
 
+function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>() }: {
+  layer: Layer
+  childrenByParent: Map<string | null, Layer[]>
+  frame: number
+  canvasWidth: number
+  canvasHeight: number
+  selectedLayerIds: string[]
+  selectLayer: (id: string | null, multi?: boolean) => void
+  ancestors?: Set<string>
+}) {
+  const isGroup = isGroupLayer(layer)
+  const children = isGroup && isLayerActive(layer, frame)
+    ? (childrenByParent.get(layer.id) ?? []).filter((child) => !ancestors.has(child.id))
+    : []
+  const nextAncestors = isGroup && children.length ? new Set([...ancestors, layer.id]) : ancestors
+
+  return (
+    <>
+      <LayerElement
+        layer={layer}
+        frame={frame}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        isSelected={selectedLayerIds.includes(layer.id)}
+        onSelect={(multi) => selectLayer(layer.id, multi)}
+      />
+      {children.map((child) => (
+        <RenderLayerNode
+          key={child.id}
+          layer={child}
+          childrenByParent={childrenByParent}
+          frame={frame}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+          selectedLayerIds={selectedLayerIds}
+          selectLayer={selectLayer}
+          ancestors={nextAncestors}
+        />
+      ))}
+    </>
+  )
+}
+
 interface CompositionProps {
   layers: Layer[]
   canvasWidth: number
@@ -370,21 +418,29 @@ interface CompositionProps {
 export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e' }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectLayer } = useStore()
+  const layerIds = new Set(layers.map((layer) => layer.id))
+  const childrenByParent = new Map<string | null, Layer[]>()
+  ;[...layers].reverse().forEach((layer) => {
+    const parentId = layer.parentId && layerIds.has(layer.parentId) ? layer.parentId : null
+    childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), layer])
+  })
+  const rootLayers = childrenByParent.get(null) ?? []
 
   return (
     <div
       style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: 'hidden' }}
       onClick={() => selectLayer(null)}
     >
-      {[...layers].reverse().map((layer) => (
-        <LayerElement
+      {rootLayers.map((layer) => (
+        <RenderLayerNode
           key={layer.id}
           layer={layer}
+          childrenByParent={childrenByParent}
           frame={frame}
           canvasWidth={canvasWidth}
           canvasHeight={canvasHeight}
-          isSelected={selectedLayerIds.includes(layer.id)}
-          onSelect={(multi) => selectLayer(layer.id, multi)}
+          selectedLayerIds={selectedLayerIds}
+          selectLayer={selectLayer}
         />
       ))}
     </div>

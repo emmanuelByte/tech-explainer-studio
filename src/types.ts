@@ -277,6 +277,7 @@ export interface EditorState {
   totalFrames: number
   fps: number
   isPlaying: boolean
+  playbackRate: number
   canvasPreset: CanvasPreset
   customWidth: number
   customHeight: number

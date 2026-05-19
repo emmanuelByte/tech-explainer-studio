@@ -109,6 +109,7 @@ interface TimingModalState {
 interface BarDragState {
   type: 'left' | 'right' | 'move'
   layerId: string
+  isGroup: boolean
   startClientX: number
   origStart: number
   origEnd: number
@@ -448,14 +449,12 @@ function TrackRow({
           }}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
         >
-          {!isGroup && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
-            style={{ position: 'absolute', left: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px' }} />
-          }
+          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
+            style={{ position: 'absolute', left: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
           <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
             style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: 'grab' }} />
-          {!isGroup && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
-            style={{ position: 'absolute', right: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0' }} />
-          }
+          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
+            style={{ position: 'absolute', right: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
         </div>
 
         {/* Keyframe connector */}
@@ -682,10 +681,10 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
 export function Timeline() {
   const { t } = useTranslation()
   const {
-    layers, currentFrame, totalFrames, fps, isPlaying,
+    layers, currentFrame, totalFrames, fps, isPlaying, playbackRate,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
-    setCurrentFrame, setPlaying, setTotalFrames,
+    setCurrentFrame, setPlaying, setTotalFrames, setPlaybackRate,
     selectLayer, removeKeyframe, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
@@ -711,6 +710,7 @@ export function Timeline() {
   const kfDrag = useRef<{ layerId: string; fromFrame: number; propKey?: AnimatableProperty } | null>(null)
   const barDrag = useRef<BarDragState | null>(null)
   const timelineScrollDrag = useRef<{ startX: number; startScrollLeft: number; maxScrollLeft: number; maxThumbLeft: number } | null>(null)
+  const timelinePanDrag = useRef<{ startX: number; startY: number; startScrollLeft: number; startScrollTop: number; maxScrollLeft: number; maxScrollTop: number } | null>(null)
   const resizeDragging = useRef(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
@@ -856,6 +856,15 @@ export function Timeline() {
     })
   }
 
+  function previewTimelineScrollbar(leftScroll: number) {
+    const el = scrollRef.current
+    const thumb = timelineScrollbarThumbRef.current
+    if (!el || !thumb || !timelineScrollbar.visible) return
+    const maxScrollLeft = Math.max(1, el.scrollWidth - el.clientWidth)
+    const maxThumbLeft = Math.max(1, el.clientWidth - timelineScrollbar.width)
+    thumb.style.left = `${(leftScroll / maxScrollLeft) * maxThumbLeft}px`
+  }
+
   function handleTimelineWheel(e: WheelEvent) {
     const el = scrollRef.current
     if (!el) return
@@ -898,6 +907,23 @@ export function Timeline() {
     }
   }
 
+  function onTimelinePanMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 1) return
+    const el = scrollRef.current
+    if (!el) return
+    e.preventDefault()
+    e.stopPropagation()
+    el.style.cursor = 'grabbing'
+    timelinePanDrag.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startScrollLeft: el.scrollLeft,
+      startScrollTop: el.scrollTop,
+      maxScrollLeft: Math.max(0, el.scrollWidth - el.clientWidth),
+      maxScrollTop: Math.max(0, el.scrollHeight - el.clientHeight),
+    }
+  }
+
   // ── Keyframe drag ──────────────────────────────────────────────────────
   function onKfMouseDown(e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) {
     e.stopPropagation()
@@ -911,10 +937,11 @@ export function Timeline() {
     e.stopPropagation()
     const layer = layers.find((l) => l.id === layerId)
     if (!layer) return
-    const range = layer.type === 'group' || layer.isGroup ? getGroupRange(layer.id) : undefined
+    const isGroup = layer.type === 'group' || layer.isGroup
+    const range = isGroup ? getGroupRange(layer.id) : undefined
     beginInteraction(true)
     barDrag.current = {
-      type, layerId, startClientX: e.clientX,
+      type, layerId, isGroup, startClientX: e.clientX,
       origStart: range?.start ?? layer.startFrame ?? 0,
       origEnd: range?.end ?? layer.endFrame ?? totalFrames,
       origKfFrames: [...layer.keyframes].sort((a, b) => a.frame - b.frame).map((k) => k.frame),
@@ -966,7 +993,7 @@ export function Timeline() {
 
   function commitBarDrag(drag: BarDragState) {
     if (!drag.didMove || (drag.currentStart === drag.origStart && drag.currentEnd === drag.origEnd)) return
-    if (drag.type === 'move') {
+    if (drag.type === 'move' || drag.isGroup) {
       setLayerRange(drag.layerId, drag.currentStart, drag.currentEnd, drag.currentKfFrames)
     } else {
       updateLayerTimeRange(drag.layerId, drag.currentStart, drag.currentEnd)
@@ -1021,18 +1048,32 @@ export function Timeline() {
 
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
+      const pan = timelinePanDrag.current
+      if (pan && scrollRef.current) {
+        const nextScrollLeft = Math.max(0, Math.min(pan.maxScrollLeft, pan.startScrollLeft - (e.clientX - pan.startX)))
+        const nextScrollTop = Math.max(0, Math.min(pan.maxScrollTop, pan.startScrollTop - (e.clientY - pan.startY)))
+        scrollRef.current.scrollLeft = nextScrollLeft
+        scrollRef.current.scrollTop = nextScrollTop
+        if (labelScrollRef.current) labelScrollRef.current.scrollTop = nextScrollTop
+        previewTimelineScrollbar(nextScrollLeft)
+        return
+      }
       const drag = timelineScrollDrag.current
       const el = scrollRef.current
       if (!drag || !el) return
       const nextScrollLeft = drag.startScrollLeft + ((e.clientX - drag.startX) / drag.maxThumbLeft) * drag.maxScrollLeft
       const clamped = Math.max(0, Math.min(drag.maxScrollLeft, nextScrollLeft))
       el.scrollLeft = clamped
-      if (timelineScrollbarThumbRef.current) {
-        const nextLeft = (clamped / drag.maxScrollLeft) * drag.maxThumbLeft
-        timelineScrollbarThumbRef.current.style.left = `${nextLeft}px`
-      }
+      previewTimelineScrollbar(clamped)
     }
     function onMouseUp() {
+      const pan = timelinePanDrag.current
+      if (pan && scrollRef.current) {
+        setTimelineScrollX(scrollRef.current.scrollLeft)
+        updateTimelineScrollbar()
+        scrollRef.current.style.cursor = 'default'
+      }
+      timelinePanDrag.current = null
       const drag = timelineScrollDrag.current
       if (drag && scrollRef.current) {
         setTimelineScrollX(scrollRef.current.scrollLeft)
@@ -1127,6 +1168,18 @@ export function Timeline() {
           {currentFrame} / {totalFrames - 1}
         </span>
 
+        <select
+          className="input-base text-xs"
+          value={playbackRate}
+          title={t('timeline.playbackSpeed')}
+          onChange={(e) => setPlaybackRate(Number(e.target.value))}
+          style={{ width: 72, height: 28, padding: '0 8px' }}
+        >
+          {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map((rate) => (
+            <option key={rate} value={rate}>{rate}x</option>
+          ))}
+        </select>
+
         <button onClick={() => setLoopEnabled(!loopEnabled)}
           className="pill-btn"
           style={{
@@ -1211,8 +1264,10 @@ export function Timeline() {
             ref={scrollRef}
             className="flex-1 overflow-x-auto overflow-y-auto"
             style={{ position: 'relative', cursor: 'default' }}
+            onMouseDownCapture={onTimelinePanMouseDown}
+            onAuxClick={(e) => { if (e.button === 1) e.preventDefault() }}
             onScroll={(e) => {
-              if (!timelineScrollDrag.current) {
+              if (!timelineScrollDrag.current && !timelinePanDrag.current) {
                 setTimelineScrollX(e.currentTarget.scrollLeft)
                 updateTimelineScrollbar()
               }

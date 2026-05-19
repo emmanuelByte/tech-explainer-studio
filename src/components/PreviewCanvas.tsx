@@ -348,6 +348,7 @@ export function PreviewCanvas() {
               style={{ width: '100%', height: '100%' }}
               controls={false}
               loop={false}
+              acknowledgeRemotionLicense
             />
             <CanvasOverlay
               containerRef={playerWrapperRef}

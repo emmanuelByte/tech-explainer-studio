@@ -488,6 +488,7 @@ interface Actions {
   setCurrentFrame: (frame: number) => void
   setTotalFrames: (frames: number) => void
   setPlaying: (playing: boolean) => void
+  setPlaybackRate: (rate: number) => void
   // Canvas
   setCanvasPreset: (name: string) => void
   setCustomDimension: (key: 'customWidth' | 'customHeight', value: number) => void
@@ -547,6 +548,7 @@ export const useStore = create<Store>()(
       totalFrames: 150,
       fps: 30,
       isPlaying: false,
+      playbackRate: 1,
       canvasPreset: CANVAS_PRESETS[0],
       customWidth: 1280,
       customHeight: 720,
@@ -593,6 +595,7 @@ export const useStore = create<Store>()(
           selectedLayerIds: project.editor.selectedLayerIds ?? [],
           selectedKeyframes: [],
           currentFrame: project.editor.playheadFrame ?? 0,
+          playbackRate: 1,
           timelineZoom: project.timeline.zoom ?? 1,
           timelineScrollX: project.timeline.scrollX ?? 0,
           editorZoom: project.editor.zoom ?? 1,
@@ -1258,6 +1261,7 @@ export const useStore = create<Store>()(
       setCurrentFrame: (frame) => set({ currentFrame: frame }),
       setTotalFrames: (frames) => set({ totalFrames: frames }),
       setPlaying: (playing) => set({ isPlaying: playing }),
+      setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.1, Math.min(4, rate)) }),
 
       setCanvasPreset: (name) => {
         const preset = CANVAS_PRESETS.find((p) => p.name === name)

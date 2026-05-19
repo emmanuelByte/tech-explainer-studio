@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
 export function usePlayback() {
-  const { isPlaying, fps, currentFrame, totalFrames, loopIn, loopOut, loopEnabled, setCurrentFrame, setPlaying } =
+  const { isPlaying, fps, playbackRate, currentFrame, totalFrames, loopIn, loopOut, loopEnabled, setCurrentFrame, setPlaying } =
     useStore()
   const rafRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number | null>(null)
@@ -24,8 +24,9 @@ export function usePlayback() {
       if (lastTimeRef.current === null) lastTimeRef.current = now
       const elapsed = now - lastTimeRef.current
       if (elapsed >= spf) {
-        const advance = Math.floor(elapsed / spf)
-        lastTimeRef.current = now - (elapsed % spf)
+        const playbackElapsed = elapsed * playbackRate
+        const advance = Math.floor(playbackElapsed / spf)
+        lastTimeRef.current = now - ((playbackElapsed % spf) / playbackRate)
         const next = frameRef.current + advance
         if (next > outPoint) {
           if (loopEnabled) {
@@ -44,5 +45,5 @@ export function usePlayback() {
 
     rafRef.current = requestAnimationFrame(tick)
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current) }
-  }, [isPlaying, fps, totalFrames, loopIn, loopOut, loopEnabled])
+  }, [isPlaying, fps, playbackRate, totalFrames, loopIn, loopOut, loopEnabled])
 }
