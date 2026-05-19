@@ -19,13 +19,31 @@ function PanelGroup({ title, children }: { title: string; children: React.ReactN
 
 export function TimingPanel() {
   const { t } = useTranslation()
-  const { layers, selectedLayerIds, totalFrames, fps, updateLayerTimeRange } = useStore()
+  const { layers, selectedLayerIds, totalFrames, fps, updateLayerTimeRange, setLayerRange } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!layer) return null
 
-  const startFrame = layer.startFrame ?? 0
-  const endFrame = layer.endFrame ?? totalFrames
+  const descendants = (layer.type === 'group' || layer.isGroup)
+    ? layers.filter((item) => {
+      let parentId = item.parentId
+      while (parentId) {
+        if (parentId === layer.id) return true
+        parentId = layers.find((candidate) => candidate.id === parentId)?.parentId
+      }
+      return false
+    })
+    : []
+  const rangeLayers = (layer.type === 'group' || layer.isGroup) ? [layer, ...descendants] : []
+  const groupRange = rangeLayers.length
+    ? {
+      start: Math.min(...rangeLayers.map((item) => item.startFrame ?? 0)),
+      end: Math.max(...rangeLayers.map((item) => item.endFrame ?? totalFrames)),
+    }
+    : null
+  const startFrame = groupRange?.start ?? layer.startFrame ?? 0
+  const endFrame = groupRange?.end ?? layer.endFrame ?? totalFrames
   const durationSec = totalFrames / fps
+  const isGroup = layer.type === 'group' || layer.isGroup
 
   return (
     <PanelGroup title={t('timeline.editTiming')}>
@@ -38,7 +56,11 @@ export function TimingPanel() {
         sensitivity={0.05}
         precision={2}
         unit="s"
-        onChange={(v) => updateLayerTimeRange(layer.id, Math.round(v * fps), endFrame)}
+        onChange={(v) => {
+          const nextStart = Math.round(v * fps)
+          const duration = Math.max(1, endFrame - startFrame)
+          setLayerRange(layer.id, nextStart, Math.min(totalFrames, nextStart + duration))
+        }}
       />
       <ScrubField
         label={t('transform.end', { defaultValue: 'End' })}
@@ -49,7 +71,11 @@ export function TimingPanel() {
         sensitivity={0.05}
         precision={2}
         unit="s"
-        onChange={(v) => updateLayerTimeRange(layer.id, startFrame, Math.round(v * fps))}
+        onChange={(v) => {
+          const nextEnd = Math.round(v * fps)
+          if (isGroup) setLayerRange(layer.id, startFrame, nextEnd)
+          else updateLayerTimeRange(layer.id, startFrame, nextEnd)
+        }}
       />
       <div className="px-3 pb-1 text-[10px]" style={{ color: 'var(--text3)' }}>
         {t('common.frames')} {startFrame}-{endFrame}

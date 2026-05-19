@@ -1,54 +1,115 @@
 # MotionEditor
 
-Lokální motion editor postavený na Reactu, Vite, Zustandu a Remotion Playeru. Projekty se teď ukládají do `localStorage`, včetně vrstev, keyframů, timeline, panelů, viewportu, historie verzí a náhledů projektů.
+MotionEditor is a local, browser-based motion design editor for creating short animated videos, social media clips, UI mockups, text animations, and simple composition layouts. It is built with React, Vite, Zustand, Tailwind CSS, Lucide icons, and Remotion.
 
-## Funkce
+The goal is to make animation editing feel direct and easy: create a project, add layers, move things on the canvas, edit timing in the timeline, add keyframes, apply easing, and export or back up your work.
 
-- Home screen s projekty, vyhledáváním, řazením, importem/exportem a světlým/tmavým režimem.
-- Editor s canvasem, vrstvami, timeline, keyframy, easingem, version history a autosave.
-- Vnořené vrstvy a skupiny, drag/drop parenting, multi-selection, časování vrstev a per-property keyframy.
-- Pravý panel ve stylu Figma: transformace, sizing, layout, styl, efekty, timing a motion presety.
-- Textové motion presety včetně typewriter, pop/fall/rise/spin znaků.
-- AI modal pro úpravy vybraných vrstev nebo vytvoření nové vrstvy.
-- i18next překlady pro angličtinu a češtinu.
+## What It Can Do
 
-## Instalace
+- Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, import, export, duplicate, rename, and delete.
+- Create projects with common canvas presets for YouTube, Instagram, TikTok, and custom sizes.
+- Edit a canvas with rectangles, ellipses, lines, triangles, custom paths, text, raster images, SVG images, and Lucide icons.
+- Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, and layer ordering.
+- Animate layers with keyframes, per-property animation tracks, timeline resizing, easing controls, value graph support, and direct keyframe editing.
+- Build text animations such as typewriter, character pop, fall, rise, spin, blur, word reveal, and line reveal.
+- Build custom 3D motion by entering your own rotation, skew, scale, opacity, and perspective values.
+- Style layers with fills, gradients, strokes, SVG stroke/fill controls, image fit options, shadows, blur, brightness, contrast, grayscale, and backdrop blur.
+- Use light or dark mode and switch the interface language between English and Czech.
+- Auto-save projects and keep manual version history snapshots.
+- Store projects as readable JSON files on your local machine.
+
+## Why It Is Easy To Use
+
+MotionEditor is designed around familiar editor concepts:
+
+- The home screen shows every project clearly, with previews.
+- The center canvas is for direct manipulation.
+- The left panel is for layer structure.
+- The bottom timeline is for timing and animation.
+- The right panel is for design, style, effects, and motion.
+- Most important controls are visual and grouped by intent instead of hidden in menus.
+
+You can start with a blank project, add a shape or text layer, drag it around, open the Motion tab, and create an animation without writing code.
+
+## Tech Stack
+
+- React 19
+- Vite 8
+- Zustand
+- Remotion and Remotion Player
+- Tailwind CSS
+- Lucide React icons
+- i18next and react-i18next
+- Local Vite middleware for JSON project storage and optional AI assistance
+
+## Requirements
+
+- Node.js
+- npm
+
+## Run Locally
+
+Install dependencies:
 
 ```bash
 npm install
 ```
 
-## Vývoj
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-Vite obvykle běží na `http://127.0.0.1:3000/` nebo dalším volném portu.
+Open:
+
+```text
+http://localhost:3000
+```
+
+The app is local-first. Projects are saved by the dev server into:
+
+```text
+data/projects
+```
+
+Each project is a JSON file, and version history is stored next to it as a history JSON file.
 
 ## Build
+
+Create a production build:
 
 ```bash
 npm run build
 ```
 
-Náhled produkčního buildu:
+Preview the production build:
 
 ```bash
 npm run preview
 ```
 
-## AI konfigurace
+## Exporting Video
 
-AI pomocník čte lokální konfigurační soubor `ai.config.local.json`. Tento soubor je v `.gitignore`, aby se API klíč nikdy nedostal do repozitáře ani do browser bundlu.
+The editor includes an Export MP4 dialog that gives you a Remotion render command for the current composition. The command is based on the current project dimensions and frame range.
 
-1. Zkopírujte ukázku:
+Example:
+
+```bash
+npx remotion render src/remotion/index.ts EditorComposition out/video.mp4
+```
+
+## Optional AI Assistant
+
+The editor includes an optional local AI assistant modal. It can help create layers or modify selected layers based on a prompt.
+
+To enable it, copy the example config:
 
 ```bash
 cp ai.config.example.json ai.config.local.json
 ```
 
-2. Doplňte model a API klíč:
+Then add your model and API key:
 
 ```json
 {
@@ -57,40 +118,53 @@ cp ai.config.example.json ai.config.local.json
 }
 ```
 
-3. Restartujte dev server.
+Restart the dev server after changing the config.
 
-Frontend volá lokální endpoint `/api/ai-assist`, který je implementovaný ve Vite dev serveru. Pro produkční nasazení je lepší přesunout tuto část na skutečný backend, aby správa klíčů, rate limiting a audit nebyly svázané s dev serverem.
+`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/ai-assist` endpoint, and the Vite dev server makes the OpenAI request.
 
-## Překlady
+## Project Storage
 
-Překlady jsou v [src/i18n.ts](/Users/tomaslachmann/Desktop/work/video-editor/src/i18n.ts). Aplikace podporuje:
+Projects are saved as JSON through local API endpoints implemented in `server/projectStoragePlugin.ts`.
 
-- `en` - English
-- `cs` - Čeština
+Stored data includes:
 
-Jazyk se přepíná v nastavení přes ikonu ozubeného kola. Volba se ukládá do `localStorage` pod klíčem `motion-editor:language`.
+- Project name, id, created/updated dates, and thumbnail
+- Canvas size, fps, duration, and background
+- Full layer tree
+- Text styling and image data
+- Keyframes and easing
+- Timeline state
+- Editor viewport state
+- Manual history snapshots
 
-## Ukládání projektů
+The home screen also supports importing and exporting `.motionproj` files and backing up all projects as JSON.
 
-Aktuální storage je browserový `localStorage`:
+## Internationalization
 
-- `projects:index` - seznam projektů pro Home screen
-- `project:{id}` - kompletní JSON projektu
-- `project:{id}:history` - ruční snapshoty historie
-- `motion-editor:language` - jazyk UI
+Translations live in:
 
-Projekt obsahuje canvas, vrstvy, keyframy, guides, timeline stav a editor viewport. Náhled projektu se generuje z aktuálního canvasu a ukládá se do indexu.
-
-## Export
-
-V editoru otevřete `Export MP4`. Modal zobrazí Remotion CLI příkaz pro render aktuální kompozice:
-
-```bash
-npx remotion render src/remotion/index.ts EditorComposition out/video.mp4
+```text
+src/i18n.ts
 ```
 
-Příkaz v modalu doplní aktuální šířku, výšku a rozsah snímků.
+Supported languages:
 
-## Next.js poznámka
+- English
+- Czech
 
-Next.js by dával smysl, pokud chcete projekty ukládat mimo `localStorage`, například do JSON souborů, databáze nebo cloud storage. Současný Vite setup je jednodušší pro čistě lokální editor, ale nemá trvalý Node server. Pokud další krok bude file-based ukládání projektů, migrace na Next.js nebo malý samostatný Node backend bude praktičtější než rozšiřovat Vite dev server.
+Use the settings button in the app to switch language and theme.
+
+## Useful Scripts
+
+```bash
+npm run dev
+npm run build
+npm run preview
+npm run lint
+```
+
+## Notes
+
+This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to understand, and practical for building motion compositions without setting up a database or cloud backend.
+
+For a production deployment, move the project storage and AI endpoints to a real backend so file access, authentication, rate limits, and API keys are handled safely.

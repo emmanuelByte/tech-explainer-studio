@@ -23,6 +23,34 @@ function collectDescendants(layers: Layer[], parentId: string): Layer[] {
   return result
 }
 
+function isGroupLayer(layer: Layer) {
+  return layer.type === 'group' || layer.isGroup
+}
+
+function shiftPropertyKeyframes(layer: Layer, delta: number): Layer['propertyKeyframes'] {
+  if (!layer.propertyKeyframes) return layer.propertyKeyframes
+  return Object.fromEntries(
+    Object.entries(layer.propertyKeyframes).map(([key, keyframes]) => [
+      key,
+      (keyframes ?? []).map((kf) => ({ ...kf, frame: Math.max(0, kf.frame + delta) })).sort((a, b) => a.frame - b.frame),
+    ]),
+  ) as Layer['propertyKeyframes']
+}
+
+function retimeFrame(frame: number, oldStart: number, newStart: number, scale: number) {
+  return Math.max(0, Math.round(newStart + (frame - oldStart) * scale))
+}
+
+function retimePropertyKeyframes(layer: Layer, oldStart: number, newStart: number, scale: number): Layer['propertyKeyframes'] {
+  if (!layer.propertyKeyframes) return layer.propertyKeyframes
+  return Object.fromEntries(
+    Object.entries(layer.propertyKeyframes).map(([key, keyframes]) => [
+      key,
+      (keyframes ?? []).map((kf) => ({ ...kf, frame: retimeFrame(kf.frame, oldStart, newStart, scale) })).sort((a, b) => a.frame - b.frame),
+    ]),
+  ) as Layer['propertyKeyframes']
+}
+
 function getCanvasSize(state: EditorState) {
   const isCustom = state.canvasPreset.name === 'Custom'
   return {
@@ -441,7 +469,7 @@ interface Actions {
   updateKeyframeEasing: (layerId: string, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
   // Time range
   updateLayerTimeRange: (layerId: string, startFrame: number, endFrame: number) => void
-  setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames: number[]) => void
+  setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames?: number[]) => void
   // Reorder
   reorderLayersById: (orderedIds: string[]) => void
   moveLayerToParent: (layerIds: string[], parentId: string | null, insertAfterId?: string | null) => void
@@ -926,22 +954,66 @@ export const useStore = create<Store>()(
       },
 
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((l) => l.id === layerId ? { ...l, startFrame, endFrame } : l),
         }))
       },
 
       setLayerRange: (layerId, startFrame, endFrame, keyframeFrames) => {
-        set((s) => ({
-          layers: s.layers.map((l) => {
-            if (l.id !== layerId) return l
-            const sorted = [...l.keyframes].sort((a, b) => a.frame - b.frame)
-            const newKeyframes = sorted
-              .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames[i] ?? kf.frame) }))
-              .sort((a, b) => a.frame - b.frame)
-            return { ...l, startFrame, endFrame, keyframes: newKeyframes }
-          }),
-        }))
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => {
+          const target = s.layers.find((l) => l.id === layerId)
+          if (!target) return {}
+          if (isGroupLayer(target)) {
+            const targetIds = new Set([target.id, ...collectDescendants(s.layers, target.id).map((l) => l.id)])
+            const timingLayers = s.layers.filter((l) => targetIds.has(l.id))
+            const oldStart = Math.min(...timingLayers.map((l) => l.startFrame ?? 0))
+            const oldEnd = Math.max(...timingLayers.map((l) => l.endFrame ?? s.totalFrames))
+            const oldDuration = Math.max(1, oldEnd - oldStart)
+            const nextDuration = Math.max(1, endFrame - startFrame)
+            const scale = nextDuration / oldDuration
+            return {
+              layers: s.layers.map((l) => {
+                if (!targetIds.has(l.id)) return l
+                const nextStart = l.id === layerId ? startFrame : retimeFrame(l.startFrame ?? 0, oldStart, startFrame, scale)
+                const nextEnd = l.id === layerId ? endFrame : retimeFrame(l.endFrame ?? s.totalFrames, oldStart, startFrame, scale)
+                return {
+                  ...l,
+                  startFrame: Math.min(nextStart, nextEnd - 1),
+                  endFrame: Math.max(nextStart + 1, nextEnd),
+                  keyframes: l.keyframes
+                    .map((kf) => ({ ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) }))
+                    .sort((a, b) => a.frame - b.frame),
+                  propertyKeyframes: retimePropertyKeyframes(l, oldStart, startFrame, scale),
+                }
+              }),
+              selectedKeyframes: s.selectedKeyframes.map((kf) =>
+                targetIds.has(kf.layerId) ? { ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) } : kf
+              ),
+            }
+          }
+          const delta = startFrame - (target.startFrame ?? 0)
+          return {
+            layers: s.layers.map((l) => {
+              if (l.id !== layerId) return l
+              const sorted = [...l.keyframes].sort((a, b) => a.frame - b.frame)
+              const newKeyframes = sorted
+                .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames?.[i] ?? kf.frame + delta) }))
+                .sort((a, b) => a.frame - b.frame)
+              return {
+                ...l,
+                startFrame,
+                endFrame,
+                keyframes: newKeyframes,
+                propertyKeyframes: shiftPropertyKeyframes(l, delta),
+              }
+            }),
+            selectedKeyframes: s.selectedKeyframes.map((kf) =>
+              kf.layerId === layerId ? { ...kf, frame: Math.max(0, kf.frame + delta) } : kf
+            ),
+          }
+        })
       },
 
       reorderLayersById: (orderedIds) => {

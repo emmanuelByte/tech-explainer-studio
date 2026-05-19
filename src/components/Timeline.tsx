@@ -25,6 +25,7 @@ const MIN_TL_H = 120
 const MAX_TL_H_RATIO = 0.6
 const BAR_HANDLE_W = 6
 const SNAP_FRAMES = 5
+const TIMELINE_LEFT_OFFSET = 32
 
 // ── Property metadata ──────────────────────────────────────────────────────
 const PROP_GROUPS: { label: string; color: string; keys: (keyof TransformProps)[] }[] = [
@@ -386,13 +387,13 @@ function SortableLabel({
 
 // ── Track row (with sub-tracks) ───────────────────────────────────────────
 function TrackRow({
-  layer, fpx, totalWidth, selected, currentFrame, rowH,
+  layer, fpx, totalWidth, contentWidth, timelineOffset, selected, currentFrame, rowH,
   expanded, animProps, showValueGraph,
   onKfMouseDown, onKfContextMenu, onClick,
   onBarMouseDown, onBarContextMenu, groupRange,
   selectedKeyframes,
 }: {
-  layer: Layer; fpx: number; totalWidth: number; selected: boolean; currentFrame: number; rowH: number
+  layer: Layer; fpx: number; totalWidth: number; contentWidth: number; timelineOffset: number; selected: boolean; currentFrame: number; rowH: number
   expanded: boolean; animProps: AnimatableProperty[]; showValueGraph: boolean
   onKfMouseDown: (e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) => void
   onKfContextMenu: (e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => void
@@ -402,15 +403,17 @@ function TrackRow({
   groupRange?: { start: number; end: number }
   selectedKeyframes: { layerId: string; frame: number; propKey?: AnimatableProperty }[]
 }) {
+  const isGroup = layer.type === 'group' || layer.isGroup
+  const frameX = (frame: number) => timelineOffset + frame * fpx
   const startF = groupRange?.start ?? layer.startFrame ?? 0
   const endF = groupRange?.end ?? (layer.endFrame ?? (totalWidth / fpx))
-  const barLeft = startF * fpx
+  const barLeft = frameX(startF)
   const barW = Math.max(4, (endF - startF) * fpx)
   const color = LAYER_TYPE_COLOR[layer.type] ?? '#6366f1'
   const hasMultipleKf = layer.keyframes.length >= 2
 
   return (
-    <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: totalWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'rgba(99,102,241,0.04)' : 'transparent', cursor: 'pointer' }}>
+    <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'rgba(99,102,241,0.04)' : 'transparent', cursor: 'pointer' }}>
       {/* Main bar row */}
       <div style={{ height: rowH, position: 'relative' }}>
         {/* Layer time bar */}
@@ -422,12 +425,12 @@ function TrackRow({
           }}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
         >
-          {layer.type !== 'group' && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
+          {!isGroup && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
             style={{ position: 'absolute', left: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px' }} />
           }
-          <div onMouseDown={(e) => { if (layer.type === 'group') return; e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
-            style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: layer.type === 'group' ? 'default' : 'grab' }} />
-          {layer.type !== 'group' && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
+          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
+            style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: 'grab' }} />
+          {!isGroup && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
             style={{ position: 'absolute', right: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0' }} />
           }
         </div>
@@ -435,8 +438,8 @@ function TrackRow({
         {/* Keyframe connector */}
         {hasMultipleKf && (() => {
           const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
-          const x1 = sorted[0].frame * fpx
-          const x2 = sorted[sorted.length - 1].frame * fpx
+          const x1 = frameX(sorted[0].frame)
+          const x2 = frameX(sorted[sorted.length - 1].frame)
           return (
             <div style={{ position: 'absolute', left: x1, width: x2 - x1, top: rowH / 2 - 1, height: 2, background: color + '60', borderRadius: 1, pointerEvents: 'none' }} />
           )
@@ -449,7 +452,7 @@ function TrackRow({
             <>
               {sorted.slice(0, -1).map((kf, idx) => {
                 const next = sorted[idx + 1]
-                const x = ((kf.frame + next.frame) / 2) * fpx
+                const x = frameX((kf.frame + next.frame) / 2)
                 return (
                   <button
                     key={`main-ease-${idx}-${kf.frame}-${next.frame}`}
@@ -463,7 +466,7 @@ function TrackRow({
                 <div key={`main-kf-${idx}-${kf.frame}`}
                   className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                   style={{
-                    left: kf.frame * fpx,
+                    left: frameX(kf.frame),
                     top: rowH / 2 - 5,
                     outline: selectedKeyframes.some((sel) => sel.layerId === layer.id && sel.frame === kf.frame && !sel.propKey) ? '2px solid #fff' : undefined,
                   }}
@@ -506,8 +509,8 @@ function TrackRow({
                         const sorted = [...sourceKfs].sort((a, b) => a.frame - b.frame)
                         return sorted.slice(0, -1).map((kf, i) => {
                           const next = sorted[i + 1]
-                          const x1 = kf.frame * fpx
-                          const x2 = next.frame * fpx
+                          const x1 = frameX(kf.frame)
+                          const x2 = frameX(next.frame)
                           const v1 = typeof kf.value === 'number' ? kf.value : 0
                           const v2 = typeof next.value === 'number' ? next.value : 0
                           const range = pMax - pMin || 1
@@ -525,7 +528,7 @@ function TrackRow({
 
                       {sourceKfs.length >= 2 && sourceKfs.slice(0, -1).map((kf, idx) => {
                         const next = sourceKfs[idx + 1]
-                        const x = ((kf.frame + next.frame) / 2) * fpx
+                        const x = frameX((kf.frame + next.frame) / 2)
                         return (
                           <button
                             key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
@@ -541,7 +544,7 @@ function TrackRow({
                         <div key={`prop-kf-${idx}-${kf.frame}`}
                           className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                           style={{
-                            left: kf.frame * fpx,
+                            left: frameX(kf.frame),
                             top: graphH / 2 - 5,
                             width: 8,
                             height: 8,
@@ -581,6 +584,14 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
   const valid = Number.isFinite(startNumber) && Number.isFinite(durationNumber) && startNumber >= 0 && durationNumber > 0
   const startFrame = valid ? Math.min(totalFrames - 1, Math.max(0, Math.round(startNumber * fps))) : 0
   const endFrame = valid ? Math.min(totalFrames, startFrame + Math.max(1, Math.round(durationNumber * fps))) : 0
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [onClose])
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', zIndex: 2200 }} onClick={onClose}>
@@ -687,14 +698,17 @@ export function Timeline() {
 
   const fpx = BASE_FPX * timelineZoom
   const totalWidth = totalFrames * fpx
+  const contentWidth = Math.max(totalWidth + TIMELINE_LEFT_OFFSET + BAR_HANDLE_W, 400)
   const rows = visibleLayerRows(layers, true)
   const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
   const getGroupRange = (id: string) => {
+    const group = layers.find((l) => l.id === id)
     const descendants = descendantsOf(layers, id)
-    if (!descendants.length) return undefined
+    const rangeLayers = group ? [group, ...descendants] : descendants
+    if (!rangeLayers.length) return undefined
     return {
-      start: Math.min(...descendants.map((l) => l.startFrame ?? 0)),
-      end: Math.max(...descendants.map((l) => l.endFrame ?? totalFrames)),
+      start: Math.min(...rangeLayers.map((l) => l.startFrame ?? 0)),
+      end: Math.max(...rangeLayers.map((l) => l.endFrame ?? totalFrames)),
     }
   }
 
@@ -715,8 +729,9 @@ export function Timeline() {
   function openTimingModal(layerId: string) {
     const layer = layers.find((item) => item.id === layerId)
     if (!layer) return
-    const startFrame = layer.startFrame ?? 0
-    const endFrame = layer.endFrame ?? totalFrames
+    const groupRange = layer.type === 'group' || layer.isGroup ? getGroupRange(layer.id) : undefined
+    const startFrame = groupRange?.start ?? layer.startFrame ?? 0
+    const endFrame = groupRange?.end ?? layer.endFrame ?? totalFrames
     setTimingModal({
       layerId,
       name: layer.name,
@@ -724,6 +739,25 @@ export function Timeline() {
       duration: ((endFrame - startFrame) / fps).toFixed(2),
     })
     setBarContextMenu(null)
+  }
+
+  function setLayerInPoint(layer: Layer) {
+    if (layer.type === 'group' || layer.isGroup) {
+      const range = getGroupRange(layer.id) ?? { start: layer.startFrame ?? 0, end: layer.endFrame ?? totalFrames }
+      const duration = Math.max(1, range.end - range.start)
+      setLayerRange(layer.id, currentFrame, Math.min(totalFrames, currentFrame + duration))
+      return
+    }
+    updateLayerTimeRange(layer.id, currentFrame, layer.endFrame ?? totalFrames)
+  }
+
+  function setLayerOutPoint(layer: Layer) {
+    if (layer.type === 'group' || layer.isGroup) {
+      const range = getGroupRange(layer.id) ?? { start: layer.startFrame ?? 0, end: layer.endFrame ?? totalFrames }
+      setLayerRange(layer.id, range.start, Math.max(range.start + 1, currentFrame))
+      return
+    }
+    updateLayerTimeRange(layer.id, layer.startFrame ?? 0, currentFrame)
   }
 
   function onAddSubKf(layerId: string, propKey: AnimatableProperty) {
@@ -757,7 +791,7 @@ export function Timeline() {
     const el = scrollRef.current
     if (!el) return 0
     const rect = el.getBoundingClientRect()
-    const x = clientX - rect.left + el.scrollLeft
+    const x = clientX - rect.left + el.scrollLeft - TIMELINE_LEFT_OFFSET
     return Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
   }, [totalFrames, fpx])
 
@@ -779,11 +813,12 @@ export function Timeline() {
     e.stopPropagation()
     const layer = layers.find((l) => l.id === layerId)
     if (!layer) return
+    const range = layer.type === 'group' || layer.isGroup ? getGroupRange(layer.id) : undefined
     beginInteraction(true)
     barDrag.current = {
       type, layerId, startClientX: e.clientX,
-      origStart: layer.startFrame ?? 0,
-      origEnd: layer.endFrame ?? totalFrames,
+      origStart: range?.start ?? layer.startFrame ?? 0,
+      origEnd: range?.end ?? layer.endFrame ?? totalFrames,
       origKfFrames: [...layer.keyframes].sort((a, b) => a.frame - b.frame).map((k) => k.frame),
     }
   }
@@ -799,7 +834,7 @@ export function Timeline() {
         const el = scrollRef.current
         if (!el) return
         const rect = el.getBoundingClientRect()
-        const x = e.clientX - rect.left + el.scrollLeft
+        const x = e.clientX - rect.left + el.scrollLeft - TIMELINE_LEFT_OFFSET
         const newFrame = Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
         if (newFrame !== kfDrag.current.fromFrame) {
           if (kfDrag.current.propKey) movePropertyKeyframe(kfDrag.current.layerId, kfDrag.current.propKey, kfDrag.current.fromFrame, newFrame)
@@ -846,7 +881,7 @@ export function Timeline() {
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    const px = currentFrame * fpx
+    const px = TIMELINE_LEFT_OFFSET + currentFrame * fpx
     if (px < el.scrollLeft || px > el.scrollLeft + el.clientWidth - 40) {
       el.scrollLeft = Math.max(0, px - el.clientWidth / 2)
       setTimelineScrollX(el.scrollLeft)
@@ -871,7 +906,7 @@ export function Timeline() {
   for (let f = 0; f <= totalFrames; f += tickEvery) {
     const isMajor = f % labelEvery === 0
     rulerMarks.push(
-      <div key={f} style={{ position: 'absolute', left: f * fpx, top: 0, height: RULER_H, pointerEvents: 'none' }}>
+      <div key={f} style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + f * fpx, top: 0, height: RULER_H, pointerEvents: 'none' }}>
         <div style={{ width: 1, height: isMajor ? 10 : 5, background: 'var(--text3)', marginTop: isMajor ? 6 : 10 }} />
         {isMajor && (
           <div style={{ fontSize: 9, color: 'var(--text3)', paddingLeft: 2, whiteSpace: 'nowrap', userSelect: 'none' }}>
@@ -995,7 +1030,7 @@ export function Timeline() {
             syncVerticalScroll('tracks', e.currentTarget.scrollTop)
           }}
         >
-          <div style={{ width: Math.max(totalWidth, 400), position: 'relative' }}>
+          <div style={{ width: contentWidth, position: 'relative' }}>
             {/* Ruler */}
             <div
               style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid var(--border2)', cursor: 'col-resize', userSelect: 'none', flexShrink: 0 }}
@@ -1004,10 +1039,10 @@ export function Timeline() {
             >
               {rulerMarks}
               {loopEnabled && loopIn !== null && loopOut !== null && (
-                <div style={{ position: 'absolute', left: loopIn * fpx, width: (loopOut - loopIn) * fpx, top: 0, bottom: 0, background: 'rgba(99,102,241,0.15)', borderLeft: '2px solid #6366f1', borderRight: '2px solid #6366f1', pointerEvents: 'none' }} />
+                <div style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + loopIn * fpx, width: (loopOut - loopIn) * fpx, top: 0, bottom: 0, background: 'rgba(99,102,241,0.15)', borderLeft: '2px solid #6366f1', borderRight: '2px solid #6366f1', pointerEvents: 'none' }} />
               )}
               {markers.map((m: TimelineMarker) => (
-                <div key={m.id} style={{ position: 'absolute', left: m.frame * fpx, top: 0, zIndex: 5 }}>
+                <div key={m.id} style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + m.frame * fpx, top: 0, zIndex: 5 }}>
                   <div title={`${m.label} (frame ${m.frame})`}
                     style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: `8px solid ${m.color}`, cursor: 'pointer' }}
                     onClick={(e) => { e.stopPropagation(); setCurrentFrame(m.frame) }}
@@ -1021,7 +1056,7 @@ export function Timeline() {
             {rows.map(({ layer }) => (
               <TrackRow
                 key={layer.id}
-                layer={layer} fpx={fpx} totalWidth={totalWidth}
+                layer={layer} fpx={fpx} totalWidth={totalWidth} contentWidth={contentWidth} timelineOffset={TIMELINE_LEFT_OFFSET}
                 selected={selectedLayerIds.includes(layer.id)}
                 currentFrame={currentFrame} rowH={ROW_H}
                 expanded={expandedLayers.has(layer.id)}
@@ -1041,7 +1076,7 @@ export function Timeline() {
             ))}
 
             {/* Playhead */}
-            <div style={{ position: 'absolute', top: 0, left: currentFrame * fpx, width: 1, bottom: 0, background: '#ef4444', pointerEvents: 'none', zIndex: 10 }}>
+            <div style={{ position: 'absolute', top: 0, left: TIMELINE_LEFT_OFFSET + currentFrame * fpx, width: 1, bottom: 0, background: '#ef4444', pointerEvents: 'none', zIndex: 10 }}>
               <div style={{ position: 'absolute', top: 0, left: -4, width: 8, height: 10, background: '#ef4444', clipPath: 'polygon(50% 100%, 0 0, 100% 0)' }} />
             </div>
           </div>
@@ -1079,8 +1114,8 @@ export function Timeline() {
         <div style={{ position: 'fixed', left: barContextMenu.x, top: barContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 180, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
-            { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, currentFrame, l.endFrame ?? totalFrames); setBarContextMenu(null) } },
-            { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, l.startFrame ?? 0, currentFrame); setBarContextMenu(null) } },
+            { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerInPoint(l); setBarContextMenu(null) } },
+            { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerOutPoint(l); setBarContextMenu(null) } },
             { label: t('timeline.editTimingMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
             { label: t('timeline.setDurationMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
             { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
@@ -1100,7 +1135,7 @@ export function Timeline() {
           onApply={(startSec, durationSec) => {
             const startFrame = Math.min(totalFrames - 1, Math.max(0, Math.round(startSec * fps)))
             const durationFrames = Math.max(1, Math.round(durationSec * fps))
-            updateLayerTimeRange(timingModal.layerId, startFrame, Math.min(totalFrames, startFrame + durationFrames))
+            setLayerRange(timingModal.layerId, startFrame, Math.min(totalFrames, startFrame + durationFrames))
             setTimingModal(null)
           }}
         />
