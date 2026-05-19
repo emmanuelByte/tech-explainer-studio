@@ -4,7 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe,
+  PropertyKeyframe, ImageKind,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -443,6 +443,7 @@ interface Actions {
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
   addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
+  replaceImageSource: (id: string, src: string, imageKind: ImageKind, naturalWidth?: number, naturalHeight?: number) => void
   deleteLayer: (id: string) => void
   duplicateLayer: (id: string) => void
   toggleVisibility: (id: string) => void
@@ -681,6 +682,22 @@ export const useStore = create<Store>()(
               endFrame: totalFrames,
             }),
           ],
+        }))
+      },
+
+      replaceImageSource: (id, src, imageKind, naturalWidth, naturalHeight) => {
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => layer.id === id && layer.type === 'image'
+            ? {
+                ...layer,
+                src,
+                imageKind,
+                imageNaturalWidth: naturalWidth,
+                imageNaturalHeight: naturalHeight,
+              }
+            : layer
+          ),
         }))
       },
 

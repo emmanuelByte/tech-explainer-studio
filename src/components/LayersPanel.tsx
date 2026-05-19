@@ -20,6 +20,8 @@ import { useTranslation } from 'react-i18next'
 import { visibleLayerRows } from '../layerTree'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
+import { ImageLibraryModal } from './ImageLibraryModal'
+import type { ImageAsset } from '../assetStorage'
 
 function CompositionAccordion() {
   const { t } = useTranslation()
@@ -300,15 +302,17 @@ export function LayersPanel() {
   const { t } = useTranslation()
   const {
     layers, selectedLayerIds, selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage,
+    replaceImageSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
   } = useStore()
-  const fileRef = useRef<HTMLInputElement>(null)
   const addMenuRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
   const [convertModal, setConvertModal] = useState<ConvertGroupModal | null>(null)
   const [showIcons, setShowIcons] = useState(false)
+  const [showImages, setShowImages] = useState(false)
+  const [replaceImageLayerId, setReplaceImageLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
   const hoverRef = useRef<{ targetId: string; startedAt: number } | null>(null)
@@ -410,24 +414,14 @@ export function LayersPanel() {
     lastSelectedId.current = layerId
   }
 
-  function handleImageImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const imageKind = file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg') ? 'svg' : 'raster'
-    const reader = new FileReader()
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        const name = file.name.replace(/\.[^.]+$/, '')
-        const img = new Image()
-        img.onload = () => {
-          addImage(reader.result as string, name, imageKind, img.naturalWidth || undefined, img.naturalHeight || undefined)
-        }
-        img.onerror = () => addImage(reader.result as string, name, imageKind)
-        img.src = reader.result
-      }
+  function addImageAsset(asset: ImageAsset) {
+    if (replaceImageLayerId) {
+      replaceImageSource(replaceImageLayerId, asset.url, asset.imageKind, asset.naturalWidth, asset.naturalHeight)
+      setReplaceImageLayerId(null)
+    } else {
+      addImage(asset.url, asset.name, asset.imageKind, asset.naturalWidth, asset.naturalHeight)
     }
-    reader.readAsDataURL(file)
-    e.target.value = ''
+    setShowImages(false)
   }
 
   function addIconLayer(choice: IconPick) {
@@ -477,8 +471,6 @@ export function LayersPanel() {
           {t('layers.addNew')}
           <ChevronRight size={13} style={{ transform: addMenuOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
         </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageImport} />
-
         {addMenuOpen && (
           <div
             className="absolute left-2 right-2 top-[42px] rounded-md p-1.5"
@@ -516,7 +508,7 @@ export function LayersPanel() {
               )}
             </div>
             <AddMenuItem label={t('layers.text')} icon={Type} onClick={() => { addLayer('text'); setAddMenuOpen(false) }} />
-            <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { fileRef.current?.click(); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
           </div>
         )}
@@ -565,6 +557,13 @@ export function LayersPanel() {
             { label: t('layers.ungroup'), action: () => ungroupLayer(menu.layer.id) },
             { label: t('layers.moveRoot'), action: () => moveLayerToParent([menu.layer.id], null) },
             { label: t('layers.duplicate'), action: () => useStore.getState().duplicateLayer(menu.layer.id) },
+            ...(menu.layer.type === 'image' ? [{
+              label: t('layers.replaceImage'),
+              action: () => {
+                setReplaceImageLayerId(menu.layer.id)
+                setShowImages(true)
+              },
+            }] : []),
             { label: t('common.delete'), danger: true, action: () => { if (childCount(menu.layer.id) === 0 || confirm(t('layers.deleteChildrenConfirm'))) useStore.getState().deleteLayer(menu.layer.id) } },
             { label: t('layers.selectChildren'), action: () => selectChildren(menu.layer.id) },
             { label: t('layers.selectSiblings'), action: () => selectSiblings(menu.layer.id) },
@@ -621,6 +620,15 @@ export function LayersPanel() {
         </div>
       )}
       {showIcons && <IconPickerModal onClose={() => setShowIcons(false)} onPick={addIconLayer} />}
+      {showImages && (
+        <ImageLibraryModal
+          onClose={() => {
+            setShowImages(false)
+            setReplaceImageLayerId(null)
+          }}
+          onPick={addImageAsset}
+        />
+      )}
     </div>
   )
 }

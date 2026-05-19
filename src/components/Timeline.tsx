@@ -113,6 +113,11 @@ interface BarDragState {
   origStart: number
   origEnd: number
   origKfFrames: number[]
+  currentStart: number
+  currentEnd: number
+  currentKfFrames?: number[]
+  barEl: HTMLDivElement | null
+  didMove: boolean
 }
 
 // ── Easing picker popup ───────────────────────────────────────────────────
@@ -913,11 +918,59 @@ export function Timeline() {
       origStart: range?.start ?? layer.startFrame ?? 0,
       origEnd: range?.end ?? layer.endFrame ?? totalFrames,
       origKfFrames: [...layer.keyframes].sort((a, b) => a.frame - b.frame).map((k) => k.frame),
+      currentStart: range?.start ?? layer.startFrame ?? 0,
+      currentEnd: range?.end ?? layer.endFrame ?? totalFrames,
+      currentKfFrames: undefined,
+      barEl: e.currentTarget.parentElement instanceof HTMLDivElement ? e.currentTarget.parentElement : null,
+      didMove: false,
     }
   }
 
   function snapFrame(f: number): number {
     return Math.abs(f - currentFrame) <= SNAP_FRAMES ? currentFrame : f
+  }
+
+  function getBarDragRange(drag: BarDragState, clientX: number) {
+    const dx = clientX - drag.startClientX
+    const deltaF = Math.round(dx / fpx)
+    if (drag.type === 'left') {
+      return {
+        start: snapFrame(Math.max(0, Math.min(drag.origEnd - 1, drag.origStart + deltaF))),
+        end: drag.origEnd,
+        keyframeFrames: undefined,
+      }
+    }
+    if (drag.type === 'right') {
+      return {
+        start: drag.origStart,
+        end: snapFrame(Math.max(drag.origStart + 1, Math.min(totalFrames, drag.origEnd + deltaF))),
+        keyframeFrames: undefined,
+      }
+    }
+    const dur = Math.max(1, drag.origEnd - drag.origStart)
+    const maxStart = Math.max(0, totalFrames - dur)
+    const newStart = Math.max(0, Math.min(maxStart, drag.origStart + deltaF))
+    const newEnd = Math.min(totalFrames, newStart + dur)
+    return {
+      start: newStart,
+      end: newEnd,
+      keyframeFrames: drag.origKfFrames.map((frame) => Math.max(0, frame + (newStart - drag.origStart))),
+    }
+  }
+
+  function previewBarDrag(drag: BarDragState, start: number, end: number) {
+    if (!drag.barEl) return
+    drag.barEl.style.left = `${TIMELINE_LEFT_OFFSET + start * fpx}px`
+    drag.barEl.style.width = `${Math.max(4, (end - start) * fpx)}px`
+  }
+
+  function commitBarDrag(drag: BarDragState) {
+    if (!drag.didMove || (drag.currentStart === drag.origStart && drag.currentEnd === drag.origEnd)) return
+    if (drag.type === 'move') {
+      setLayerRange(drag.layerId, drag.currentStart, drag.currentEnd, drag.currentKfFrames)
+    } else {
+      updateLayerTimeRange(drag.layerId, drag.currentStart, drag.currentEnd)
+    }
   }
 
   // ── Global mouse events ────────────────────────────────────────────────
@@ -937,23 +990,19 @@ export function Timeline() {
         return
       }
       if (barDrag.current) {
-        const { type, layerId, startClientX, origStart, origEnd, origKfFrames } = barDrag.current
-        const dx = e.clientX - startClientX
-        const deltaF = Math.round(dx / fpx)
-        if (type === 'left') {
-          updateLayerTimeRange(layerId, snapFrame(Math.max(0, Math.min(origEnd - 1, origStart + deltaF))), origEnd)
-        } else if (type === 'right') {
-          updateLayerTimeRange(layerId, origStart, snapFrame(Math.max(origStart + 1, Math.min(totalFrames, origEnd + deltaF))))
-        } else {
-          const dur = origEnd - origStart
-          const newStart = Math.max(0, origStart + deltaF)
-          const newEnd = Math.min(totalFrames, newStart + dur)
-          setLayerRange(layerId, newStart, newEnd, origKfFrames.map((f) => Math.max(0, f + (newStart - origStart))))
-        }
+        const next = getBarDragRange(barDrag.current, e.clientX)
+        if (next.start === barDrag.current.currentStart && next.end === barDrag.current.currentEnd) return
+        barDrag.current.currentStart = next.start
+        barDrag.current.currentEnd = next.end
+        barDrag.current.currentKfFrames = next.keyframeFrames
+        barDrag.current.didMove = true
+        previewBarDrag(barDrag.current, next.start, next.end)
       }
     }
     function onMouseUp() {
-      if (kfDrag.current || barDrag.current) endInteraction()
+      const activeBarDrag = barDrag.current
+      if (activeBarDrag) commitBarDrag(activeBarDrag)
+      if (kfDrag.current || activeBarDrag) endInteraction()
       kfDrag.current = null
       barDrag.current = null
     }
