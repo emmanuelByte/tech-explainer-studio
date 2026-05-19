@@ -9,7 +9,7 @@ interface Props {
   canvasH: number
 }
 
-type HandleType = 'move' | 'tl' | 'tr' | 'bl' | 'br' | 'rotate'
+type HandleType = 'move' | 'tl' | 'tr' | 'bl' | 'br' | 'ml' | 'mr' | 'mt' | 'mb' | 'rotate'
 
 interface DragState {
   type: HandleType
@@ -19,16 +19,17 @@ interface DragState {
   startPropY: number
   startScale: number
   startW: number
-  centerCx: number  // center in canvas coords
+  startH: number
+  centerCx: number
   centerCy: number
   displayScale: number
   props: TransformProps
+  shiftLock: null | 'x' | 'y'
 }
 
 export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
-  const { layers, selectedLayerIds, currentFrame, addKeyframe } = useStore()
+  const { layers, selectedLayerIds, currentFrame, addKeyframe, updateLayerProp } = useStore()
 
-  // The CSS display scale: how many screen px per canvas px
   const [displayScale, setDisplayScale] = useState(0)
   const dragRef = useRef<DragState | null>(null)
 
@@ -49,12 +50,24 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const layer = layers.find((l) => l.id === selectedLayerIds[0])
     if (!layer || layer.locked) return
 
-    // Delta in canvas coordinates
-    const dx = (e.clientX - d.startMx) / d.displayScale
-    const dy = (e.clientY - d.startMy) / d.displayScale
+    const rawDx = (e.clientX - d.startMx) / d.displayScale
+    const rawDy = (e.clientY - d.startMy) / d.displayScale
 
     if (d.type === 'move') {
+      // Determine shift-lock axis on first significant movement
+      if (e.shiftKey && d.shiftLock === null) {
+        const adx = Math.abs(rawDx)
+        const ady = Math.abs(rawDy)
+        if (adx > 3 / d.displayScale || ady > 3 / d.displayScale) {
+          d.shiftLock = adx > ady ? 'x' : 'y'
+        }
+      }
+      if (!e.shiftKey) d.shiftLock = null
+
+      const dx = d.shiftLock === 'y' ? 0 : rawDx
+      const dy = d.shiftLock === 'x' ? 0 : rawDy
       addKeyframe(layer.id, currentFrame, { ...d.props, x: d.startPropX + dx, y: d.startPropY + dy })
+
     } else if (d.type === 'rotate') {
       const rect = containerRef.current?.getBoundingClientRect()
       if (!rect) return
@@ -62,16 +75,29 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const my = (e.clientY - rect.top) / d.displayScale - d.centerCy
       const angle = Math.atan2(my, mx) * (180 / Math.PI) + 90
       addKeyframe(layer.id, currentFrame, { ...d.props, rotateZ: Math.round(angle) })
+
+    } else if (d.type === 'ml' || d.type === 'mr') {
+      // Resize width only (from center)
+      const sign = d.type === 'mr' ? 1 : -1
+      const newW = Math.max(4, d.startW + sign * rawDx * 2)
+      updateLayerProp(layer.id, 'width', Math.round(newW))
+
+    } else if (d.type === 'mt' || d.type === 'mb') {
+      // Resize height only (from center)
+      const sign = d.type === 'mb' ? 1 : -1
+      const newH = Math.max(4, d.startH + sign * rawDy * 2)
+      updateLayerProp(layer.id, 'height', Math.round(newH))
+
     } else {
       // Corner resize → scale
       const sign = (d.type === 'br' || d.type === 'tr') ? 1 : -1
-      const scaleDelta = (d.startW + sign * dx * 2) / d.startW
+      const scaleDelta = (d.startW + sign * rawDx * 2) / d.startW
       addKeyframe(layer.id, currentFrame, {
         ...d.props,
         scale: Math.max(0.01, d.startScale * scaleDelta),
       })
     }
-  }, [layers, selectedLayerIds, currentFrame, addKeyframe, containerRef])
+  }, [layers, selectedLayerIds, currentFrame, addKeyframe, updateLayerProp, containerRef])
 
   const onMouseUp = useCallback(() => { dragRef.current = null }, [])
 
@@ -91,7 +117,6 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const p = interpolateProps(currentFrame, layer.keyframes)
   const layerH = layer.type === 'line' ? (layer.strokeWidth || 2) : layer.height
 
-  // All positions in CANVAS pixels — the CSS scale maps them to screen
   const centerCx = canvasW / 2 + p.x
   const centerCy = canvasH / 2 + p.y
   const boxW = layer.width * p.scale
@@ -103,7 +128,6 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (layer!.locked) return
     e.preventDefault()
     e.stopPropagation()
-    // Capture displayScale at drag-start for accurate coordinate conversion
     const rect = containerRef.current?.getBoundingClientRect()
     const ds = rect ? rect.width / canvasW : displayScale
     dragRef.current = {
@@ -114,25 +138,34 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       startPropY: p.y,
       startScale: p.scale,
       startW: layer!.width,
+      startH: layerH,
       centerCx,
       centerCy,
       displayScale: ds,
       props: { ...p },
+      shiftLock: null,
     }
   }
 
   function Handle({ type, style }: { type: HandleType; style: React.CSSProperties }) {
+    const isEdge = type === 'ml' || type === 'mr' || type === 'mt' || type === 'mb'
+    const cursor = type === 'rotate' ? 'alias'
+      : (type === 'ml' || type === 'mr') ? 'ew-resize'
+      : (type === 'mt' || type === 'mb') ? 'ns-resize'
+      : (type === 'tl' || type === 'br') ? 'nwse-resize'
+      : 'nesw-resize'
+
     return (
       <div
         onMouseDown={(e) => onHandleMouseDown(e, type)}
         style={{
           position: 'absolute',
-          width: 8 / displayScale,   // keep handle visually 8px regardless of zoom
-          height: 8 / displayScale,
+          width: isEdge ? 6 / displayScale : 8 / displayScale,
+          height: isEdge ? 6 / displayScale : 8 / displayScale,
           background: '#fff',
           border: `${1.5 / displayScale}px solid #6366f1`,
           borderRadius: type === 'rotate' ? '50%' : 2,
-          cursor: type === 'rotate' ? 'alias' : 'nwse-resize',
+          cursor,
           zIndex: 10,
           ...style,
         }}
@@ -140,15 +173,11 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     )
   }
 
-  const hw = 4 / displayScale  // half-handle offset
+  const hw = 4 / displayScale
+  const ehw = 3 / displayScale  // edge handle half-width
 
   return (
-    // Outer wrapper: fills the playerWrapper in container pixels
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
-      {/*
-        Inner div: rendered at CANVAS SIZE then CSS-scaled to match the Remotion Player.
-        This puts us in the same coordinate space as the composition.
-      */}
       <div
         style={{
           position: 'absolute',
@@ -161,7 +190,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           pointerEvents: 'none',
         }}
       >
-        {/* Selection box, in canvas coordinates */}
+        {/* Selection box */}
         <div
           style={{
             position: 'absolute',
@@ -178,10 +207,17 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           }}
           onMouseDown={(e) => onHandleMouseDown(e, 'move')}
         >
+          {/* Corner handles */}
           <Handle type="tl" style={{ left: -hw, top: -hw }} />
           <Handle type="tr" style={{ right: -hw, top: -hw }} />
           <Handle type="bl" style={{ left: -hw, bottom: -hw }} />
           <Handle type="br" style={{ right: -hw, bottom: -hw }} />
+
+          {/* Edge midpoint handles */}
+          <Handle type="ml" style={{ left: -ehw, top: '50%', transform: 'translateY(-50%)' }} />
+          <Handle type="mr" style={{ right: -ehw, top: '50%', transform: 'translateY(-50%)' }} />
+          <Handle type="mt" style={{ top: -ehw, left: '50%', transform: 'translateX(-50%)' }} />
+          <Handle type="mb" style={{ bottom: -ehw, left: '50%', transform: 'translateX(-50%)' }} />
 
           {/* Rotation arm */}
           <div style={{

@@ -45,13 +45,13 @@ export function PreviewCanvas() {
     if (player.getCurrentFrame() !== currentFrame) player.seekTo(currentFrame)
   }, [currentFrame])
 
-  // Zoom to cursor on Ctrl+Wheel
+  // Zoom to cursor on Ctrl+Wheel or Shift+Wheel
   const handleWheel = useCallback((e: WheelEvent) => {
-    if (!e.ctrlKey) return
+    if (!e.ctrlKey && !e.shiftKey) return
     e.preventDefault()
-    const delta = e.deltaY > 0 ? 0.9 : 1.1
+    const step = e.shiftKey ? 0.1 : (e.deltaY > 0 ? -0.1 : 0.1)
     setZoom((z) => {
-      const newZ = Math.max(0.1, Math.min(8, z * delta))
+      const newZ = Math.max(0.1, Math.min(5, e.shiftKey ? (e.deltaY > 0 ? z - step : z + step) : z * (e.deltaY > 0 ? 0.9 : 1.1)))
       const rect = outerRef.current!.getBoundingClientRect()
       const cx = e.clientX - rect.left
       const cy = e.clientY - rect.top
@@ -111,6 +111,20 @@ export function PreviewCanvas() {
   }
 
   function resetZoom() { setZoom(1); setPan({ x: 0, y: 0 }) }
+
+  // Ctrl+0 = fit, Ctrl+1 = 100%, Ctrl+2 = 200%
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!e.ctrlKey && !e.metaKey) return
+      if (e.key === '0') { e.preventDefault(); fitToScreen() }
+      if (e.key === '1') { e.preventDefault(); resetZoom() }
+      if (e.key === '2') { e.preventDefault(); setZoom(2); setPan({ x: 0, y: 0 }) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  // fitToScreen and resetZoom are stable (no deps change)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const cursorStyle =
     currentTool === 'hand' || spaceHeld.current ? (isPanning.current ? 'cursor-grabbing' : 'cursor-grab') : ''
@@ -196,6 +210,7 @@ export function PreviewCanvas() {
           style={{
             transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`,
             transformOrigin: '0 0',
+            transition: 'transform 0.08s ease',
             width: '100%',
             height: '100%',
             display: 'flex',

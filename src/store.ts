@@ -40,6 +40,8 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     letterSpacing: 0,
     lineHeight: 1.2,
     textColor: '#ffffff',
+    startFrame: 0,
+    endFrame: 150,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
     ...overrides,
   }
@@ -63,6 +65,11 @@ interface Actions {
   removeKeyframe: (layerId: string, frame: number) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
   updateKeyframeEasing: (layerId: string, frame: number, easing: string) => void
+  // Time range
+  updateLayerTimeRange: (layerId: string, startFrame: number, endFrame: number) => void
+  setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames: number[]) => void
+  // Reorder
+  reorderLayersById: (orderedIds: string[]) => void
   // Playback
   setCurrentFrame: (frame: number) => void
   setTotalFrames: (frames: number) => void
@@ -74,6 +81,7 @@ interface Actions {
   setTheme: (theme: 'dark' | 'light') => void
   setTool: (tool: Tool) => void
   setTimelineZoom: (zoom: number) => void
+  setAutoKeyframe: (v: boolean) => void
   // Markers
   addMarker: (frame: number) => void
   removeMarker: (id: string) => void
@@ -95,7 +103,7 @@ interface HistorySlice {
 type Store = EditorState & HistorySlice & Actions
 
 const initialLayers: Layer[] = [
-  makeLayer('rectangle', { name: 'Rectangle 1', fillColor: '#6366f1', width: 320, height: 180 }),
+  makeLayer('rectangle', { name: 'Rectangle 1', fillColor: '#6366f1', width: 320, height: 180, startFrame: 0, endFrame: 150 }),
 ]
 
 export const useStore = create<Store>()(
@@ -118,6 +126,7 @@ export const useStore = create<Store>()(
       loopIn: null,
       loopOut: null,
       loopEnabled: false,
+      autoKeyframe: false,
       // History
       _past: [],
       _future: [],
@@ -153,13 +162,14 @@ export const useStore = create<Store>()(
 
       addLayer: (type) => {
         get()._snapshot()
-        const { layers } = get()
-        set({ layers: [...layers, makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}` })] })
+        const { layers, totalFrames } = get()
+        set({ layers: [...layers, makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`, endFrame: totalFrames })] })
       },
 
       addImage: (src, name) => {
         get()._snapshot()
-        set((s) => ({ layers: [...s.layers, makeLayer('image', { name, src, width: 300, height: 200 })] }))
+        const { totalFrames } = get()
+        set((s) => ({ layers: [...s.layers, makeLayer('image', { name, src, width: 300, height: 200, endFrame: totalFrames })] }))
       },
 
       deleteLayer: (id) => {
@@ -235,6 +245,34 @@ export const useStore = create<Store>()(
         }))
       },
 
+      updateLayerTimeRange: (layerId, startFrame, endFrame) => {
+        set((s) => ({
+          layers: s.layers.map((l) => l.id === layerId ? { ...l, startFrame, endFrame } : l),
+        }))
+      },
+
+      setLayerRange: (layerId, startFrame, endFrame, keyframeFrames) => {
+        set((s) => ({
+          layers: s.layers.map((l) => {
+            if (l.id !== layerId) return l
+            const sorted = [...l.keyframes].sort((a, b) => a.frame - b.frame)
+            const newKeyframes = sorted
+              .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames[i] ?? kf.frame) }))
+              .sort((a, b) => a.frame - b.frame)
+            return { ...l, startFrame, endFrame, keyframes: newKeyframes }
+          }),
+        }))
+      },
+
+      reorderLayersById: (orderedIds) => {
+        get()._snapshot()
+        set((s) => {
+          const map = new Map(s.layers.map((l) => [l.id, l]))
+          const layers = orderedIds.map((id) => map.get(id)).filter(Boolean) as typeof s.layers
+          return { layers }
+        })
+      },
+
       removeKeyframe: (layerId, frame) => {
         get()._snapshot()
         set((s) => ({
@@ -283,6 +321,7 @@ export const useStore = create<Store>()(
       setTheme: (theme) => set({ theme }),
       setTool: (tool) => set({ currentTool: tool }),
       setTimelineZoom: (zoom) => set({ timelineZoom: zoom }),
+      setAutoKeyframe: (v) => set({ autoKeyframe: v }),
 
       addMarker: (frame) => {
         const colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7']

@@ -39,7 +39,7 @@ function ToolButton({ tool, active, onClick }: { tool: typeof TOOLS[0]; active: 
 
 function App() {
   const [showExport, setShowExport] = useState(false)
-  const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool } = useStore()
+  const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool, autoKeyframe, setAutoKeyframe } = useStore()
 
   usePlayback()
   useKeyboardShortcuts()
@@ -92,6 +92,20 @@ function App() {
         ))}
 
         <div className="flex-1" />
+
+        {/* Auto-keyframe toggle */}
+        <button
+          onClick={() => setAutoKeyframe(!autoKeyframe)}
+          title={`Auto-keyframe ${autoKeyframe ? 'ON — changes create keyframes at playhead' : 'OFF — changes update base keyframe'}`}
+          className="w-7 h-7 flex items-center justify-center rounded text-xs transition-colors"
+          style={{
+            background: autoKeyframe ? 'rgba(239,68,68,0.2)' : 'var(--input)',
+            color: autoKeyframe ? '#ef4444' : 'var(--text3)',
+            border: `1px solid ${autoKeyframe ? '#ef4444' : 'var(--border)'}`,
+          }}
+        >
+          ⏺
+        </button>
 
         {/* Theme toggle */}
         <button

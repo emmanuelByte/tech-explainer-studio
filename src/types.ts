@@ -91,6 +91,9 @@ export interface Layer {
   textColor: string
   // Image
   src?: string
+  // Time range
+  startFrame: number
+  endFrame: number
   keyframes: Keyframe[]
 }
 
@@ -149,4 +152,5 @@ export interface EditorState {
   loopIn: number | null
   loopOut: number | null
   loopEnabled: boolean
+  autoKeyframe: boolean
 }

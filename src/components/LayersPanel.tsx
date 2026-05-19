@@ -1,6 +1,16 @@
-import { useRef, useState } from 'react'
+import { useRef } from 'react'
 import { useStore } from '../store'
 import { Layer, LayerType, LAYER_TYPE_COLOR } from '../types'
+import {
+  DndContext, closestCenter, DragEndEvent,
+  PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy,
+  useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { useState } from 'react'
 
 const TYPE_ICONS: Record<LayerType, string> = {
   rectangle: '▭', ellipse: '◯', line: '╱',
@@ -25,6 +35,11 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
   const [name, setName] = useState(layer.name)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const {
+    attributes, listeners, setNodeRef,
+    transform, transition, isDragging,
+  } = useSortable({ id: layer.id })
+
   function commitRename() {
     setEditing(false)
     if (name.trim()) renameLayer(layer.id, name.trim())
@@ -33,19 +48,40 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
 
   return (
     <div
+      ref={setNodeRef}
       onClick={onSelect}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px',
+        display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px 0 2px',
         height: 32, cursor: 'pointer', userSelect: 'none',
         borderBottom: '1px solid var(--border2)',
-        background: selected ? 'rgba(99,102,241,0.1)' : 'transparent',
+        background: isDragging
+          ? 'rgba(99,102,241,0.18)'
+          : selected ? 'rgba(99,102,241,0.1)' : 'transparent',
         borderLeft: `2px solid ${selected ? LAYER_TYPE_COLOR[layer.type] : 'transparent'}`,
-        transition: 'background 0.1s',
+        transition: transition ?? 'background 0.1s',
+        transform: CSS.Transform.toString(transform),
+        opacity: isDragging ? 0.6 : 1,
+        zIndex: isDragging ? 50 : undefined,
       }}
       className="group"
     >
+      {/* Drag handle */}
+      <span
+        {...attributes}
+        {...listeners}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          cursor: 'grab', color: 'var(--text3)', fontSize: 13,
+          padding: '0 2px', flexShrink: 0, lineHeight: 1,
+          touchAction: 'none',
+        }}
+        title="Drag to reorder"
+      >
+        ⠿
+      </span>
+
       {/* Type icon */}
-      <span style={{ fontSize: 12, width: 14, textAlign: 'center', color: LAYER_TYPE_COLOR[layer.type], flexShrink: 0 }}>
+      <span style={{ fontSize: 11, width: 14, textAlign: 'center', color: LAYER_TYPE_COLOR[layer.type], flexShrink: 0 }}>
         {TYPE_ICONS[layer.type]}
       </span>
 
@@ -56,7 +92,10 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={commitRename}
-          onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setEditing(false); setName(layer.name) } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commitRename()
+            if (e.key === 'Escape') { setEditing(false); setName(layer.name) }
+          }}
           onClick={(e) => e.stopPropagation()}
           autoFocus
           className="flex-1 input-base text-xs h-5"
@@ -66,7 +105,11 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
         <span
           className="flex-1 text-xs truncate"
           style={{ color: 'var(--text)', opacity: layer.visible ? 1 : 0.4 }}
-          onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.select(), 10) }}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            setEditing(true)
+            setTimeout(() => inputRef.current?.select(), 10)
+          }}
         >
           {layer.name}
         </span>
@@ -86,7 +129,7 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
           style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', fontSize: 12, padding: '0 2px' }}
           title="Toggle lock"
         >
-          {layer.locked ? '⚿' : '⚿'}
+          ⚿
         </button>
         <button
           onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id) }}
@@ -102,8 +145,24 @@ function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boole
 }
 
 export function LayersPanel() {
-  const { layers, selectedLayerIds, selectLayer, addLayer, addImage } = useStore()
+  const { layers, selectedLayerIds, selectLayer, addLayer, addImage, reorderLayersById } = useStore()
   const fileRef = useRef<HTMLInputElement>(null)
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  // Panel shows topmost layer first (reversed store order)
+  const reversed = [...layers].reverse()
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+
+    const oldIdx = reversed.findIndex((l) => l.id === active.id)
+    const newIdx = reversed.findIndex((l) => l.id === over.id)
+    const newReversed = arrayMove(reversed, oldIdx, newIdx)
+    // Convert back to store order (un-reverse)
+    reorderLayersById([...newReversed].reverse().map((l) => l.id))
+  }
 
   function handleImageImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -143,19 +202,23 @@ export function LayersPanel() {
         </div>
       </div>
 
-      {/* Layer list (reverse: topmost first) */}
+      {/* Sortable layer list */}
       <div className="flex-1 overflow-y-auto">
         {layers.length === 0 && (
           <div className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>No layers yet</div>
         )}
-        {[...layers].reverse().map((layer) => (
-          <LayerRow
-            key={layer.id}
-            layer={layer}
-            selected={selectedLayerIds.includes(layer.id)}
-            onSelect={() => selectLayer(layer.id)}
-          />
-        ))}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={reversed.map((l) => l.id)} strategy={verticalListSortingStrategy}>
+            {reversed.map((layer) => (
+              <LayerRow
+                key={layer.id}
+                layer={layer}
+                selected={selectedLayerIds.includes(layer.id)}
+                onSelect={() => selectLayer(layer.id)}
+              />
+            ))}
+          </SortableContext>
+        </DndContext>
       </div>
     </div>
   )

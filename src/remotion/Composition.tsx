@@ -19,6 +19,7 @@ function LayerElement({ layer, frame, isSelected, onSelect }: {
   onSelect: () => void
 }) {
   if (!layer.visible) return null
+  if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
 
   const p = interpolateProps(frame, layer.keyframes)
   const bg = getBackground(layer.fillType, layer.fillColor, layer.gradientStops, layer.gradientAngle)
