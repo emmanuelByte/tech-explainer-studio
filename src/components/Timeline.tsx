@@ -85,6 +85,12 @@ interface KfContextMenu {
   propKey?: AnimatableProperty
 }
 interface BarContextMenu { x: number; y: number; layerId: string }
+interface TimingModalState {
+  layerId: string
+  name: string
+  start: string
+  duration: string
+}
 
 // ── Bar drag ──────────────────────────────────────────────────────────────
 interface BarDragState {
@@ -501,6 +507,84 @@ function TrackRow({
   )
 }
 
+function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
+  state: TimingModalState
+  fps: number
+  totalFrames: number
+  onClose: () => void
+  onApply: (startSec: number, durationSec: number) => void
+}) {
+  const [start, setStart] = useState(state.start)
+  const [duration, setDuration] = useState(state.duration)
+  const parseSeconds = (value: string) => Number(value.trim().replace(',', '.'))
+  const startNumber = parseSeconds(start)
+  const durationNumber = parseSeconds(duration)
+  const valid = Number.isFinite(startNumber) && Number.isFinite(durationNumber) && startNumber >= 0 && durationNumber > 0
+  const startFrame = valid ? Math.min(totalFrames - 1, Math.max(0, Math.round(startNumber * fps))) : 0
+  const endFrame = valid ? Math.min(totalFrames, startFrame + Math.max(1, Math.round(durationNumber * fps))) : 0
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.45)', zIndex: 2200 }} onClick={onClose}>
+      <form
+        className="flex flex-col gap-3"
+        style={{ width: 340, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, boxShadow: '0 18px 60px rgba(0,0,0,0.35)' }}
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!valid) return
+          onApply(startNumber, durationNumber)
+        }}
+      >
+        <div>
+          <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Edit timing</div>
+          <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>{state.name}</div>
+        </div>
+        <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text2)' }}>
+          Start time
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              type="text"
+              inputMode="decimal"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              className="input-base flex-1"
+            />
+            <span style={{ color: 'var(--text3)' }}>s</span>
+          </div>
+        </label>
+        <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text2)' }}>
+          Duration
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="input-base flex-1"
+            />
+            <span style={{ color: 'var(--text3)' }}>s</span>
+          </div>
+        </label>
+        <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
+          Frames {startFrame}-{endFrame} at {fps}fps
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" className="pill-btn" onClick={onClose}>Cancel</button>
+          <button
+            type="submit"
+            className="pill-btn active"
+            disabled={!valid}
+            style={{ opacity: valid ? 1 : 0.45 }}
+          >
+            Apply
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
 // ── Main Timeline ─────────────────────────────────────────────────────────
 export function Timeline() {
   const {
@@ -520,6 +604,7 @@ export function Timeline() {
   const [timelineH, setTimelineH] = useState(savedTimelineH)
   const [kfContextMenu, setKfContextMenu] = useState<KfContextMenu | null>(null)
   const [barContextMenu, setBarContextMenu] = useState<BarContextMenu | null>(null)
+  const [timingModal, setTimingModal] = useState<TimingModalState | null>(null)
   const [copiedKf, setCopiedKf] = useState<{ props: unknown; easing: string } | null>(null)
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
 
@@ -565,6 +650,20 @@ export function Timeline() {
       else next.add(layerId)
       return next
     })
+  }
+
+  function openTimingModal(layerId: string) {
+    const layer = layers.find((item) => item.id === layerId)
+    if (!layer) return
+    const startFrame = layer.startFrame ?? 0
+    const endFrame = layer.endFrame ?? totalFrames
+    setTimingModal({
+      layerId,
+      name: layer.name,
+      start: (startFrame / fps).toFixed(2),
+      duration: ((endFrame - startFrame) / fps).toFixed(2),
+    })
+    setBarContextMenu(null)
   }
 
   function onAddSubKf(layerId: string, propKey: AnimatableProperty) {
@@ -922,6 +1021,8 @@ export function Timeline() {
           {[
             { label: 'Set in point to playhead', danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, currentFrame, l.endFrame ?? totalFrames); setBarContextMenu(null) } },
             { label: 'Set out point to playhead', danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, l.startFrame ?? 0, currentFrame); setBarContextMenu(null) } },
+            { label: 'Edit timing...', danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+            { label: 'Set duration...', danger: false, action: () => openTimingModal(barContextMenu.layerId) },
             { label: 'Duplicate layer', danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
             { label: 'Delete layer', danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
           ].map(({ label, action, danger }) => (
@@ -929,6 +1030,20 @@ export function Timeline() {
               style={{ color: danger ? '#ef4444' : 'var(--text)', background: 'transparent', display: 'block' }}>{label}</button>
           ))}
         </div>
+      )}
+      {timingModal && (
+        <TimingModal
+          state={timingModal}
+          fps={fps}
+          totalFrames={totalFrames}
+          onClose={() => setTimingModal(null)}
+          onApply={(startSec, durationSec) => {
+            const startFrame = Math.min(totalFrames - 1, Math.max(0, Math.round(startSec * fps)))
+            const durationFrames = Math.max(1, Math.round(durationSec * fps))
+            updateLayerTimeRange(timingModal.layerId, startFrame, Math.min(totalFrames, startFrame + durationFrames))
+            setTimingModal(null)
+          }}
+        />
       )}
     </div>
   )

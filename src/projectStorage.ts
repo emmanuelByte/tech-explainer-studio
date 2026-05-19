@@ -1,5 +1,6 @@
 import { CANVAS_PRESETS, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem } from './types'
 import { useStore } from './store'
+import { interpolateProps } from './remotion/interpolateProps'
 
 export const PROJECT_INDEX_KEY = 'projects:index'
 
@@ -17,7 +18,11 @@ export function getCanvasSize(presetName: string, customWidth: number, customHei
 export function readProjectIndex(): ProjectIndexItem[] {
   try {
     const parsed = JSON.parse(localStorage.getItem(PROJECT_INDEX_KEY) || '[]') as ProjectIndexItem[]
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    return parsed.map((item) => {
+      const project = readProject(item.id)
+      return project ? { ...item, thumbnail: thumbnailFor(project), layerCount: layerCount(project.layers) } : item
+    })
   } catch {
     return []
   }
@@ -40,18 +45,79 @@ function layerCount(layers: Layer[]) {
   return layers.filter((l) => l.type !== 'group').length
 }
 
-function thumbnailFor(project: MotionProject) {
-  const visible = [...project.layers].reverse().find((l) => l.visible && l.type !== 'group')
-  const color = visible?.fillColor && visible.fillColor !== 'transparent' ? visible.fillColor : '#6366f1'
-  const label = project.name.slice(0, 18).replace(/[<>&]/g, '')
-  return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="${project.canvas.backgroundColor || '#111827'}"/><rect x="70" y="42" width="180" height="96" rx="10" fill="${color}"/><text x="160" y="164" text-anchor="middle" font-family="Inter,Arial" font-size="18" fill="#f9fafb">${label}</text></svg>`)}`
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+function fillForLayer(layer: Layer, fallback = 'transparent') {
+  if (layer.fillType === 'none') return 'transparent'
+  if (layer.fillType === 'solid') return layer.fillColor || fallback
+  return layer.gradientStops[0]?.color || layer.fillColor || fallback
+}
+
+function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+  if (!layer.visible || frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return ''
+  if (layer.type === 'group') return ''
+
+  const p = interpolateProps(frame, layer.keyframes)
+  const width = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
+  const height = layer.sizeMode === 'fill-canvas' ? canvasHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
+  const x = canvasWidth / 2 + p.x - width / 2
+  const y = canvasHeight / 2 + p.y - height / 2
+  const common = [
+    `opacity="${Math.max(0, Math.min(1, p.opacity))}"`,
+    `transform="translate(${x} ${y}) rotate(${p.rotateZ} ${width / 2} ${height / 2}) skewX(${p.skewX}) skewY(${p.skewY}) scale(${p.scale * p.scaleX} ${p.scale * p.scaleY})"`,
+  ].join(' ')
+  const stroke = layer.strokeEnabled && layer.strokeWidth > 0
+    ? ` stroke="${escapeXml(layer.strokeColor)}" stroke-width="${layer.strokeWidth}"`
+    : ''
+  const fill = escapeXml(fillForLayer(layer, '#6366f1'))
+
+  if (layer.type === 'ellipse') {
+    return `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${fill}"${stroke} ${common}/>`
+  }
+  if (layer.type === 'triangle') {
+    return `<polygon points="${width / 2},0 0,${height} ${width},${height}" fill="${fill}"${stroke} ${common}/>`
+  }
+  if (layer.type === 'line') {
+    return `<rect width="${width}" height="${height}" rx="${height / 2}" fill="${escapeXml(layer.strokeColor)}" ${common}/>`
+  }
+  if (layer.type === 'text') {
+    const size = Math.max(4, layer.fontSize)
+    const anchor = layer.textAlign === 'center' ? 'middle' : layer.textAlign === 'right' ? 'end' : 'start'
+    const tx = layer.textAlign === 'center' ? width / 2 : layer.textAlign === 'right' ? width - 8 : 8
+    const ty = height / 2 + size * 0.35
+    return `<g ${common}><rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${layer.fillType !== 'none' ? fill : 'transparent'}"/><text x="${tx}" y="${ty}" text-anchor="${anchor}" font-family="${escapeXml(layer.fontFamily || 'Inter')},Arial" font-size="${size}" font-weight="${escapeXml(layer.fontWeight || '400')}" fill="${escapeXml(layer.textColor)}">${escapeXml(layer.text || '')}</text></g>`
+  }
+  if (layer.type === 'image' && layer.src) {
+    const fit = layer.imageFit === 'cover' ? 'xMidYMid slice' : layer.imageFit === 'fill' ? 'none' : 'xMidYMid meet'
+    return `<image href="${escapeXml(layer.src)}" width="${width}" height="${height}" preserveAspectRatio="${fit}" ${common}/>`
+  }
+  return `<rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${fill}"${stroke} ${common}/>`
+}
+
+export function thumbnailFor(project: MotionProject) {
+  const width = project.canvas.width
+  const height = project.canvas.height
+  const frame = Math.max(0, Math.min(project.canvas.durationFrames - 1, project.editor.playheadFrame ?? 0))
+  const bg = escapeXml(project.canvas.backgroundColor || '#111827')
+  const content = [...project.layers].reverse().map((layer) => thumbnailLayerSvg(layer, frame, width, height)).join('')
+  const emptyLabel = project.layers.length
+    ? ''
+    : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" font-family="Inter,Arial" font-size="${Math.max(16, width / 24)}" fill="#94a3b8">${escapeXml(project.name)}</text>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${bg}"/>${content}${emptyLabel}</svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
 }
 
 export function indexItemFromProject(project: MotionProject): ProjectIndexItem {
   return {
     id: project.id,
     name: project.name,
-    thumbnail: project.thumbnail || thumbnailFor(project),
+    thumbnail: thumbnailFor(project),
     updatedAt: project.updatedAt,
     createdAt: project.createdAt,
     canvasWidth: project.canvas.width,
@@ -64,6 +130,7 @@ export function indexItemFromProject(project: MotionProject): ProjectIndexItem {
 }
 
 export function upsertProject(project: MotionProject) {
+  project.thumbnail = thumbnailFor(project)
   localStorage.setItem(`project:${project.id}`, JSON.stringify(project))
   const item = indexItemFromProject(project)
   const index = readProjectIndex().filter((p) => p.id !== project.id)
@@ -108,7 +175,7 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
   const size = getCanvasSize(s.canvasPreset.name, s.customWidth, s.customHeight)
   const now = new Date().toISOString()
   const id = idOverride || s.projectId || uuid()
-  return {
+  const project: MotionProject = {
     id,
     name: nameOverride || s.projectName || 'Untitled Project',
     createdAt: s.projectCreatedAt || now,
@@ -132,6 +199,8 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
       playheadFrame: s.currentFrame,
     },
   }
+  project.thumbnail = thumbnailFor(project)
+  return project
 }
 
 export function createBlankProject(options: {
@@ -145,7 +214,7 @@ export function createBlankProject(options: {
   const now = new Date().toISOString()
   const preset = CANVAS_PRESETS.find((p) => p.name === options.presetName)
   const isCustom = !preset || preset.name === 'Custom'
-  return {
+  const project: MotionProject = {
     id: uuid(),
     name: options.name.trim() || 'Untitled Project',
     createdAt: now,
@@ -163,6 +232,8 @@ export function createBlankProject(options: {
     timeline: { zoom: 1, scrollX: 0 },
     editor: { zoom: 1, panX: 0, panY: 0, selectedLayerIds: [], playheadFrame: 0 },
   }
+  project.thumbnail = thumbnailFor(project)
+  return project
 }
 
 export function duplicateProject(id: string) {
@@ -173,6 +244,7 @@ export function duplicateProject(id: string) {
   clone.name = `${source.name} (copy)`
   clone.createdAt = new Date().toISOString()
   clone.updatedAt = clone.createdAt
+  clone.thumbnail = thumbnailFor(clone)
   upsertProject(clone)
   return clone
 }

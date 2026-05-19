@@ -22,6 +22,267 @@ function collectDescendants(layers: Layer[], parentId: string): Layer[] {
   return result
 }
 
+function getCanvasSize(state: EditorState) {
+  const isCustom = state.canvasPreset.name === 'Custom'
+  return {
+    width: isCustom ? state.customWidth : state.canvasPreset.width,
+    height: isCustom ? state.customHeight : state.canvasPreset.height,
+  }
+}
+
+function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+  const transform = interpolateProps(frame, layer.keyframes)
+  const rawWidth = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
+  const rawHeight = layer.sizeMode === 'fill-canvas' ? canvasHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
+  const width = Math.max(1, Math.abs(rawWidth * transform.scale * transform.scaleX))
+  const height = Math.max(1, Math.abs(rawHeight * transform.scale * transform.scaleY))
+  const centerX = canvasWidth / 2 + transform.x
+  const centerY = canvasHeight / 2 + transform.y
+  return {
+    left: centerX - width / 2,
+    right: centerX + width / 2,
+    top: centerY - height / 2,
+    bottom: centerY + height / 2,
+  }
+}
+
+function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number) {
+  let next = layers
+  for (let pass = 0; pass < 3; pass += 1) {
+    let changed = false
+    next = next.map((layer) => {
+      if (!layer.autoFit || layer.type !== 'group') return layer
+      const children = next.filter((child) => child.parentId === layer.id && child.visible)
+      if (!children.length) return layer
+      const boxes = children.map((child) => getLayerFrameBox(child, frame, canvasWidth, canvasHeight))
+      const left = Math.min(...boxes.map((box) => box.left))
+      const right = Math.max(...boxes.map((box) => box.right))
+      const top = Math.min(...boxes.map((box) => box.top))
+      const bottom = Math.max(...boxes.map((box) => box.bottom))
+      const width = Math.max(1, Math.round(right - left))
+      const height = Math.max(1, Math.round(bottom - top))
+      const x = left + width / 2 - canvasWidth / 2
+      const y = top + height / 2 - canvasHeight / 2
+      const current = interpolateProps(frame, layer.keyframes)
+      const existing = layer.keyframes.find((kf) => kf.frame === frame)
+      const keyframe: Keyframe = {
+        frame,
+        easing: existing?.easing ?? layer.keyframes[0]?.easing ?? 'ease-out',
+        bezier: existing?.bezier,
+        props: { ...current, x, y },
+      }
+      const keyframes = existing
+        ? layer.keyframes.map((kf) => kf.frame === frame ? keyframe : kf)
+        : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
+      if (layer.width !== width || layer.height !== height || current.x !== x || current.y !== y) changed = true
+      return {
+        ...layer,
+        width,
+        height,
+        startFrame: Math.min(layer.startFrame ?? 0, ...children.map((child) => child.startFrame ?? 0)),
+        endFrame: Math.max(layer.endFrame ?? totalFrames, ...children.map((child) => child.endFrame ?? totalFrames)),
+        keyframes,
+      }
+    })
+    if (!changed) break
+  }
+  return next
+}
+
+function withAutoFitGroups(state: EditorState, layers: Layer[]) {
+  const { width, height } = getCanvasSize(state)
+  return fitAutoGroups(layers, state.currentFrame, width, height, state.totalFrames)
+}
+
+function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformProps): Layer {
+  const current = interpolateProps(frame, layer.keyframes)
+  const existing = layer.keyframes.find((kf) => kf.frame === frame)
+  const keyframe: Keyframe = {
+    frame,
+    easing: existing?.easing ?? layer.keyframes[0]?.easing ?? 'ease-out',
+    bezier: existing?.bezier,
+    props: { ...current, ...props },
+  }
+  const keyframes = existing
+    ? layer.keyframes.map((kf) => kf.frame === frame ? keyframe : kf)
+    : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
+
+  const propertyKeyframes = { ...(layer.propertyKeyframes ?? {}) }
+  ;(['x', 'y'] as const).forEach((key) => {
+    const frames = propertyKeyframes[key]
+    if (!frames?.length) return
+    const value = props[key]
+    const frameKey = frames.find((kf) => kf.frame === frame)
+    propertyKeyframes[key] = [
+      ...frames.filter((kf) => kf.frame !== frame),
+      {
+        id: frameKey?.id ?? uid(),
+        frame,
+        value,
+        easing: frameKey?.easing ?? 'ease-out',
+        bezier: frameKey?.bezier,
+      },
+    ].sort((a, b) => a.frame - b.frame)
+  })
+
+  return { ...layer, keyframes, propertyKeyframes }
+}
+
+function getLayerLayoutSize(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+  const p = interpolateProps(frame, layer.keyframes)
+  const rawWidth = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
+  const rawHeight = layer.sizeMode === 'fill-canvas' ? canvasHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
+  return {
+    width: Math.max(1, Math.abs(rawWidth * p.scale * p.scaleX)),
+    height: Math.max(1, Math.abs(rawHeight * p.scale * p.scaleY)),
+  }
+}
+
+function normalizeLayoutLayer(group: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+  const p = interpolateProps(frame, group.keyframes)
+  const width = group.sizeMode === 'fill-canvas' ? canvasWidth : group.width
+  const height = group.sizeMode === 'fill-canvas' ? canvasHeight : group.type === 'line' ? group.strokeWidth || 2 : group.height
+  return {
+    p,
+    left: canvasWidth / 2 + p.x - width / 2,
+    top: canvasHeight / 2 + p.y - height / 2,
+    width: Math.max(1, width),
+    height: Math.max(1, height),
+    padding: Math.max(0, group.layoutPadding ?? 0),
+    gap: Math.max(0, group.layoutGap ?? 0),
+  }
+}
+
+function justifyStart(justify: Layer['layoutJustify'], available: number, used: number) {
+  if (justify === 'center') return Math.max(0, (available - used) / 2)
+  if (justify === 'end') return Math.max(0, available - used)
+  return 0
+}
+
+function justifyGap(justify: Layer['layoutJustify'], available: number, usedWithoutGap: number, gap: number, count: number) {
+  if (justify === 'space-between' && count > 1) return Math.max(gap, (available - usedWithoutGap) / (count - 1))
+  return gap
+}
+
+function alignOffset(align: Layer['layoutAlign'], available: number, childSize: number) {
+  if (align === 'center') return Math.max(0, (available - childSize) / 2)
+  if (align === 'end') return Math.max(0, available - childSize)
+  return 0
+}
+
+function applyGroupLayout(layers: Layer[], groupId: string, state: EditorState) {
+  const group = layers.find((layer) => layer.id === groupId)
+  if (!group || (group.layoutMode ?? 'none') === 'none') return layers
+
+  const children = layers.filter((layer) => layer.parentId === groupId)
+  if (!children.length) return layers
+
+  const { width: canvasWidth, height: canvasHeight } = getCanvasSize(state)
+  const frame = state.currentFrame
+  const groupBox = normalizeLayoutLayer(group, frame, canvasWidth, canvasHeight)
+  const availableWidth = Math.max(1, groupBox.width - groupBox.padding * 2)
+  const availableHeight = Math.max(1, groupBox.height - groupBox.padding * 2)
+  const placements = new Map<string, { x: number; y: number; width?: number; height?: number }>()
+
+  if (group.layoutMode === 'grid') {
+    const columns = Math.max(1, Math.min(children.length, group.gridColumns ?? 2))
+    const cellWidth = Math.max(1, (availableWidth - groupBox.gap * (columns - 1)) / columns)
+    const sizes = children.map((child) => getLayerLayoutSize(child, frame, canvasWidth, canvasHeight))
+    const rowHeights: number[] = []
+    sizes.forEach((size, index) => {
+      const row = Math.floor(index / columns)
+      rowHeights[row] = Math.max(rowHeights[row] ?? 0, size.height)
+    })
+    children.forEach((child, index) => {
+      const size = sizes[index]
+      const row = Math.floor(index / columns)
+      const col = index % columns
+      const yBefore = rowHeights.slice(0, row).reduce((sum, h) => sum + h, 0) + groupBox.gap * row
+      const childWidth = group.layoutAlign === 'stretch' ? cellWidth : size.width
+      const x = groupBox.left + groupBox.padding + col * (cellWidth + groupBox.gap) + cellWidth / 2
+      const y = groupBox.top + groupBox.padding + yBefore + rowHeights[row] / 2
+      placements.set(child.id, {
+        x: Math.round(x - canvasWidth / 2),
+        y: Math.round(y - canvasHeight / 2),
+        width: group.layoutAlign === 'stretch' ? Math.round(childWidth) : undefined,
+      })
+    })
+  } else {
+    const isRow = (group.layoutDirection ?? 'row') === 'row'
+    const sizes = children.map((child) => getLayerLayoutSize(child, frame, canvasWidth, canvasHeight))
+    const mainAvailable = isRow ? availableWidth : availableHeight
+    const crossAvailable = isRow ? availableHeight : availableWidth
+    const usedWithoutGap = sizes.reduce((sum, size) => sum + (isRow ? size.width : size.height), 0)
+    const gap = justifyGap(group.layoutJustify, mainAvailable, usedWithoutGap, groupBox.gap, children.length)
+    const used = usedWithoutGap + gap * Math.max(0, children.length - 1)
+    let cursor = justifyStart(group.layoutJustify, mainAvailable, used)
+
+    children.forEach((child, index) => {
+      const size = sizes[index]
+      const mainSize = isRow ? size.width : size.height
+      const crossSize = group.layoutAlign === 'stretch' ? crossAvailable : (isRow ? size.height : size.width)
+      const mainCenter = cursor + mainSize / 2
+      const crossCenter = alignOffset(group.layoutAlign, crossAvailable, crossSize) + crossSize / 2
+      const x = isRow
+        ? groupBox.left + groupBox.padding + mainCenter
+        : groupBox.left + groupBox.padding + crossCenter
+      const y = isRow
+        ? groupBox.top + groupBox.padding + crossCenter
+        : groupBox.top + groupBox.padding + mainCenter
+      placements.set(child.id, {
+        x: Math.round(x - canvasWidth / 2),
+        y: Math.round(y - canvasHeight / 2),
+        width: !isRow && group.layoutAlign === 'stretch' ? Math.round(crossAvailable) : undefined,
+        height: isRow && group.layoutAlign === 'stretch' ? Math.round(crossAvailable) : undefined,
+      })
+      cursor += mainSize + gap
+    })
+  }
+
+  return layers.map((layer) => {
+    const placement = placements.get(layer.id)
+    if (!placement) return layer
+    const current = interpolateProps(frame, layer.keyframes)
+    const moved = upsertTransformKeyframe(layer, frame, { ...current, x: placement.x, y: placement.y })
+    return {
+      ...moved,
+      width: placement.width && layer.type !== 'line' ? placement.width : moved.width,
+      height: placement.height && layer.type !== 'line' ? placement.height : moved.height,
+    }
+  })
+}
+
+function normalizeLayoutGroups(state: EditorState, layers: Layer[], changedId?: string, includeAll = false) {
+  const groups = new Set<string>()
+  const changed = changedId ? layers.find((layer) => layer.id === changedId) : null
+  if (changed?.parentId) groups.add(changed.parentId)
+  if (changed && (changed.type === 'group' || changed.isGroup)) groups.add(changed.id)
+  if (includeAll) {
+    layers.forEach((layer) => {
+      if ((layer.layoutMode ?? 'none') !== 'none') groups.add(layer.id)
+    })
+  }
+  let next = layers
+  groups.forEach((id) => {
+    next = applyGroupLayout(next, id, state)
+  })
+  return next
+}
+
+function normalizeLayerTree(state: EditorState, layers: Layer[], changedId?: string, includeAllLayouts = false) {
+  return withAutoFitGroups(state, normalizeLayoutGroups(state, layers, changedId, includeAllLayouts))
+}
+
+const LAYOUT_PROP_KEYS = new Set<keyof Layer>([
+  'layoutMode',
+  'layoutDirection',
+  'layoutGap',
+  'layoutPadding',
+  'layoutAlign',
+  'layoutJustify',
+  'gridColumns',
+])
+
 const TYPE_NAMES: Record<LayerType, string> = {
   rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line',
   triangle: 'Triangle', text: 'Text', image: 'Image',
@@ -38,9 +299,17 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     parentId: null,
     collapsed: false,
     isGroup: type === 'group',
+    autoFit: false,
     width: type === 'text' ? 400 : type === 'line' ? 200 : 200,
     height: type === 'text' ? 80 : type === 'line' ? 4 : 140,
     sizeMode: 'fixed',
+    layoutMode: 'none',
+    layoutDirection: 'row',
+    layoutGap: 12,
+    layoutPadding: 16,
+    layoutAlign: 'center',
+    layoutJustify: 'start',
+    gridColumns: 2,
     fillType: 'solid',
     fillColor: type === 'group' ? 'transparent' : `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
     gradientStops: [{ color: '#6366f1', position: 0 }, { color: '#a855f7', position: 100 }],
@@ -60,6 +329,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     lineHeight: 1.2,
     textColor: '#ffffff',
     textSpans: [],
+    imageFit: 'contain',
     startFrame: 0,
     endFrame: 150,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
@@ -73,7 +343,7 @@ interface Actions {
   createEmptyProjectState: (project: MotionProject) => void
   // Layers
   addLayer: (type: LayerType) => void
-  addImage: (src: string, name: string) => void
+  addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
   deleteLayer: (id: string) => void
   duplicateLayer: (id: string) => void
   toggleVisibility: (id: string) => void
@@ -273,10 +543,31 @@ export const useStore = create<Store>()(
         set({ layers: [...layers, makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`, endFrame: totalFrames })] })
       },
 
-      addImage: (src, name) => {
+      addImage: (src, name, imageKind = 'raster', naturalWidth, naturalHeight) => {
         get()._snapshot()
         const { totalFrames } = get()
-        set((s) => ({ layers: [...s.layers, makeLayer('image', { name, src, width: 300, height: 200, endFrame: totalFrames })] }))
+        const maxW = 360
+        const maxH = 260
+        const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 1.5
+        const scale = naturalWidth && naturalHeight ? Math.min(1, maxW / naturalWidth, maxH / naturalHeight) : 1
+        const width = naturalWidth && naturalHeight ? Math.max(1, Math.round(naturalWidth * scale)) : 300
+        const height = naturalWidth && naturalHeight ? Math.max(1, Math.round(width / aspect)) : 200
+        set((s) => ({
+          layers: [
+            ...s.layers,
+            makeLayer('image', {
+              name,
+              src,
+              imageKind,
+              imageFit: 'contain',
+              imageNaturalWidth: naturalWidth,
+              imageNaturalHeight: naturalHeight,
+              width,
+              height,
+              endFrame: totalFrames,
+            }),
+          ],
+        }))
       },
 
       deleteLayer: (id) => {
@@ -292,11 +583,14 @@ export const useStore = create<Store>()(
             }
           })
         }
-        set((s) => ({
-          layers: s.layers.filter((l) => !ids.has(l.id)),
-          selectedLayerIds: s.selectedLayerIds.filter((sid) => !ids.has(sid)),
-          selectedKeyframes: s.selectedKeyframes.filter((kf) => !ids.has(kf.layerId)),
-        }))
+        set((s) => {
+          const layers = s.layers.filter((l) => !ids.has(l.id))
+          return {
+            layers: normalizeLayerTree(s, layers, undefined, true),
+            selectedLayerIds: s.selectedLayerIds.filter((sid) => !ids.has(sid)),
+            selectedKeyframes: s.selectedKeyframes.filter((kf) => !ids.has(kf.layerId)),
+          }
+        })
       },
 
       duplicateLayer: (id) => {
@@ -316,7 +610,7 @@ export const useStore = create<Store>()(
         const idx = layers.findIndex((l) => l.id === id)
         const next = [...layers]
         next.splice(idx + 1, 0, ...copies)
-        set({ layers: next, selectedLayerIds: [copies[0].id] })
+        set((s) => ({ layers: normalizeLayerTree(s, next, copies[0].parentId ?? undefined, true), selectedLayerIds: [copies[0].id] }))
       },
 
       toggleVisibility: (id) =>
@@ -388,7 +682,10 @@ export const useStore = create<Store>()(
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, name } : l) })),
 
       updateLayerProp: (id, key, value) => {
-        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, [key]: value } : l) }))
+        set((s) => {
+          const layers = s.layers.map((l) => l.id === id ? { ...l, [key]: value } : l)
+          return { layers: normalizeLayerTree(s, layers, id, LAYOUT_PROP_KEYS.has(key)) }
+        })
       },
 
       setLayerAnimatedProperty: (id, key, value) => {
@@ -397,8 +694,8 @@ export const useStore = create<Store>()(
           get().addPropertyKeyframe(id, key, currentFrame, value)
           return
         }
-        set((s) => ({
-          layers: s.layers.map((l) => {
+        set((s) => {
+          const layers = s.layers.map((l) => {
             if (l.id !== id) return l
             if (key in DEFAULT_TRANSFORM) {
               const frame = l.keyframes[0]?.frame ?? 0
@@ -407,8 +704,10 @@ export const useStore = create<Store>()(
               return { ...l, keyframes: l.keyframes.length ? l.keyframes.map((item, idx) => idx === 0 ? kf : item) : [kf] }
             }
             return { ...l, [key]: value }
-          }),
-        }))
+          })
+          const shouldLayout = key !== 'x' && key !== 'y'
+          return { layers: shouldLayout ? normalizeLayerTree(s, layers, id, false) : withAutoFitGroups(s, layers) }
+        })
       },
 
       addPropertyKeyframe: (layerId, key, frame = get().currentFrame, value) => {
@@ -496,14 +795,14 @@ export const useStore = create<Store>()(
           const layers = [...s.layers]
           const [item] = layers.splice(from, 1)
           layers.splice(to, 0, item)
-          return { layers }
+          return { layers: normalizeLayerTree(s, layers, item?.parentId ?? undefined, true) }
         })
       },
 
       addKeyframe: (layerId, frame, props, easing = 'ease-out') => {
         if (get().activeInteractionCount === 0) get()._snapshot()
-        set((s) => ({
-          layers: s.layers.map((l) => {
+        set((s) => {
+          const layers = s.layers.map((l) => {
             if (l.id !== layerId) return l
             const existing = l.keyframes.find((k) => k.frame === frame)
             const kf: Keyframe = { frame, easing: (easing as Keyframe['easing']), props }
@@ -511,8 +810,9 @@ export const useStore = create<Store>()(
               ? l.keyframes.map((k) => k.frame === frame ? kf : k)
               : [...l.keyframes, kf].sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
-          }),
-        }))
+          })
+          return { layers: normalizeLayerTree(s, layers, layerId, false) }
+        })
       },
 
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
@@ -541,7 +841,7 @@ export const useStore = create<Store>()(
           const ordered = orderedIds.map((id) => map.get(id)).filter(Boolean) as typeof s.layers
           const missing = s.layers.filter((l) => !orderedIds.includes(l.id))
           const layers = [...ordered, ...missing]
-          return { layers }
+          return { layers: normalizeLayerTree(s, layers, undefined, true) }
         })
       },
 
@@ -552,8 +852,50 @@ export const useStore = create<Store>()(
         if (parentId && moving.some((l) => l.id === parentId || collectDescendants(layers, l.id).some((d) => d.id === parentId))) return
         get()._snapshot()
         set((s) => {
+          const target = parentId ? s.layers.find((l) => l.id === parentId) : null
+          if (target && target.type !== 'group' && !target.isGroup) {
+            const wrapIds = Array.from(new Set([...layerIds, target.id]))
+            const wrapLayers = s.layers.filter((l) => wrapIds.includes(l.id))
+            const { width: canvasWidth, height: canvasHeight } = getCanvasSize(s)
+            const boxes = wrapLayers.map((l) => getLayerFrameBox(l, s.currentFrame, canvasWidth, canvasHeight))
+            const left = Math.min(...boxes.map((b) => b.left))
+            const right = Math.max(...boxes.map((b) => b.right))
+            const top = Math.min(...boxes.map((b) => b.top))
+            const bottom = Math.max(...boxes.map((b) => b.bottom))
+            const groupWidth = Math.max(1, Math.round(right - left))
+            const groupHeight = Math.max(1, Math.round(bottom - top))
+            const centerX = left + groupWidth / 2
+            const centerY = top + groupHeight / 2
+            const group = makeLayer('group', {
+              name: 'Group',
+              parentId: target.parentId ?? null,
+              width: groupWidth,
+              height: groupHeight,
+              sizeMode: 'fit-content',
+              fillType: 'none',
+              strokeEnabled: false,
+              autoFit: true,
+              startFrame: Math.min(...wrapLayers.map((l) => l.startFrame ?? 0)),
+              endFrame: Math.max(...wrapLayers.map((l) => l.endFrame ?? s.totalFrames)),
+              keyframes: [{
+                frame: 0,
+                easing: 'ease-out',
+                props: {
+                  ...DEFAULT_TRANSFORM,
+                  x: centerX - canvasWidth / 2,
+                  y: centerY - canvasHeight / 2,
+                },
+              }],
+            })
+            const firstIdx = Math.min(...wrapLayers.map((l) => s.layers.findIndex((item) => item.id === l.id)).filter((idx) => idx >= 0))
+            const next = [...s.layers]
+            next.splice(firstIdx, 0, group)
+            return {
+              layers: normalizeLayerTree(s, next.map((l) => wrapIds.includes(l.id) ? { ...l, parentId: group.id } : l), group.id, true),
+              selectedLayerIds: [group.id],
+            }
+          }
           let next = s.layers.map((l) => {
-            if (parentId && l.id === parentId) return { ...l, isGroup: true, type: 'group' as LayerType, collapsed: false }
             if (layerIds.includes(l.id)) return { ...l, parentId }
             return l
           })
@@ -564,7 +906,7 @@ export const useStore = create<Store>()(
             const idx = next.findIndex((l) => l.id === insertAfterId)
             next.splice(idx + 1, 0, ...pulled)
           }
-          return { layers: next }
+          return { layers: normalizeLayerTree(s, next, parentId ?? layerIds[0], true) }
         })
       },
 
@@ -634,12 +976,15 @@ export const useStore = create<Store>()(
         ordered.splice(to, 0, item)
         const byParentOrder = new Map(ordered.map((l, i) => [l.id, i]))
         get()._snapshot()
-        set({ layers: [...layers].sort((a, b) => {
-          const ap = a.parentId ?? null
-          const bp = b.parentId ?? null
-          if (ap === (layer.parentId ?? null) && bp === ap) return (byParentOrder.get(a.id) ?? 0) - (byParentOrder.get(b.id) ?? 0)
-          return layers.indexOf(a) - layers.indexOf(b)
-        }) })
+        set((s) => {
+          const next = [...layers].sort((a, b) => {
+            const ap = a.parentId ?? null
+            const bp = b.parentId ?? null
+            if (ap === (layer.parentId ?? null) && bp === ap) return (byParentOrder.get(a.id) ?? 0) - (byParentOrder.get(b.id) ?? 0)
+            return layers.indexOf(a) - layers.indexOf(b)
+          })
+          return { layers: normalizeLayerTree(s, next, layer.parentId ?? undefined, true) }
+        })
       },
 
       selectChildren: (id) => set({ selectedLayerIds: collectDescendants(get().layers, id).map((l) => l.id) }),

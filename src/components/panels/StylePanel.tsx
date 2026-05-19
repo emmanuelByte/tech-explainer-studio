@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store'
-import { Layer, FillType, GradientStop, GOOGLE_FONTS } from '../../types'
+import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
 import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
@@ -60,10 +60,38 @@ function DebouncedColorInput({ value, onChange, className }: {
   )
 }
 
+function getTextSelectionStyle(layer: Layer, range: { start: number; end: number } | null) {
+  if (!range || range.start === range.end) return null
+  const len = Math.max(0, Math.min(layer.text.length, range.end) - Math.max(0, range.start))
+  if (len <= 0) return null
+  const values = {
+    fontFamily: new Set<string>(),
+    fontSize: new Set<number>(),
+    fontWeight: new Set<string>(),
+    textColor: new Set<string>(),
+    letterSpacing: new Set<number>(),
+  }
+  for (let idx = range.start; idx < range.end; idx += 1) {
+    const span = [...(layer.textSpans ?? [])].reverse().find((item) => idx >= item.start && idx < item.end)
+    values.fontFamily.add(span?.fontFamily ?? layer.fontFamily)
+    values.fontSize.add(span?.fontSize ?? layer.fontSize)
+    values.fontWeight.add(span?.fontWeight ?? layer.fontWeight)
+    values.textColor.add(span?.textColor ?? layer.textColor)
+    values.letterSpacing.add(span?.letterSpacing ?? layer.letterSpacing)
+  }
+  return {
+    fontFamily: values.fontFamily.size === 1 ? [...values.fontFamily][0] : null,
+    fontSize: values.fontSize.size === 1 ? [...values.fontSize][0] : null,
+    fontWeight: values.fontWeight.size === 1 ? [...values.fontWeight][0] : null,
+    textColor: values.textColor.size === 1 ? [...values.textColor][0] : null,
+    letterSpacing: values.letterSpacing.size === 1 ? [...values.letterSpacing][0] : null,
+  }
+}
+
 export function StylePanel() {
   const {
     layers, selectedLayerIds, currentFrame, updateLayerProp, setLayerAnimatedProperty,
-    setTextSelection, updateTextSelectionStyle, beginInteraction, endInteraction,
+    setTextSelection, updateTextSelectionStyle, beginInteraction, endInteraction, textSelection,
   } = useStore()
   const maybeLayer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!maybeLayer) return null
@@ -72,6 +100,14 @@ export function StylePanel() {
   const sourceLayer: Layer = maybeLayer
   const layer: Layer = resolveLayerAnimation(sourceLayer, currentFrame).layer
   const upd = <K extends keyof Layer>(k: K, v: Layer[K]) => updateLayerProp(sourceLayer.id, k, v)
+  const textSelectionRange = textSelection?.layerId === sourceLayer.id
+    ? {
+      start: Math.min(textSelection.start, textSelection.end),
+      end: Math.max(textSelection.start, textSelection.end),
+    }
+    : null
+  const hasTextSelection = Boolean(textSelectionRange && textSelectionRange.start !== textSelectionRange.end)
+  const textMixed = getTextSelectionStyle(sourceLayer, textSelectionRange)
   const updateTextSizing = (next: Partial<Layer>) => {
     if ((sourceLayer.sizeMode ?? 'fixed') !== 'fit-content') return
     const sized = estimateTextSize(
@@ -99,86 +135,88 @@ export function StylePanel() {
 
   return (
     <div className="flex flex-col gap-0">
-      {/* Fill */}
-      <SectionHeader label="Fill" />
-      <div className="px-3 pb-1 flex gap-1">
-        {(['solid', 'linear-gradient', 'radial-gradient', 'none'] as FillType[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => upd('fillType', t)}
-            className="flex-1 text-[10px] rounded py-1 transition-colors truncate"
-            style={{
-              background: layer.fillType === t ? 'var(--accent)' : 'var(--input)',
-              color: layer.fillType === t ? '#fff' : 'var(--text2)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            {t === 'linear-gradient' ? 'Linear' : t === 'radial-gradient' ? 'Radial' : t === 'none' ? 'None' : 'Solid'}
-          </button>
-        ))}
-      </div>
+      {layer.type !== 'image' && (
+        <>
+          {/* Fill */}
+          <SectionHeader label="Fill" />
+          <div className="px-3 pb-1 flex gap-1">
+            {(['solid', 'linear-gradient', 'radial-gradient', 'none'] as FillType[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => upd('fillType', t)}
+                className="flex-1 text-[10px] rounded py-1 transition-colors truncate"
+                style={{
+                  background: layer.fillType === t ? 'var(--accent)' : 'var(--input)',
+                  color: layer.fillType === t ? '#fff' : 'var(--text2)',
+                  border: '1px solid var(--border)',
+                }}
+              >
+                {t === 'linear-gradient' ? 'Linear' : t === 'radial-gradient' ? 'Radial' : t === 'none' ? 'None' : 'Solid'}
+              </button>
+            ))}
+          </div>
 
-      {layer.fillType === 'solid' && (
-        <div className="flex items-center gap-2 px-3 py-1.5">
-          <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
-          <DebouncedColorInput value={layer.fillColor}
-            onChange={(value) => setLayerAnimatedProperty(layer.id, 'fillColor', value)}
-            className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent"
-          />
-          <span className="text-xs font-mono" style={{ color: 'var(--text2)' }}>{layer.fillColor}</span>
-        </div>
-      )}
-
-      {(layer.fillType === 'linear-gradient' || layer.fillType === 'radial-gradient') && (
-        <div className="px-3 pb-2 flex flex-col gap-2">
-          {layer.fillType === 'linear-gradient' && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--text2)' }}>Angle</span>
-              <input type="range" min={0} max={360} value={layer.gradientAngle}
-                onChange={(e) => upd('gradientAngle', Number(e.target.value))}
-                onPointerDown={() => beginInteraction(true)}
-                onPointerUp={() => endInteraction()}
-                onBlur={() => endInteraction()}
-                className="flex-1"
+          {layer.fillType === 'solid' && (
+            <div className="flex items-center gap-2 px-3 py-1.5">
+              <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
+              <DebouncedColorInput value={layer.fillColor}
+                onChange={(value) => setLayerAnimatedProperty(layer.id, 'fillColor', value)}
+                className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent"
               />
-              <span className="text-xs w-8 text-right" style={{ color: 'var(--text3)' }}>{layer.gradientAngle}°</span>
+              <span className="text-xs font-mono" style={{ color: 'var(--text2)' }}>{layer.fillColor}</span>
             </div>
           )}
-          {/* Gradient preview */}
-          <div
-            style={{
-              height: 20,
-              borderRadius: 4,
-              background: layer.fillType === 'linear-gradient'
-                ? `linear-gradient(${layer.gradientAngle}deg, ${layer.gradientStops.map((s) => `${s.color} ${s.position}%`).join(', ')})`
-                : `radial-gradient(circle, ${layer.gradientStops.map((s) => `${s.color} ${s.position}%`).join(', ')})`,
-            }}
-          />
-          {/* Stops */}
-          {layer.gradientStops.map((stop, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <DebouncedColorInput value={stop.color}
-                onChange={(value) => updateStop(i, 'color', value)}
-                className="w-7 h-6 cursor-pointer border-0 bg-transparent rounded"
-              />
-              <input type="number" min={0} max={100} value={stop.position}
-                onChange={(e) => updateStop(i, 'position', Number(e.target.value))}
-                className="input-base w-14 text-right"
-              />
-              <span style={{ color: 'var(--text3)', fontSize: 10 }}>%</span>
-              {layer.gradientStops.length > 2 && (
-                <button onClick={() => removeStop(i)}
-                  style={{ color: 'var(--text3)', fontSize: 14, lineHeight: 1 }}
-                  className="ml-auto hover:text-red-400"
-                >×</button>
+
+          {(layer.fillType === 'linear-gradient' || layer.fillType === 'radial-gradient') && (
+            <div className="px-3 pb-2 flex flex-col gap-2">
+              {layer.fillType === 'linear-gradient' && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs" style={{ color: 'var(--text2)' }}>Angle</span>
+                  <input type="range" min={0} max={360} value={layer.gradientAngle}
+                    onChange={(e) => upd('gradientAngle', Number(e.target.value))}
+                    onPointerDown={() => beginInteraction(true)}
+                    onPointerUp={() => endInteraction()}
+                    onBlur={() => endInteraction()}
+                    className="flex-1"
+                  />
+                  <span className="text-xs w-8 text-right" style={{ color: 'var(--text3)' }}>{layer.gradientAngle}°</span>
+                </div>
               )}
+              <div
+                style={{
+                  height: 20,
+                  borderRadius: 4,
+                  background: layer.fillType === 'linear-gradient'
+                    ? `linear-gradient(${layer.gradientAngle}deg, ${layer.gradientStops.map((s) => `${s.color} ${s.position}%`).join(', ')})`
+                    : `radial-gradient(circle, ${layer.gradientStops.map((s) => `${s.color} ${s.position}%`).join(', ')})`,
+                }}
+              />
+              {layer.gradientStops.map((stop, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <DebouncedColorInput value={stop.color}
+                    onChange={(value) => updateStop(i, 'color', value)}
+                    className="w-7 h-6 cursor-pointer border-0 bg-transparent rounded"
+                  />
+                  <input type="number" min={0} max={100} value={stop.position}
+                    onChange={(e) => updateStop(i, 'position', Number(e.target.value))}
+                    className="input-base w-14 text-right"
+                  />
+                  <span style={{ color: 'var(--text3)', fontSize: 10 }}>%</span>
+                  {layer.gradientStops.length > 2 && (
+                    <button onClick={() => removeStop(i)}
+                      style={{ color: 'var(--text3)', fontSize: 14, lineHeight: 1 }}
+                      className="ml-auto hover:text-red-400"
+                    >×</button>
+                  )}
+                </div>
+              ))}
+              <button onClick={addGradientStop}
+                className="text-xs py-1 rounded"
+                style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+              >+ Add Stop</button>
             </div>
-          ))}
-          <button onClick={addGradientStop}
-            className="text-xs py-1 rounded"
-            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-          >+ Add Stop</button>
-        </div>
+          )}
+        </>
       )}
 
       {/* Stroke */}
@@ -219,6 +257,33 @@ export function StylePanel() {
         </>
       )}
 
+      {/* Image options */}
+      {layer.type === 'image' && (
+        <>
+          <SectionHeader label={layer.imageKind === 'svg' ? 'SVG Image' : 'Image'} />
+          <div className="px-3 pb-2 flex flex-col gap-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Fit</span>
+              <select
+                value={layer.imageFit ?? 'contain'}
+                onChange={(e) => upd('imageFit', e.target.value as ImageFit)}
+                className="input-base flex-1"
+              >
+                <option value="contain">Contain</option>
+                {layer.imageKind !== 'svg' && <option value="cover">Cover</option>}
+                <option value="fill">Stretch</option>
+                <option value="scale-down">Scale down</option>
+              </select>
+            </div>
+            <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
+              {layer.imageKind === 'svg'
+                ? 'SVG stays vector-rendered. Stretch can distort paths; contain preserves the full graphic.'
+                : 'Contain preserves the whole image. Cover crops to fill the box.'}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Text options */}
       {layer.type === 'text' && (
         <>
@@ -239,17 +304,18 @@ export function StylePanel() {
             />
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Font</span>
-              <select value={layer.fontFamily}
+              <select value={hasTextSelection && textMixed?.fontFamily === null ? '' : textMixed?.fontFamily ?? layer.fontFamily}
                 onChange={(e) => updateTextSelectionStyle(layer.id, { fontFamily: e.target.value })}
                 className="input-base flex-1"
               >
+                {hasTextSelection && textMixed?.fontFamily === null && <option value="">Mixed</option>}
                 {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>Size</span>
-                <ScrubField label="" value={layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
+                <ScrubField label={hasTextSelection && textMixed?.fontSize === null ? 'Mixed' : ''} value={textMixed?.fontSize ?? layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
                   onChange={(v) => {
                     updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
                     updateTextSizing({ fontSize: Math.round(v) } as Partial<Layer>)
@@ -258,10 +324,11 @@ export function StylePanel() {
               </div>
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>Weight</span>
-                <select value={layer.fontWeight}
+                <select value={hasTextSelection && textMixed?.fontWeight === null ? '' : textMixed?.fontWeight ?? layer.fontWeight}
                   onChange={(e) => updateTextSelectionStyle(layer.id, { fontWeight: e.target.value })}
                   className="input-base flex-1"
                 >
+                  {hasTextSelection && textMixed?.fontWeight === null && <option value="">Mixed</option>}
                   {['300', '400', '500', '600', '700', '800', '900'].map((w) => (
                     <option key={w} value={w}>{w}</option>
                   ))}
@@ -270,10 +337,11 @@ export function StylePanel() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Color</span>
-              <DebouncedColorInput value={layer.textColor}
+              <DebouncedColorInput value={textMixed?.textColor ?? layer.textColor}
                 onChange={(value) => useStore.getState().updateTextSelectionStyle(layer.id, { textColor: value })}
                 className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
+              {hasTextSelection && textMixed?.textColor === null && <span className="text-xs" style={{ color: 'var(--text3)' }}>Mixed</span>}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Align</span>
@@ -291,7 +359,7 @@ export function StylePanel() {
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>LS</span>
-                <ScrubField label="" value={layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
+                <ScrubField label={hasTextSelection && textMixed?.letterSpacing === null ? 'Mixed' : ''} value={textMixed?.letterSpacing ?? layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
                   onChange={(v) => {
                     updateTextSelectionStyle(layer.id, { letterSpacing: v })
                     updateTextSizing({ letterSpacing: v } as Partial<Layer>)

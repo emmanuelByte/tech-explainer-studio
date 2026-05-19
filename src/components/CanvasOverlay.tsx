@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
+import { descendantsOf } from '../layerTree'
 
 interface Props {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -27,6 +28,7 @@ interface DragState {
   displayScale: number
   props: TransformProps
   startPropsById: Record<string, TransformProps>
+  movingLayerIds: string[]
   shiftLock: null | 'x' | 'y'
 }
 
@@ -42,7 +44,25 @@ interface LayerBox {
   centerCy: number
 }
 
+interface MarqueeState {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  additive: boolean
+  started: boolean
+  baseSelection: string[]
+}
+
 const SNAP_DISTANCE = 6
+
+function getMovementLayerIds(layers: Layer[], selectedIds: string[]) {
+  const ids = new Set(selectedIds)
+  selectedIds.forEach((id) => {
+    descendantsOf(layers, id).forEach((child) => ids.add(child.id))
+  })
+  return [...ids]
+}
 
 function snapValue(value: number, guides: number[]) {
   let best = value
@@ -64,16 +84,17 @@ function buildSnapGuides(
   canvasW: number,
   canvasH: number,
 ) {
-  const selected = new Set(selectedIds)
+  const selected = new Set(getMovementLayerIds(layers, selectedIds))
   const xGuides = [0, canvasW / 2, canvasW]
   const yGuides = [0, canvasH / 2, canvasH]
 
   for (const item of layers) {
     if (selected.has(item.id) || !item.visible) continue
     const { layer, transform } = resolveLayerAnimation(item, frame)
-    const h = layer.type === 'line' ? (layer.strokeWidth || 2) : layer.height
-    const w = layer.width * transform.scale * transform.scaleX
-    const boxH = h * transform.scale * transform.scaleY
+    const rawW = layer.sizeMode === 'fill-canvas' ? canvasW : layer.width
+    const rawH = layer.sizeMode === 'fill-canvas' ? canvasH : layer.type === 'line' ? (layer.strokeWidth || 2) : layer.height
+    const w = rawW * transform.scale * transform.scaleX
+    const boxH = rawH * transform.scale * transform.scaleY
     const cx = canvasW / 2 + transform.x
     const cy = canvasH / 2 + transform.y
     xGuides.push(cx - w / 2, cx, cx + w / 2)
@@ -126,9 +147,10 @@ function snapMovingBox(
 
 function getLayerBox(layer: Layer, frame: number, canvasW: number, canvasH: number): LayerBox {
   const { layer: animatedLayer, transform } = resolveLayerAnimation(layer, frame)
-  const h = animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height
-  const width = animatedLayer.width * transform.scale * transform.scaleX
-  const height = h * transform.scale * transform.scaleY
+  const rawWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
+  const rawHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height
+  const width = rawWidth * transform.scale * transform.scaleX
+  const height = rawHeight * transform.scale * transform.scaleY
   const centerCx = canvasW / 2 + transform.x
   const centerCy = canvasH / 2 + transform.y
   return {
@@ -144,15 +166,44 @@ function getLayerBox(layer: Layer, frame: number, canvasW: number, canvasH: numb
   }
 }
 
+function rectsIntersect(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
+}
+
+function pointInBox(x: number, y: number, box: LayerBox) {
+  return x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height
+}
+
+function textRuns(layer: Layer) {
+  const spans = (layer.textSpans ?? [])
+    .filter((span) => span.end > 0 && span.start < layer.text.length)
+    .sort((a, b) => a.start - b.start)
+  const runs: { text: string; style?: typeof spans[number] }[] = []
+  let cursor = 0
+  spans.forEach((span) => {
+    const start = Math.max(0, Math.min(layer.text.length, span.start))
+    const end = Math.max(start, Math.min(layer.text.length, span.end))
+    if (start > cursor) runs.push({ text: layer.text.slice(cursor, start) })
+    if (end > start) runs.push({ text: layer.text.slice(start, end), style: span })
+    cursor = Math.max(cursor, end)
+  })
+  if (cursor < layer.text.length) runs.push({ text: layer.text.slice(cursor) })
+  return runs.length ? runs : [{ text: layer.text }]
+}
+
 export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
     layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
+    selectLayer, selectLayers, currentTool,
   } = useStore()
 
   const [displayScale, setDisplayScale] = useState(0)
+  const [marquee, setMarquee] = useState<MarqueeState | null>(null)
   const dragRef = useRef<DragState | null>(null)
+  const marqueeRef = useRef<MarqueeState | null>(null)
   const perspectiveHeld = useRef(false)
+  const spaceHeld = useRef(false)
 
   // ── All hooks before any early return ───────────────────
   useEffect(() => {
@@ -168,10 +219,14 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const onMouseMove = useCallback((e: MouseEvent) => {
     const d = dragRef.current
     if (!d) return
-    const movingLayers = selectedLayerIds
+    const directlySelectedLayers = selectedLayerIds
       .map((id) => layers.find((l) => l.id === id))
       .filter((item): item is Layer => Boolean(item) && !item.locked)
-    const layer = movingLayers[0]
+    const moveLayerIds = d.movingLayerIds.length ? d.movingLayerIds : getMovementLayerIds(layers, selectedLayerIds)
+    const movingLayers = moveLayerIds
+      .map((id) => layers.find((l) => l.id === id))
+      .filter((item): item is Layer => Boolean(item))
+    const layer = directlySelectedLayers[0]
     if (!layer) return
 
     const rawDx = (e.clientX - d.startMx) / d.displayScale
@@ -290,7 +345,20 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const onMouseUp = useCallback(() => {
     if (dragRef.current) endInteraction()
     dragRef.current = null
-  }, [endInteraction])
+    if (marqueeRef.current) {
+      const state = marqueeRef.current
+      const moved = Math.abs(state.currentX - state.startX) > 3 || Math.abs(state.currentY - state.startY) > 3
+      if (!moved) {
+        const boxes = layers
+          .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+          .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        const hit = boxes.find((box) => pointInBox(state.currentX, state.currentY, box))
+        selectLayer(hit?.layer.id ?? null, state.additive)
+      }
+      marqueeRef.current = null
+      setMarquee(null)
+    }
+  }, [layers, currentFrame, canvasW, canvasH, selectLayer, endInteraction])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -304,6 +372,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'p') perspectiveHeld.current = e.type === 'keydown'
+      if (e.code === 'Space') spaceHeld.current = e.type === 'keydown'
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKey)
@@ -319,36 +388,165 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     .filter((item): item is Layer => Boolean(item))
     .map((selectedLayer) => getLayerBox(selectedLayer, currentFrame, canvasW, canvasH))
   const primaryBox = selectedBoxes[0]
-  if (!primaryBox || displayScale === 0) return null
+  if (displayScale === 0) return null
 
   const isMultiSelection = selectedBoxes.length > 1
-  const layer = primaryBox.layer
-  const animatedLayer = primaryBox.animatedLayer
-  const p = primaryBox.transform
-  const layerH = animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height
-  const boxLeft = isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.left)) : primaryBox.left
-  const boxTop = isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.top)) : primaryBox.top
-  const boxRight = isMultiSelection ? Math.max(...selectedBoxes.map((box) => box.left + box.width)) : primaryBox.left + primaryBox.width
-  const boxBottom = isMultiSelection ? Math.max(...selectedBoxes.map((box) => box.top + box.height)) : primaryBox.top + primaryBox.height
+  const layer = primaryBox?.layer
+  const animatedLayer = primaryBox?.animatedLayer
+  const p = primaryBox?.transform
+  const layerH = animatedLayer ? animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height : 0
+  const boxLeft = selectedBoxes.length ? isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.left)) : primaryBox!.left : 0
+  const boxTop = selectedBoxes.length ? isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.top)) : primaryBox!.top : 0
+  const boxRight = selectedBoxes.length ? isMultiSelection ? Math.max(...selectedBoxes.map((box) => box.left + box.width)) : primaryBox!.left + primaryBox!.width : 0
+  const boxBottom = selectedBoxes.length ? isMultiSelection ? Math.max(...selectedBoxes.map((box) => box.top + box.height)) : primaryBox!.top + primaryBox!.height : 0
   const boxW = boxRight - boxLeft
   const boxH = boxBottom - boxTop
   const centerCx = boxLeft + boxW / 2
   const centerCy = boxTop + boxH / 2
-  const selectionShape: React.CSSProperties = !isMultiSelection && animatedLayer.type === 'ellipse'
+  const selectionShape: React.CSSProperties = !isMultiSelection && animatedLayer?.type === 'ellipse'
     ? { borderRadius: '50%' }
-    : !isMultiSelection && animatedLayer.type === 'triangle'
+    : !isMultiSelection && animatedLayer?.type === 'triangle'
       ? { clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }
-      : !isMultiSelection && animatedLayer.type === 'line'
+      : !isMultiSelection && animatedLayer?.type === 'line'
         ? { borderRadius: boxH }
         : {}
 
-  function onHandleMouseDown(e: React.MouseEvent, type: HandleType) {
-    if (layer!.locked) return
+  function getCanvasPoint(clientX: number, clientY: number) {
+    const rect = containerRef.current?.getBoundingClientRect()
+    const scale = rect ? rect.width / canvasW : displayScale
+    return {
+      x: rect ? (clientX - rect.left) / scale : 0,
+      y: rect ? (clientY - rect.top) / scale : 0,
+    }
+  }
+
+  function updateMarqueeSelection(state: MarqueeState) {
+    const left = Math.min(state.startX, state.currentX)
+    const right = Math.max(state.startX, state.currentX)
+    const top = Math.min(state.startY, state.currentY)
+    const bottom = Math.max(state.startY, state.currentY)
+    const selected = layers
+      .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+      .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+      .filter((box) => rectsIntersect({ left, top, right, bottom }, { left: box.left, top: box.top, right: box.left + box.width, bottom: box.top + box.height }))
+      .map((box) => box.layer.id)
+    selectLayers(state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected)
+  }
+
+  function onBackgroundMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0 || currentTool === 'hand' || spaceHeld.current) return
     e.preventDefault()
     e.stopPropagation()
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const next: MarqueeState = {
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      started: false,
+      baseSelection: selectedLayerIds,
+    }
+    marqueeRef.current = next
+    setMarquee(next)
+  }
+
+  function onBackgroundMouseMove(e: React.MouseEvent) {
+    const state = marqueeRef.current
+    if (!state) return
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const next = { ...state, currentX: point.x, currentY: point.y, started: state.started || Math.abs(point.x - state.startX) > 3 || Math.abs(point.y - state.startY) > 3 }
+    marqueeRef.current = next
+    setMarquee(next)
+    if (next.started) updateMarqueeSelection(next)
+  }
+
+  function onBackgroundDoubleClick(e: React.MouseEvent) {
+    if (currentTool === 'hand' || spaceHeld.current) return
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const selectedGroup = selectedLayerIds.length === 1
+      ? layers.find((item) => item.id === selectedLayerIds[0] && (item.type === 'group' || item.isGroup))
+      : null
+    if (selectedGroup) {
+      const childIds = new Set(descendantsOf(layers, selectedGroup.id).map((child) => child.id))
+      const childHit = [...layers].reverse()
+        .filter((item) => childIds.has(item.id) && item.visible && item.type !== 'group' && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        .find((box) => pointInBox(point.x, point.y, box))
+      if (childHit) {
+        e.preventDefault()
+        e.stopPropagation()
+        selectLayer(childHit.layer.id)
+        if (childHit.layer.type === 'text') setEditingTextLayerId(childHit.layer.id)
+        return
+      }
+    }
+
+    const boxes = [...layers].reverse()
+      .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+      .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+    const hit = boxes.find((box) => pointInBox(point.x, point.y, box))
+    if (hit?.layer.type === 'text') {
+      e.preventDefault()
+      e.stopPropagation()
+      selectLayer(hit.layer.id)
+      setEditingTextLayerId(hit.layer.id)
+    }
+  }
+
+  function onHandleMouseDown(e: React.MouseEvent, type: HandleType) {
+    if (!layer || !animatedLayer || !p || layer.locked) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (type === 'move' && !isMultiSelection && (layer.type === 'group' || layer.isGroup)) {
+      const point = getCanvasPoint(e.clientX, e.clientY)
+      const childIds = new Set(descendantsOf(layers, layer.id).map((child) => child.id))
+      const childHit = [...layers].reverse()
+        .filter((item) => childIds.has(item.id) && item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        .find((box) => pointInBox(point.x, point.y, box))
+      if (childHit && !childHit.layer.locked) {
+        selectLayer(childHit.layer.id)
+        beginInteraction(true)
+        const rect = containerRef.current?.getBoundingClientRect()
+        const ds = rect ? rect.width / canvasW : displayScale
+        const childMoveIds = getMovementLayerIds(layers, [childHit.layer.id])
+        const childMoveBoxes = childMoveIds
+          .map((id) => layers.find((item) => item.id === id))
+          .filter((item): item is Layer => Boolean(item))
+          .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        dragRef.current = {
+          type: 'move',
+          startMx: e.clientX,
+          startMy: e.clientY,
+          startPropX: childHit.transform.x,
+          startPropY: childHit.transform.y,
+          startScale: childHit.transform.scale,
+          startW: childHit.animatedLayer.width,
+          startH: childHit.animatedLayer.type === 'line' ? childHit.animatedLayer.strokeWidth || 2 : childHit.animatedLayer.height,
+          startBoxW: childHit.width,
+          startBoxH: childHit.height,
+          centerCx: childHit.centerCx,
+          centerCy: childHit.centerCy,
+          displayScale: ds,
+          props: { ...childHit.transform },
+          startPropsById: Object.fromEntries(childMoveBoxes.map((box) => [box.layer.id, { ...box.transform }])),
+          movingLayerIds: childMoveIds,
+          shiftLock: null,
+        }
+        return
+      }
+    }
     beginInteraction(true)
     const rect = containerRef.current?.getBoundingClientRect()
     const ds = rect ? rect.width / canvasW : displayScale
+    const moveIds = type === 'move' ? getMovementLayerIds(layers, selectedLayerIds) : selectedLayerIds
+    const moveStartBoxes = type === 'move'
+      ? moveIds
+        .map((id) => layers.find((item) => item.id === id))
+        .filter((item): item is Layer => Boolean(item))
+        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+      : selectedBoxes
     dragRef.current = {
       type,
       startMx: e.clientX,
@@ -364,7 +562,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       centerCy,
       displayScale: ds,
       props: { ...p },
-      startPropsById: Object.fromEntries(selectedBoxes.map((box) => [box.layer.id, { ...box.transform }])),
+      startPropsById: Object.fromEntries(moveStartBoxes.map((box) => [box.layer.id, { ...box.transform }])),
+      movingLayerIds: moveIds,
       shiftLock: null,
     }
   }
@@ -400,9 +599,12 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
   const hw = 4 / displayScale
   const ehw = 3 / displayScale  // edge handle half-width
+  const editingTextLines = animatedLayer?.type === 'text' ? Math.max(1, animatedLayer.text.split('\n').length) : 1
+  const editingTextBlockH = animatedLayer?.type === 'text' ? editingTextLines * animatedLayer.fontSize * animatedLayer.lineHeight : 0
+  const editingPadY = animatedLayer?.type === 'text' ? Math.max(4, (boxH - editingTextBlockH) / 2) : 4
 
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'visible' }}>
+    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'all', overflow: 'visible' }}>
       <div
         style={{
           position: 'absolute',
@@ -412,10 +614,30 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           height: canvasH,
           transform: `scale(${displayScale})`,
           transformOrigin: 'top left',
-          pointerEvents: 'none',
+          pointerEvents: 'all',
         }}
+        onMouseDown={onBackgroundMouseDown}
+        onMouseMove={onBackgroundMouseMove}
+        onDoubleClick={onBackgroundDoubleClick}
       >
+        {marquee?.started && (
+          <div
+            style={{
+              position: 'absolute',
+              left: Math.min(marquee.startX, marquee.currentX),
+              top: Math.min(marquee.startY, marquee.currentY),
+              width: Math.abs(marquee.currentX - marquee.startX),
+              height: Math.abs(marquee.currentY - marquee.startY),
+              background: 'rgba(32,213,248,0.12)',
+              border: `${1 / displayScale}px solid #20d5f8`,
+              boxSizing: 'border-box',
+              pointerEvents: 'none',
+              zIndex: 20,
+            }}
+          />
+        )}
         {/* Selection box */}
+        {primaryBox && layer && animatedLayer && p && (
         <div
           style={{
             position: 'absolute',
@@ -439,40 +661,98 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           }}
         >
           {editingTextLayerId === animatedLayer.id && animatedLayer.type === 'text' ? (
-            <textarea
-              autoFocus
-              value={animatedLayer.text}
-              onMouseDown={(e) => e.stopPropagation()}
-              onChange={(e) => updateLayerProp(animatedLayer.id, 'text', e.target.value)}
-              onSelect={(e) => {
-                const el = e.currentTarget
-                setTextSelection({ layerId: animatedLayer.id, start: el.selectionStart, end: el.selectionEnd })
-              }}
-              onBlur={() => setEditingTextLayerId(null)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  e.preventDefault()
-                  setEditingTextLayerId(null)
-                }
-              }}
+            <div
               style={{
+                position: 'absolute',
+                inset: 0,
                 width: '100%',
                 height: '100%',
-                resize: 'none',
-                border: 'none',
-                outline: 'none',
+                borderRadius: animatedLayer.borderRadius,
                 background: 'rgba(255,255,255,0.08)',
-                color: animatedLayer.textColor,
-                fontFamily: animatedLayer.fontFamily,
-                fontSize: animatedLayer.fontSize,
-                fontWeight: animatedLayer.fontWeight,
-                textAlign: animatedLayer.textAlign,
-                lineHeight: animatedLayer.lineHeight,
-                letterSpacing: animatedLayer.letterSpacing,
-                padding: '4px 8px',
-                pointerEvents: 'all',
+                overflow: 'hidden',
+                cursor: 'text',
               }}
-            />
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: animatedLayer.textAlign === 'center' ? 'center' : animatedLayer.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                  padding: '4px 8px',
+                  boxSizing: 'border-box',
+                  pointerEvents: 'none',
+                  fontFamily: animatedLayer.fontFamily,
+                  fontSize: animatedLayer.fontSize,
+                  fontWeight: animatedLayer.fontWeight,
+                  color: animatedLayer.textColor,
+                  textAlign: animatedLayer.textAlign,
+                  lineHeight: animatedLayer.lineHeight,
+                  letterSpacing: animatedLayer.letterSpacing,
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                <div style={{ width: '100%' }}>
+                  {textRuns(animatedLayer).map((run, idx) => (
+                    <span
+                      key={idx}
+                      style={{
+                        fontFamily: run.style?.fontFamily,
+                        fontSize: run.style?.fontSize,
+                        fontWeight: run.style?.fontWeight,
+                        color: run.style?.textColor,
+                        letterSpacing: run.style?.letterSpacing,
+                      }}
+                    >
+                      {run.text}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                autoFocus
+                value={animatedLayer.text}
+                onChange={(e) => updateLayerProp(animatedLayer.id, 'text', e.target.value)}
+                onSelect={(e) => {
+                  const el = e.currentTarget
+                  setTextSelection({ layerId: animatedLayer.id, start: el.selectionStart, end: el.selectionEnd })
+                }}
+                onBlur={() => setEditingTextLayerId(null)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    setEditingTextLayerId(null)
+                  }
+                }}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  resize: 'none',
+                  border: 'none',
+                  outline: 'none',
+                  background: 'transparent',
+                  color: 'transparent',
+                  caretColor: animatedLayer.textColor,
+                  fontFamily: animatedLayer.fontFamily,
+                  fontSize: animatedLayer.fontSize,
+                  fontWeight: animatedLayer.fontWeight,
+                  textAlign: animatedLayer.textAlign,
+                  lineHeight: animatedLayer.lineHeight,
+                  letterSpacing: animatedLayer.letterSpacing,
+                  padding: `${editingPadY}px 8px`,
+                  boxSizing: 'border-box',
+                  whiteSpace: 'pre-wrap',
+                  overflow: 'hidden',
+                  pointerEvents: 'all',
+                }}
+              />
+            </div>
           ) : null}
 
           {!isMultiSelection && (
@@ -518,6 +798,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             </>
           )}
         </div>
+        )}
       </div>
     </div>
   )

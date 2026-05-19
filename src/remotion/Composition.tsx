@@ -21,6 +21,18 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   isSelected: boolean
   onSelect: (multi: boolean) => void
 }) {
+  if (layer.type === 'group' && (layer.layoutMode ?? 'none') !== 'none') {
+    return (
+      <GroupElement
+        layer={layer}
+        frame={frame}
+        canvasWidth={canvasWidth}
+        canvasHeight={canvasHeight}
+        isSelected={isSelected}
+        onSelect={onSelect}
+      />
+    )
+  }
   if (layer.type === 'group') return null
   if (!layer.visible) return null
   if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
@@ -65,7 +77,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       <div style={wrapperStyle} onClick={handleClick}>
         <img
           src={animatedLayer.src}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: animatedLayer.borderRadius }}
+          style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
           alt={animatedLayer.name}
         />
       </div>
@@ -184,6 +196,58 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       onClick={handleClick}
     />
   )
+}
+
+function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
+  layer: Layer
+  frame: number
+  canvasWidth: number
+  canvasHeight: number
+  isSelected: boolean
+  onSelect: (multi: boolean) => void
+}) {
+  if (!layer.visible) return null
+  if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
+
+  const resolved = resolveLayerAnimation(layer, frame)
+  const animatedLayer = resolved.layer
+  const p = resolved.transform
+  const bg = getBackground(animatedLayer.fillType, animatedLayer.fillColor, animatedLayer.gradientStops, animatedLayer.gradientAngle)
+  const layerWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasWidth : animatedLayer.width
+  const layerHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasHeight : animatedLayer.height
+
+  const wrapperStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: '50%',
+    top: '50%',
+    width: layerWidth,
+    height: layerHeight,
+    marginLeft: -layerWidth / 2,
+    marginTop: -layerHeight / 2,
+    opacity: p.opacity,
+    transform: buildTransform(p),
+    transformOrigin: `${p.originX}% ${p.originY}%`,
+    transformStyle: 'preserve-3d',
+    perspective: p.perspective,
+    filter: buildFilter(p),
+    boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
+    backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
+    cursor: 'pointer',
+    outline: isSelected ? '2px solid #6366f1' : 'none',
+    outlineOffset: '2px',
+    background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
+    borderRadius: animatedLayer.borderRadius,
+    border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+    boxSizing: 'border-box',
+    pointerEvents: animatedLayer.fillType === 'none' && !animatedLayer.strokeEnabled ? 'none' : 'auto',
+  }
+
+  const handleClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
+  }
+
+  return <div style={wrapperStyle} onClick={handleClick} />
 }
 
 interface CompositionProps {

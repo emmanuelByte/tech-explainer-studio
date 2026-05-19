@@ -3,6 +3,12 @@ export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-o
 export type PairEasingType = EasingType | 'custom'
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
 export type SizeMode = 'fixed' | 'fit-content' | 'fill-canvas'
+export type ImageFit = 'contain' | 'cover' | 'fill' | 'scale-down'
+export type ImageKind = 'raster' | 'svg'
+export type LayoutMode = 'none' | 'flex' | 'grid'
+export type LayoutDirection = 'row' | 'column'
+export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
+export type LayoutJustify = 'start' | 'center' | 'end' | 'space-between'
 export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle'
 
 export interface TextRangeStyle {
@@ -100,11 +106,20 @@ export interface Layer {
   parentId?: string | null
   collapsed?: boolean
   isGroup?: boolean
+  autoFit?: boolean
   visible: boolean
   locked: boolean
   width: number
   height: number
   sizeMode?: SizeMode
+  // Group layout
+  layoutMode?: LayoutMode
+  layoutDirection?: LayoutDirection
+  layoutGap?: number
+  layoutPadding?: number
+  layoutAlign?: LayoutAlign
+  layoutJustify?: LayoutJustify
+  gridColumns?: number
   // Fill
   fillType: FillType
   fillColor: string
@@ -131,6 +146,10 @@ export interface Layer {
   textSpans?: TextRangeStyle[]
   // Image
   src?: string
+  imageFit?: ImageFit
+  imageKind?: ImageKind
+  imageNaturalWidth?: number
+  imageNaturalHeight?: number
   // Time range
   startFrame: number
   endFrame: number
