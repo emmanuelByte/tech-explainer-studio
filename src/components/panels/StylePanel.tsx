@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
@@ -88,7 +89,101 @@ function getTextSelectionStyle(layer: Layer, range: { start: number; end: number
   }
 }
 
+interface PathPoint {
+  x: number
+  y: number
+}
+
+function formatPathNumber(value: number) {
+  return Number(value.toFixed(2))
+}
+
+function parsePathPoints(pathData = '') {
+  const tokens = pathData.match(/[MLCQZ]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []
+  const points: PathPoint[] = []
+  let closed = false
+  let i = 0
+
+  function readPoint(offset = 0): PathPoint | null {
+    const x = Number(tokens[i + offset])
+    const y = Number(tokens[i + offset + 1])
+    return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null
+  }
+
+  while (i < tokens.length) {
+    const token = tokens[i]
+    if (/^[ML]$/i.test(token)) {
+      const point = readPoint(1)
+      if (point) points.push(point)
+      i += 3
+      continue
+    }
+    if (/^C$/i.test(token)) {
+      const point = readPoint(5)
+      if (point) points.push(point)
+      i += 7
+      continue
+    }
+    if (/^Q$/i.test(token)) {
+      const point = readPoint(3)
+      if (point) points.push(point)
+      i += 5
+      continue
+    }
+    if (/^Z$/i.test(token)) {
+      closed = true
+      i += 1
+      continue
+    }
+    i += 1
+  }
+
+  return { points, closed }
+}
+
+function pointsToLinePath(points: PathPoint[], closed: boolean) {
+  if (!points.length) return ''
+  const parts = [`M ${formatPathNumber(points[0].x)} ${formatPathNumber(points[0].y)}`]
+  points.slice(1).forEach((point) => parts.push(`L ${formatPathNumber(point.x)} ${formatPathNumber(point.y)}`))
+  if (closed) parts.push('Z')
+  return parts.join(' ')
+}
+
+function pointsToBezierPath(points: PathPoint[], closed: boolean) {
+  if (points.length < 2) return pointsToLinePath(points, closed)
+  const parts = [`M ${formatPathNumber(points[0].x)} ${formatPathNumber(points[0].y)}`]
+  const segmentCount = closed ? points.length : points.length - 1
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const p0 = points[index === 0 ? closed ? points.length - 1 : 0 : index - 1]
+    const p1 = points[index]
+    const p2 = points[(index + 1) % points.length]
+    const p3 = points[index + 2 < points.length ? index + 2 : closed ? (index + 2) % points.length : points.length - 1]
+    const c1 = {
+      x: p1.x + (p2.x - p0.x) / 6,
+      y: p1.y + (p2.y - p0.y) / 6,
+    }
+    const c2 = {
+      x: p2.x - (p3.x - p1.x) / 6,
+      y: p2.y - (p3.y - p1.y) / 6,
+    }
+    parts.push([
+      'C',
+      formatPathNumber(c1.x),
+      formatPathNumber(c1.y),
+      formatPathNumber(c2.x),
+      formatPathNumber(c2.y),
+      formatPathNumber(p2.x),
+      formatPathNumber(p2.y),
+    ].join(' '))
+  }
+
+  if (closed) parts.push('Z')
+  return parts.join(' ')
+}
+
 export function StylePanel() {
+  const { t } = useTranslation()
   const {
     layers, selectedLayerIds, currentFrame, updateLayerProp, setLayerAnimatedProperty,
     setTextSelection, updateTextSelectionStyle, beginInteraction, endInteraction, textSelection,
@@ -133,32 +228,58 @@ export function StylePanel() {
     upd('gradientStops', layer.gradientStops.filter((_, i) => i !== idx))
   }
 
+  function setPathClosed(closed: boolean) {
+    const parsed = parsePathPoints(layer.pathData)
+    upd('pathClosed', closed)
+    upd('pathData', layer.pathData?.trim()
+      ? closed
+        ? layer.pathData.replace(/\s*Z\s*$/i, '').trim() + ' Z'
+        : layer.pathData.replace(/\s*Z\s*$/i, '').trim()
+      : pointsToLinePath(parsed.points, closed))
+  }
+
+  function smoothPath() {
+    const parsed = parsePathPoints(layer.pathData)
+    if (parsed.points.length < 2) return
+    const closed = layer.pathClosed ?? parsed.closed
+    upd('pathClosed', closed)
+    upd('pathData', pointsToBezierPath(parsed.points, closed))
+  }
+
+  function straightenPath() {
+    const parsed = parsePathPoints(layer.pathData)
+    if (parsed.points.length < 2) return
+    const closed = layer.pathClosed ?? parsed.closed
+    upd('pathClosed', closed)
+    upd('pathData', pointsToLinePath(parsed.points, closed))
+  }
+
   return (
     <div className="flex flex-col gap-0">
       {layer.type !== 'image' && (
         <>
           {/* Fill */}
-          <SectionHeader label="Fill" />
+          <SectionHeader label={t('style.fill')} />
           <div className="px-3 pb-1 flex gap-1">
-            {(['solid', 'linear-gradient', 'radial-gradient', 'none'] as FillType[]).map((t) => (
+            {(['solid', 'linear-gradient', 'radial-gradient', 'none'] as FillType[]).map((fillType) => (
               <button
-                key={t}
-                onClick={() => upd('fillType', t)}
+                key={fillType}
+                onClick={() => upd('fillType', fillType)}
                 className="flex-1 text-[10px] rounded py-1 transition-colors truncate"
                 style={{
-                  background: layer.fillType === t ? 'var(--accent)' : 'var(--input)',
-                  color: layer.fillType === t ? '#fff' : 'var(--text2)',
+                  background: layer.fillType === fillType ? 'var(--accent)' : 'var(--input)',
+                  color: layer.fillType === fillType ? '#fff' : 'var(--text2)',
                   border: '1px solid var(--border)',
                 }}
               >
-                {t === 'linear-gradient' ? 'Linear' : t === 'radial-gradient' ? 'Radial' : t === 'none' ? 'None' : 'Solid'}
+                {fillType === 'linear-gradient' ? t('style.linear') : fillType === 'radial-gradient' ? t('style.radial') : fillType === 'none' ? t('style.none') : t('style.solid')}
               </button>
             ))}
           </div>
 
           {layer.fillType === 'solid' && (
             <div className="flex items-center gap-2 px-3 py-1.5">
-              <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
+              <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
               <DebouncedColorInput value={layer.fillColor}
                 onChange={(value) => setLayerAnimatedProperty(layer.id, 'fillColor', value)}
                 className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent"
@@ -171,7 +292,7 @@ export function StylePanel() {
             <div className="px-3 pb-2 flex flex-col gap-2">
               {layer.fillType === 'linear-gradient' && (
                 <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: 'var(--text2)' }}>Angle</span>
+                  <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.angle')}</span>
                   <input type="range" min={0} max={360} value={layer.gradientAngle}
                     onChange={(e) => upd('gradientAngle', Number(e.target.value))}
                     onPointerDown={() => beginInteraction(true)}
@@ -213,32 +334,32 @@ export function StylePanel() {
               <button onClick={addGradientStop}
                 className="text-xs py-1 rounded"
                 style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-              >+ Add Stop</button>
+              >+ {t('style.addStop')}</button>
             </div>
           )}
         </>
       )}
 
       {/* Stroke */}
-      <SectionHeader label="Stroke" />
+      <SectionHeader label={t('style.stroke')} />
       <div className="px-3 pb-2 flex flex-col gap-1.5">
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
           <input type="checkbox" checked={layer.strokeEnabled}
             onChange={(e) => upd('strokeEnabled', e.target.checked)} className="accent-[#6366f1]"
           />
-          Enable stroke
+          {t('style.enableStroke')}
         </label>
         {layer.strokeEnabled && (
           <>
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Color</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
               <DebouncedColorInput value={layer.strokeColor}
                 onChange={(value) => setLayerAnimatedProperty(layer.id, 'strokeColor', value)}
                 className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Width</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.width')}</span>
               <ScrubField label="" value={layer.strokeWidth} min={0} step={1} sensitivity={1} precision={0}
                 onChange={(v) => setLayerAnimatedProperty(layer.id, 'strokeWidth', Math.round(v))}
                 compact />
@@ -250,36 +371,122 @@ export function StylePanel() {
       {/* Border radius */}
       {layer.type !== 'line' && layer.type !== 'ellipse' && layer.type !== 'triangle' && (
         <>
-          <SectionHeader label="Border Radius" />
-          <ScrubField label="Radius" value={layer.borderRadius} min={0} max={200} step={1} sensitivity={1} precision={0} unit="px"
+          <SectionHeader label={t('style.borderRadius')} />
+          <ScrubField label={t('style.radius')} value={layer.borderRadius} min={0} max={200} step={1} sensitivity={1} precision={0} unit="px"
             onChange={(v) => setLayerAnimatedProperty(layer.id, 'borderRadius', Math.round(v))}
           />
+        </>
+      )}
+
+      {/* Path options */}
+      {layer.type === 'path' && (
+        <>
+          <SectionHeader label={t('style.path')} />
+          <div className="px-3 pb-2 flex flex-col gap-2">
+            <textarea
+              value={layer.pathData ?? ''}
+              onChange={(e) => upd('pathData', e.target.value)}
+              className="input-base w-full resize-none font-mono text-[10px]"
+              rows={4}
+              spellCheck={false}
+            />
+            <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
+              <input
+                type="checkbox"
+                checked={Boolean(layer.pathClosed)}
+                onChange={(e) => setPathClosed(e.target.checked)}
+                className="accent-[#6366f1]"
+              />
+              {t('style.closedPath')}
+            </label>
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                onClick={smoothPath}
+                className="text-xs rounded py-1.5"
+                style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--border)' }}
+              >
+                {t('style.smoothBezier')}
+              </button>
+              <button
+                onClick={straightenPath}
+                className="text-xs rounded py-1.5"
+                style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+              >
+                {t('style.straightLines')}
+              </button>
+            </div>
+            <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
+              {t('style.pathHelp')}
+            </div>
+          </div>
         </>
       )}
 
       {/* Image options */}
       {layer.type === 'image' && (
         <>
-          <SectionHeader label={layer.imageKind === 'svg' ? 'SVG Image' : 'Image'} />
+          <SectionHeader label={layer.imageKind === 'svg' ? t('style.svgImage') : t('style.image')} />
           <div className="px-3 pb-2 flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Fit</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.fit')}</span>
               <select
                 value={layer.imageFit ?? 'contain'}
                 onChange={(e) => upd('imageFit', e.target.value as ImageFit)}
                 className="input-base flex-1"
               >
-                <option value="contain">Contain</option>
-                {layer.imageKind !== 'svg' && <option value="cover">Cover</option>}
-                <option value="fill">Stretch</option>
-                <option value="scale-down">Scale down</option>
+                <option value="contain">{t('style.contain')}</option>
+                {layer.imageKind !== 'svg' && <option value="cover">{t('style.cover')}</option>}
+                <option value="fill">{t('style.stretch')}</option>
+                <option value="scale-down">{t('style.scaleDown')}</option>
               </select>
             </div>
             <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
               {layer.imageKind === 'svg'
-                ? 'SVG stays vector-rendered. Stretch can distort paths; contain preserves the full graphic.'
-                : 'Contain preserves the whole image. Cover crops to fill the box.'}
+                ? t('style.svgHelp')
+                : t('style.imageHelp')}
             </div>
+            {layer.imageKind === 'svg' && (
+              <div className="mt-2 flex flex-col gap-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs w-20" style={{ color: 'var(--text2)' }}>{t('style.svgStroke')}</span>
+                  <DebouncedColorInput
+                    value={sourceLayer.svgStrokeColor ?? '#ffffff'}
+                    onChange={(value) => upd('svgStrokeColor', value)}
+                    className="w-8 h-7 cursor-pointer border-0 bg-transparent"
+                  />
+                  <ScrubField
+                    label=""
+                    value={sourceLayer.svgStrokeWidth ?? 2}
+                    min={0}
+                    max={24}
+                    step={0.25}
+                    sensitivity={0.1}
+                    precision={2}
+                    compact
+                    onChange={(v) => upd('svgStrokeWidth', Math.max(0, v))}
+                  />
+                </div>
+                <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(sourceLayer.svgFillEnabled)}
+                    onChange={(e) => upd('svgFillEnabled', e.target.checked)}
+                    className="accent-[#6366f1]"
+                  />
+                  {t('style.enableFill')}
+                </label>
+                {sourceLayer.svgFillEnabled && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs w-20" style={{ color: 'var(--text2)' }}>{t('style.svgFill')}</span>
+                    <DebouncedColorInput
+                      value={sourceLayer.svgFillColor ?? sourceLayer.svgStrokeColor ?? '#ffffff'}
+                      onChange={(value) => upd('svgFillColor', value)}
+                      className="w-8 h-7 cursor-pointer border-0 bg-transparent"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -287,7 +494,7 @@ export function StylePanel() {
       {/* Text options */}
       {layer.type === 'text' && (
         <>
-          <SectionHeader label="Text" />
+          <SectionHeader label={t('style.text')} />
           <div className="px-3 pb-2 flex flex-col gap-1.5">
             <textarea
               value={layer.text}
@@ -303,19 +510,19 @@ export function StylePanel() {
               rows={3}
             />
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Font</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.font')}</span>
               <select value={hasTextSelection && textMixed?.fontFamily === null ? '' : textMixed?.fontFamily ?? layer.fontFamily}
                 onChange={(e) => updateTextSelectionStyle(layer.id, { fontFamily: e.target.value })}
                 className="input-base flex-1"
               >
-                {hasTextSelection && textMixed?.fontFamily === null && <option value="">Mixed</option>}
+                {hasTextSelection && textMixed?.fontFamily === null && <option value="">{t('style.mixed')}</option>}
                 {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
             </div>
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
-                <span className="text-xs" style={{ color: 'var(--text2)' }}>Size</span>
-                <ScrubField label={hasTextSelection && textMixed?.fontSize === null ? 'Mixed' : ''} value={textMixed?.fontSize ?? layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
+                <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.size')}</span>
+                <ScrubField label={hasTextSelection && textMixed?.fontSize === null ? t('style.mixed') : ''} value={textMixed?.fontSize ?? layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
                   onChange={(v) => {
                     updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
                     updateTextSizing({ fontSize: Math.round(v) } as Partial<Layer>)
@@ -323,12 +530,12 @@ export function StylePanel() {
                   compact />
               </div>
               <div className="flex items-center gap-1 flex-1">
-                <span className="text-xs" style={{ color: 'var(--text2)' }}>Weight</span>
+                <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.weight')}</span>
                 <select value={hasTextSelection && textMixed?.fontWeight === null ? '' : textMixed?.fontWeight ?? layer.fontWeight}
                   onChange={(e) => updateTextSelectionStyle(layer.id, { fontWeight: e.target.value })}
                   className="input-base flex-1"
                 >
-                  {hasTextSelection && textMixed?.fontWeight === null && <option value="">Mixed</option>}
+                  {hasTextSelection && textMixed?.fontWeight === null && <option value="">{t('style.mixed')}</option>}
                   {['300', '400', '500', '600', '700', '800', '900'].map((w) => (
                     <option key={w} value={w}>{w}</option>
                   ))}
@@ -336,15 +543,15 @@ export function StylePanel() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Color</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
               <DebouncedColorInput value={textMixed?.textColor ?? layer.textColor}
                 onChange={(value) => useStore.getState().updateTextSelectionStyle(layer.id, { textColor: value })}
                 className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
-              {hasTextSelection && textMixed?.textColor === null && <span className="text-xs" style={{ color: 'var(--text3)' }}>Mixed</span>}
+              {hasTextSelection && textMixed?.textColor === null && <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('style.mixed')}</span>}
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Align</span>
+              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.align')}</span>
               {(['left', 'center', 'right'] as const).map((a) => (
                 <button key={a} onClick={() => upd('textAlign', a)}
                   className="flex-1 text-xs rounded py-1 transition-colors"
@@ -353,13 +560,13 @@ export function StylePanel() {
                     color: layer.textAlign === a ? '#fff' : 'var(--text2)',
                     border: '1px solid var(--border)',
                   }}
-                >{a[0].toUpperCase() + a.slice(1)}</button>
+                >{t(`style.${a}`)}</button>
               ))}
             </div>
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
-                <span className="text-xs" style={{ color: 'var(--text2)' }}>LS</span>
-                <ScrubField label={hasTextSelection && textMixed?.letterSpacing === null ? 'Mixed' : ''} value={textMixed?.letterSpacing ?? layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
+                <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.letterSpacing')}</span>
+                <ScrubField label={hasTextSelection && textMixed?.letterSpacing === null ? t('style.mixed') : ''} value={textMixed?.letterSpacing ?? layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
                   onChange={(v) => {
                     updateTextSelectionStyle(layer.id, { letterSpacing: v })
                     updateTextSizing({ letterSpacing: v } as Partial<Layer>)
@@ -367,7 +574,7 @@ export function StylePanel() {
                   compact />
               </div>
               <div className="flex items-center gap-1 flex-1">
-                <span className="text-xs" style={{ color: 'var(--text2)' }}>LH</span>
+                <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.lineHeight')}</span>
                 <ScrubField label="" value={layer.lineHeight} min={0.1} step={0.05} sensitivity={0.01} precision={2}
                   onChange={(v) => {
                     setLayerAnimatedProperty(layer.id, 'lineHeight', v)

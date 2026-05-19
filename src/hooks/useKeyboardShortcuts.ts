@@ -50,6 +50,7 @@ export function useKeyboardShortcuts() {
         if (e.key === 'e' || e.key === 'E') { store.setTool('ellipse'); return }
         if (e.key === 't' || e.key === 'T') { store.setTool('text'); return }
         if (e.key === 'l' || e.key === 'L') { store.setTool('line'); return }
+        if (e.key === 'p' || e.key === 'P') { store.setTool('pen'); return }
       }
 
       // Playback

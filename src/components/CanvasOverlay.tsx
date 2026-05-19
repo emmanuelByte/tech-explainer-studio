@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { Layer, TransformProps } from '../types'
+import { DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
 
@@ -54,7 +54,207 @@ interface MarqueeState {
   baseSelection: string[]
 }
 
+interface PenPoint {
+  x: number
+  y: number
+}
+
+interface EditablePathPoint {
+  x: number
+  y: number
+  in?: PenPoint
+  out?: PenPoint
+}
+
+interface PathDragState {
+  type: 'anchor' | 'in' | 'out'
+  pointIndex: number
+  points: EditablePathPoint[]
+  closed: boolean
+}
+
 const SNAP_DISTANCE = 6
+
+function pathFromPoints(points: PenPoint[], closed: boolean) {
+  if (!points.length) return ''
+  const parts = [`M ${Math.round(points[0].x)} ${Math.round(points[0].y)}`]
+  points.slice(1).forEach((point) => parts.push(`L ${Math.round(point.x)} ${Math.round(point.y)}`))
+  if (closed) parts.push('Z')
+  return parts.join(' ')
+}
+
+function distance(a: PenPoint, b: PenPoint) {
+  return Math.hypot(a.x - b.x, a.y - b.y)
+}
+
+function fmtPathNumber(value: number) {
+  return Number(value.toFixed(2))
+}
+
+function parseEditablePath(pathData = '') {
+  const tokens = pathData.match(/[MLCQHVZ]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []
+  const points: EditablePathPoint[] = []
+  let closed = false
+  let current: PenPoint = { x: 0, y: 0 }
+  let i = 0
+
+  const readNumber = (offset: number) => {
+    const value = Number(tokens[i + offset])
+    return Number.isFinite(value) ? value : null
+  }
+
+  while (i < tokens.length) {
+    const token = tokens[i]
+    if (/^M$/i.test(token) || /^L$/i.test(token)) {
+      const x = readNumber(1)
+      const y = readNumber(2)
+      if (x !== null && y !== null) {
+        current = { x, y }
+        points.push({ ...current })
+      }
+      i += 3
+      continue
+    }
+    if (/^H$/i.test(token)) {
+      const x = readNumber(1)
+      if (x !== null) {
+        current = { x, y: current.y }
+        points.push({ ...current })
+      }
+      i += 2
+      continue
+    }
+    if (/^V$/i.test(token)) {
+      const y = readNumber(1)
+      if (y !== null) {
+        current = { x: current.x, y }
+        points.push({ ...current })
+      }
+      i += 2
+      continue
+    }
+    if (/^C$/i.test(token)) {
+      const c1x = readNumber(1)
+      const c1y = readNumber(2)
+      const c2x = readNumber(3)
+      const c2y = readNumber(4)
+      const x = readNumber(5)
+      const y = readNumber(6)
+      if ([c1x, c1y, c2x, c2y, x, y].every((value) => value !== null)) {
+        if (points.length) points[points.length - 1].out = { x: c1x!, y: c1y! }
+        current = { x: x!, y: y! }
+        points.push({ ...current, in: { x: c2x!, y: c2y! } })
+      }
+      i += 7
+      continue
+    }
+    if (/^Q$/i.test(token)) {
+      const qx = readNumber(1)
+      const qy = readNumber(2)
+      const x = readNumber(3)
+      const y = readNumber(4)
+      if ([qx, qy, x, y].every((value) => value !== null)) {
+        if (points.length) {
+          points[points.length - 1].out = {
+            x: current.x + (qx! - current.x) * 2 / 3,
+            y: current.y + (qy! - current.y) * 2 / 3,
+          }
+        }
+        current = { x: x!, y: y! }
+        points.push({
+          ...current,
+          in: {
+            x: current.x + (qx! - current.x) * 2 / 3,
+            y: current.y + (qy! - current.y) * 2 / 3,
+          },
+        })
+      }
+      i += 5
+      continue
+    }
+    if (/^Z$/i.test(token)) {
+      closed = true
+      i += 1
+      continue
+    }
+    i += 1
+  }
+
+  return { points, closed }
+}
+
+function serializeEditablePath(points: EditablePathPoint[], closed: boolean) {
+  if (!points.length) return ''
+  const parts = [`M ${fmtPathNumber(points[0].x)} ${fmtPathNumber(points[0].y)}`]
+  for (let index = 1; index < points.length; index += 1) {
+    const prev = points[index - 1]
+    const point = points[index]
+    if (prev.out || point.in) {
+      const c1 = prev.out ?? { x: prev.x, y: prev.y }
+      const c2 = point.in ?? { x: point.x, y: point.y }
+      parts.push(`C ${fmtPathNumber(c1.x)} ${fmtPathNumber(c1.y)} ${fmtPathNumber(c2.x)} ${fmtPathNumber(c2.y)} ${fmtPathNumber(point.x)} ${fmtPathNumber(point.y)}`)
+    } else {
+      parts.push(`L ${fmtPathNumber(point.x)} ${fmtPathNumber(point.y)}`)
+    }
+  }
+  if (closed && points.length > 1) {
+    const last = points[points.length - 1]
+    const first = points[0]
+    if (last.out || first.in) {
+      const c1 = last.out ?? { x: last.x, y: last.y }
+      const c2 = first.in ?? { x: first.x, y: first.y }
+      parts.push(`C ${fmtPathNumber(c1.x)} ${fmtPathNumber(c1.y)} ${fmtPathNumber(c2.x)} ${fmtPathNumber(c2.y)} ${fmtPathNumber(first.x)} ${fmtPathNumber(first.y)}`)
+    }
+    parts.push('Z')
+  }
+  return parts.join(' ')
+}
+
+function segmentPath(points: EditablePathPoint[], index: number, closed: boolean) {
+  const from = points[index]
+  const to = points[index + 1] ?? (closed ? points[0] : null)
+  if (!from || !to) return ''
+  const start = `M ${fmtPathNumber(from.x)} ${fmtPathNumber(from.y)}`
+  if (from.out || to.in) {
+    const c1 = from.out ?? { x: from.x, y: from.y }
+    const c2 = to.in ?? { x: to.x, y: to.y }
+    return `${start} C ${fmtPathNumber(c1.x)} ${fmtPathNumber(c1.y)} ${fmtPathNumber(c2.x)} ${fmtPathNumber(c2.y)} ${fmtPathNumber(to.x)} ${fmtPathNumber(to.y)}`
+  }
+  return `${start} L ${fmtPathNumber(to.x)} ${fmtPathNumber(to.y)}`
+}
+
+function smoothPoint(points: EditablePathPoint[], index: number, closed: boolean) {
+  const point = points[index]
+  if (!point) return points
+  const prev = points[index - 1] ?? (closed ? points[points.length - 1] : null)
+  const next = points[index + 1] ?? (closed ? points[0] : null)
+  if (!prev && !next) return points
+  const nextPoints = points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined }))
+  const target = nextPoints[index]
+
+  if (target.in || target.out) {
+    target.in = undefined
+    target.out = undefined
+    return nextPoints
+  }
+
+  if (prev && next) {
+    const vx = next.x - prev.x
+    const vy = next.y - prev.y
+    const mag = Math.hypot(vx, vy) || 1
+    const ux = vx / mag
+    const uy = vy / mag
+    const inLen = distance(point, prev) / 3
+    const outLen = distance(point, next) / 3
+    target.in = { x: point.x - ux * inLen, y: point.y - uy * inLen }
+    target.out = { x: point.x + ux * outLen, y: point.y + uy * outLen }
+  } else if (next) {
+    target.out = { x: point.x + (next.x - point.x) / 3, y: point.y + (next.y - point.y) / 3 }
+  } else if (prev) {
+    target.in = { x: point.x + (prev.x - point.x) / 3, y: point.y + (prev.y - point.y) / 3 }
+  }
+  return nextPoints
+}
 
 function getMovementLayerIds(layers: Layer[], selectedIds: string[]) {
   const ids = new Set(selectedIds)
@@ -195,15 +395,61 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
     layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
-    selectLayer, selectLayers, currentTool,
+    selectLayer, selectLayers, currentTool, addGeneratedLayer,
   } = useStore()
 
   const [displayScale, setDisplayScale] = useState(0)
   const [marquee, setMarquee] = useState<MarqueeState | null>(null)
+  const [penPoints, setPenPoints] = useState<PenPoint[]>([])
+  const [penPreviewPoint, setPenPreviewPoint] = useState<PenPoint | null>(null)
   const dragRef = useRef<DragState | null>(null)
+  const pathDragRef = useRef<PathDragState | null>(null)
   const marqueeRef = useRef<MarqueeState | null>(null)
   const perspectiveHeld = useRef(false)
   const spaceHeld = useRef(false)
+
+  function finishPenPath(closed: boolean) {
+    if (penPoints.length < 2) {
+      setPenPoints([])
+      setPenPreviewPoint(null)
+      return
+    }
+    const xs = penPoints.map((point) => point.x)
+    const ys = penPoints.map((point) => point.y)
+    const pad = 12
+    const minX = Math.max(0, Math.min(...xs) - pad)
+    const minY = Math.max(0, Math.min(...ys) - pad)
+    const maxX = Math.min(canvasW, Math.max(...xs) + pad)
+    const maxY = Math.min(canvasH, Math.max(...ys) + pad)
+    const width = Math.max(1, Math.round(maxX - minX))
+    const height = Math.max(1, Math.round(maxY - minY))
+    const localPoints = penPoints.map((point) => ({ x: point.x - minX, y: point.y - minY }))
+    const id = addGeneratedLayer('path', {
+      name: 'Path',
+      width,
+      height,
+      fillType: closed ? 'solid' : 'none',
+      fillColor: closed ? '#6366f1' : 'transparent',
+      strokeEnabled: true,
+      strokeColor: '#ffffff',
+      strokeWidth: 4,
+      pathData: pathFromPoints(localPoints, closed),
+      pathClosed: closed,
+      endFrame: useStore.getState().totalFrames,
+      keyframes: [{
+        frame: 0,
+        easing: 'ease-out',
+        props: {
+          ...DEFAULT_TRANSFORM,
+          x: minX + width / 2 - canvasW / 2,
+          y: minY + height / 2 - canvasH / 2,
+        },
+      }],
+    })
+    selectLayer(id)
+    setPenPoints([])
+    setPenPreviewPoint(null)
+  }
 
   // ── All hooks before any early return ───────────────────
   useEffect(() => {
@@ -217,6 +463,47 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }, [containerRef, canvasW])
 
   const onMouseMove = useCallback((e: MouseEvent) => {
+    const pathDrag = pathDragRef.current
+    if (pathDrag) {
+      const targetLayer = useStore.getState().layers.find((item) => item.id === selectedLayerIds[0])
+      if (!targetLayer || targetLayer.type !== 'path') return
+      const point = getCanvasPoint(e.clientX, e.clientY)
+      const box = getLayerBox(targetLayer, currentFrame, canvasW, canvasH)
+      const local = {
+        x: ((point.x - box.left) / Math.max(1, box.width)) * targetLayer.width,
+        y: ((point.y - box.top) / Math.max(1, box.height)) * targetLayer.height,
+      }
+      const points = pathDrag.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined }))
+      const edited = points[pathDrag.pointIndex]
+      if (!edited) return
+      if (pathDrag.type === 'anchor') {
+        const original = pathDrag.points[pathDrag.pointIndex]
+        const dx = local.x - original.x
+        const dy = local.y - original.y
+        edited.x = local.x
+        edited.y = local.y
+        if (edited.in) edited.in = { x: edited.in.x + dx, y: edited.in.y + dy }
+        if (edited.out) edited.out = { x: edited.out.x + dx, y: edited.out.y + dy }
+      } else {
+        edited[pathDrag.type] = local
+        const opposite = pathDrag.type === 'in' ? 'out' : 'in'
+        if (edited[opposite]) {
+          const current = edited[pathDrag.type]!
+          const oldOpposite = pathDrag.points[pathDrag.pointIndex][opposite]
+          const oldCurrent = pathDrag.points[pathDrag.pointIndex][pathDrag.type]
+          const ratio = oldOpposite && oldCurrent
+            ? distance(edited, oldOpposite) / Math.max(1, distance(edited, oldCurrent))
+            : 1
+          edited[opposite] = {
+            x: edited.x - (current.x - edited.x) * ratio,
+            y: edited.y - (current.y - edited.y) * ratio,
+          }
+        }
+      }
+      updateLayerProp(targetLayer.id, 'pathData', serializeEditablePath(points, pathDrag.closed))
+      return
+    }
+
     const d = dragRef.current
     if (!d) return
     const directlySelectedLayers = selectedLayerIds
@@ -340,9 +627,10 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         y: nextCy - canvasH / 2,
       })
     }
-  }, [layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty, containerRef, canvasW, canvasH])
+  }, [layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty, updateLayerProp, containerRef, canvasW, canvasH])
 
   const onMouseUp = useCallback(() => {
+    pathDragRef.current = null
     if (dragRef.current) endInteraction()
     dragRef.current = null
     if (marqueeRef.current) {
@@ -373,6 +661,20 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === 'p') perspectiveHeld.current = e.type === 'keydown'
       if (e.code === 'Space') spaceHeld.current = e.type === 'keydown'
+      if (currentTool !== 'pen' || e.type !== 'keydown' || !penPoints.length) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setPenPoints([])
+        setPenPreviewPoint(null)
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        finishPenPath(false)
+      }
+      if (e.key.toLowerCase() === 'c') {
+        e.preventDefault()
+        finishPenPath(true)
+      }
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKey)
@@ -380,7 +682,14 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       window.removeEventListener('keydown', onKey)
       window.removeEventListener('keyup', onKey)
     }
-  }, [])
+  }, [currentTool, penPoints])
+
+  useEffect(() => {
+    if (currentTool !== 'pen') {
+      setPenPoints([])
+      setPenPreviewPoint(null)
+    }
+  }, [currentTool])
 
   // ── After all hooks — safe to bail out ──────────────────
   const selectedBoxes = selectedLayerIds
@@ -438,6 +747,15 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     e.preventDefault()
     e.stopPropagation()
     const point = getCanvasPoint(e.clientX, e.clientY)
+    if (currentTool === 'pen') {
+      if (penPoints.length >= 3 && distance(point, penPoints[0]) <= 10 / displayScale) {
+        finishPenPath(true)
+        return
+      }
+      setPenPoints((points) => [...points, point])
+      setPenPreviewPoint(point)
+      return
+    }
     const next: MarqueeState = {
       startX: point.x,
       startY: point.y,
@@ -452,6 +770,10 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }
 
   function onBackgroundMouseMove(e: React.MouseEvent) {
+    if (currentTool === 'pen') {
+      setPenPreviewPoint(getCanvasPoint(e.clientX, e.clientY))
+      return
+    }
     const state = marqueeRef.current
     if (!state) return
     const point = getCanvasPoint(e.clientX, e.clientY)
@@ -463,6 +785,12 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
   function onBackgroundDoubleClick(e: React.MouseEvent) {
     if (currentTool === 'hand' || spaceHeld.current) return
+    if (currentTool === 'pen') {
+      e.preventDefault()
+      e.stopPropagation()
+      finishPenPath(false)
+      return
+    }
     const point = getCanvasPoint(e.clientX, e.clientY)
     const selectedGroup = selectedLayerIds.length === 1
       ? layers.find((item) => item.id === selectedLayerIds[0] && (item.type === 'group' || item.isGroup))
@@ -495,6 +823,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }
 
   function onHandleMouseDown(e: React.MouseEvent, type: HandleType) {
+    if (currentTool === 'pen') return
     if (!layer || !animatedLayer || !p || layer.locked) return
     e.preventDefault()
     e.stopPropagation()
@@ -602,6 +931,61 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const editingTextLines = animatedLayer?.type === 'text' ? Math.max(1, animatedLayer.text.split('\n').length) : 1
   const editingTextBlockH = animatedLayer?.type === 'text' ? editingTextLines * animatedLayer.fontSize * animatedLayer.lineHeight : 0
   const editingPadY = animatedLayer?.type === 'text' ? Math.max(4, (boxH - editingTextBlockH) / 2) : 4
+  const editablePath = !isMultiSelection && animatedLayer?.type === 'path'
+    ? parseEditablePath(animatedLayer.pathData)
+    : null
+  const editablePathClosed = Boolean(animatedLayer?.pathClosed ?? editablePath?.closed)
+  const pathScaleX = animatedLayer?.type === 'path' ? boxW / Math.max(1, animatedLayer.width) : 1
+  const pathScaleY = animatedLayer?.type === 'path' ? boxH / Math.max(1, animatedLayer.height) : 1
+
+  function pathPointStyle(point: PenPoint): React.CSSProperties {
+    return {
+      position: 'absolute',
+      left: point.x * pathScaleX,
+      top: point.y * pathScaleY,
+      transform: 'translate(-50%, -50%)',
+    }
+  }
+
+  function updatePath(points: EditablePathPoint[], closed = editablePathClosed) {
+    if (!animatedLayer || animatedLayer.type !== 'path') return
+    updateLayerProp(animatedLayer.id, 'pathClosed', closed)
+    updateLayerProp(animatedLayer.id, 'pathData', serializeEditablePath(points, closed))
+  }
+
+  function startPathDrag(e: React.MouseEvent, type: PathDragState['type'], pointIndex: number) {
+    if (!editablePath) return
+    e.preventDefault()
+    e.stopPropagation()
+    pathDragRef.current = {
+      type,
+      pointIndex,
+      points: editablePath.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined })),
+      closed: editablePathClosed,
+    }
+  }
+
+  function toggleSmoothPoint(e: React.MouseEvent, pointIndex: number) {
+    if (!editablePath) return
+    e.preventDefault()
+    e.stopPropagation()
+    updatePath(smoothPoint(editablePath.points, pointIndex, editablePathClosed))
+  }
+
+  function insertPathPoint(e: React.MouseEvent, afterIndex: number) {
+    if (!editablePath || !animatedLayer || animatedLayer.type !== 'path') return
+    e.preventDefault()
+    e.stopPropagation()
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const local = {
+      x: ((point.x - boxLeft) / Math.max(1, boxW)) * animatedLayer.width,
+      y: ((point.y - boxTop) / Math.max(1, boxH)) * animatedLayer.height,
+    }
+    const points = editablePath.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined }))
+    const insertAt = afterIndex + 1
+    points.splice(insertAt, 0, local)
+    updatePath(points)
+  }
 
   return (
     <div style={{ position: 'absolute', inset: 0, pointerEvents: 'all', overflow: 'visible' }}>
@@ -636,6 +1020,40 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             }}
           />
         )}
+        {currentTool === 'pen' && (penPoints.length > 0 || penPreviewPoint) && (
+          <svg
+            width={canvasW}
+            height={canvasH}
+            viewBox={`0 0 ${canvasW} ${canvasH}`}
+            style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 25 }}
+          >
+            {penPoints.length > 0 && (
+              <path
+                d={pathFromPoints(
+                  penPreviewPoint && penPoints.length ? [...penPoints, penPreviewPoint] : penPoints,
+                  false,
+                )}
+                fill="none"
+                stroke="#20d5f8"
+                strokeWidth={2 / displayScale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeDasharray={`${6 / displayScale} ${4 / displayScale}`}
+              />
+            )}
+            {penPoints.map((point, index) => (
+              <circle
+                key={`${index}-${point.x}-${point.y}`}
+                cx={point.x}
+                cy={point.y}
+                r={index === 0 ? 5 / displayScale : 4 / displayScale}
+                fill={index === 0 && penPoints.length >= 3 ? '#f59e0b' : '#fff'}
+                stroke="#20d5f8"
+                strokeWidth={1.5 / displayScale}
+              />
+            ))}
+          </svg>
+        )}
         {/* Selection box */}
         {primaryBox && layer && animatedLayer && p && (
         <div
@@ -649,7 +1067,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             transformOrigin: 'center',
             border: `${1.5 / displayScale}px solid #6366f1`,
             ...selectionShape,
-            pointerEvents: 'all',
+            pointerEvents: currentTool === 'pen' ? 'none' : 'all',
             cursor: layer.locked ? 'not-allowed' : perspectiveHeld.current ? 'grab' : 'move',
             boxSizing: 'border-box',
           }}
@@ -660,6 +1078,96 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             setEditingTextLayerId(animatedLayer.id)
           }}
         >
+          {editablePath && animatedLayer.type === 'path' && (
+            <svg
+              width="100%"
+              height="100%"
+              viewBox={`0 0 ${animatedLayer.width} ${animatedLayer.height}`}
+              preserveAspectRatio="none"
+              style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 8 }}
+            >
+              {editablePath.points.map((_, index) => {
+                if (!editablePathClosed && index >= editablePath.points.length - 1) return null
+                const d = segmentPath(editablePath.points, index, editablePathClosed)
+                if (!d) return null
+                return (
+                  <path
+                    key={`segment-hit-${index}`}
+                    d={d}
+                    fill="none"
+                    stroke="transparent"
+                    strokeWidth={14 / displayScale}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ pointerEvents: 'stroke', cursor: 'copy' }}
+                    onMouseDown={(e) => insertPathPoint(e, index)}
+                  />
+                )
+              })}
+              {editablePath.points.map((point, index) => (
+                <g key={`handles-${index}`}>
+                  {point.in && (
+                    <>
+                      <line
+                        x1={point.x}
+                        y1={point.y}
+                        x2={point.in.x}
+                        y2={point.in.y}
+                        stroke="#20d5f8"
+                        strokeWidth={1.4 / displayScale}
+                        strokeDasharray={`${4 / displayScale} ${3 / displayScale}`}
+                      />
+                      <circle
+                        cx={point.in.x}
+                        cy={point.in.y}
+                        r={4.5 / displayScale}
+                        fill="#fff"
+                        stroke="#20d5f8"
+                        strokeWidth={1.5 / displayScale}
+                        style={{ pointerEvents: 'all', cursor: 'grab' }}
+                        onMouseDown={(e) => startPathDrag(e, 'in', index)}
+                      />
+                    </>
+                  )}
+                  {point.out && (
+                    <>
+                      <line
+                        x1={point.x}
+                        y1={point.y}
+                        x2={point.out.x}
+                        y2={point.out.y}
+                        stroke="#20d5f8"
+                        strokeWidth={1.4 / displayScale}
+                        strokeDasharray={`${4 / displayScale} ${3 / displayScale}`}
+                      />
+                      <circle
+                        cx={point.out.x}
+                        cy={point.out.y}
+                        r={4.5 / displayScale}
+                        fill="#fff"
+                        stroke="#20d5f8"
+                        strokeWidth={1.5 / displayScale}
+                        style={{ pointerEvents: 'all', cursor: 'grab' }}
+                        onMouseDown={(e) => startPathDrag(e, 'out', index)}
+                      />
+                    </>
+                  )}
+                  <circle
+                    cx={point.x}
+                    cy={point.y}
+                    r={5 / displayScale}
+                    fill="#fff"
+                    stroke={point.in || point.out ? '#f59e0b' : '#6366f1'}
+                    strokeWidth={1.8 / displayScale}
+                    style={{ pointerEvents: 'all', cursor: 'move' }}
+                    onMouseDown={(e) => startPathDrag(e, 'anchor', index)}
+                    onDoubleClick={(e) => toggleSmoothPoint(e, index)}
+                  />
+                </g>
+              ))}
+            </svg>
+          )}
+
           {editingTextLayerId === animatedLayer.id && animatedLayer.type === 'text' ? (
             <div
               style={{

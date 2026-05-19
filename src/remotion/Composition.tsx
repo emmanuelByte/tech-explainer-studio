@@ -3,6 +3,7 @@ import { Layer, GradientStop, FillType } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
+import { styledSvgDataUrl } from '../svgImage'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -179,10 +180,13 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'image' && animatedLayer.src) {
+    const imageSrc = animatedLayer.imageKind === 'svg'
+      ? styledSvgDataUrl(animatedLayer.src, animatedLayer)
+      : animatedLayer.src
     return (
       <div style={wrapperStyle} onClick={handleClick}>
         <img
-          src={animatedLayer.src}
+          src={imageSrc}
           style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
           alt={animatedLayer.name}
         />
@@ -259,6 +263,29 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         }}
         onClick={handleClick}
       />
+    )
+  }
+
+  if (animatedLayer.type === 'path') {
+    return (
+      <div style={wrapperStyle} onClick={handleClick}>
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${layerWidth} ${layerHeight}`}
+          preserveAspectRatio="none"
+          style={{ display: 'block', overflow: 'visible' }}
+        >
+          <path
+            d={animatedLayer.pathData || ''}
+            fill={animatedLayer.fillType !== 'none' ? bg : 'none'}
+            stroke={animatedLayer.strokeEnabled ? animatedLayer.strokeColor : 'none'}
+            strokeWidth={animatedLayer.strokeEnabled ? animatedLayer.strokeWidth : 0}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
     )
   }
 

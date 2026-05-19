@@ -62,6 +62,7 @@ export function interpolateProps(frame: number, keyframes: Keyframe[]): Transfor
 
 export function buildTransform(p: TransformProps): string {
   return [
+    `perspective(${p.perspective}px)`,
     `translate(${p.x}px,${p.y}px)`,
     `scale(${p.scale * p.scaleX},${p.scale * p.scaleY})`,
     `rotateX(${p.rotateX}deg)`,

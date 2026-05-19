@@ -1,8 +1,11 @@
 import {
   AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical,
-  AlignStartHorizontal, AlignStartVertical, Box, Clock3, Maximize2, MoveHorizontal,
+  AlignStartHorizontal, AlignStartVertical, Box, Clock3, Link2, Maximize2, MoveHorizontal,
   MoveVertical, Rotate3D, RotateCw, Scaling, StretchHorizontal, StretchVertical,
+  Unlink2,
 } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
 import { ScrubField } from './ScrubField'
@@ -132,6 +135,7 @@ function visibleImageSize(layer: ReturnType<typeof resolveLayerAnimation>['layer
 }
 
 export function TransformPanel() {
+  const { t } = useTranslation()
   const {
     layers, selectedLayerIds, currentFrame,
     canvasPreset, customWidth, customHeight,
@@ -139,6 +143,12 @@ export function TransformPanel() {
     updateKeyframeEasing,
   } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
+  const [aspectLocked, setAspectLocked] = useState(false)
+
+  useEffect(() => {
+    setAspectLocked(false)
+  }, [layer?.id])
+
   if (!layer) return null
 
   const p = resolveLayerAnimation(layer, currentFrame).transform
@@ -168,6 +178,8 @@ export function TransformPanel() {
   const parentW = parentLayer ? (parentLayer.sizeMode === 'fill-canvas' ? canvasW : parentLayer.width) : canvasW
   const parentH = parentLayer ? (parentLayer.sizeMode === 'fill-canvas' ? canvasH : parentLayer.type === 'line' ? parentLayer.strokeWidth || 2 : parentLayer.height) : canvasH
   const canFit = layer.type === 'text' || layer.autoFit || layer.type === 'group'
+  const canLockAspect = layer.type !== 'line'
+  const aspectRatio = effectiveH > 0 ? effectiveW / effectiveH : 1
 
   function materializeAutoFrame() {
     if (!layer.autoFit) return
@@ -216,13 +228,23 @@ export function TransformPanel() {
   const setWidth = (value: number) => {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
-    setLayerAnimatedProperty(layer.id, 'width', Math.max(1, Math.round(value)))
+    const nextWidth = Math.max(1, Math.round(value))
+    setLayerAnimatedProperty(layer.id, 'width', nextWidth)
+    if (aspectLocked && canLockAspect) {
+      setLayerAnimatedProperty(layer.id, 'height', Math.max(1, Math.round(nextWidth / aspectRatio)))
+    }
   }
   const setHeight = (value: number) => {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
     if (layer.type === 'line') updateLayerProp(layer.id, 'strokeWidth', Math.max(1, Math.round(value)))
-    else setLayerAnimatedProperty(layer.id, 'height', Math.max(1, Math.round(value)))
+    else {
+      const nextHeight = Math.max(1, Math.round(value))
+      setLayerAnimatedProperty(layer.id, 'height', nextHeight)
+      if (aspectLocked && canLockAspect) {
+        setLayerAnimatedProperty(layer.id, 'width', Math.max(1, Math.round(nextHeight * aspectRatio)))
+      }
+    }
   }
   const boxVisualW = Math.abs(effectiveW * p.scale * p.scaleX)
   const boxVisualH = Math.abs(effectiveH * p.scale * p.scaleY)
@@ -240,32 +262,42 @@ export function TransformPanel() {
 
   return (
     <div className="flex flex-col gap-0 pb-2">
-      <PanelGroup title="Frame" icon={Box}>
-        <SubLabel>{parentLayer ? `Position relative to ${parentLayer.name}` : 'Position'}</SubLabel>
+      <PanelGroup title={t('transform.frame')} icon={Box}>
+        <SubLabel>{parentLayer ? t('transform.positionRelative', { name: parentLayer.name }) : t('transform.position')}</SubLabel>
         <div className="grid grid-cols-2 gap-2">
           <IconNumberField label="X" icon={MoveHorizontal} value={relativeX} step={1} precision={1} onChange={setRelativeX} />
           <IconNumberField label="Y" icon={MoveVertical} value={relativeY} step={1} precision={1} onChange={setRelativeY} />
         </div>
-        <SubLabel>Size</SubLabel>
-        <div className="grid grid-cols-2 gap-2">
+        <SubLabel>{t('transform.size')}</SubLabel>
+        <div className="grid grid-cols-[1fr_28px_1fr] gap-2 items-end">
           <IconNumberField label="W" icon={StretchHorizontal} value={effectiveW} min={1} step={1} precision={0} onChange={setWidth} />
-          <IconNumberField label={layer.type === 'line' ? 'Stroke' : 'H'} icon={StretchVertical} value={effectiveH} min={1} step={1} precision={0} onChange={setHeight} />
+          <button
+            type="button"
+            className={`icon-btn ${aspectLocked ? 'active' : ''}`}
+            disabled={!canLockAspect}
+            title={aspectLocked ? t('transform.unlockAspect') : t('transform.lockAspect')}
+            onClick={() => setAspectLocked((locked) => !locked)}
+            style={{ width: 28, minWidth: 28, height: 28, opacity: canLockAspect ? 1 : 0.35 }}
+          >
+            {aspectLocked ? <Link2 size={14} /> : <Unlink2 size={14} />}
+          </button>
+          <IconNumberField label={layer.type === 'line' ? t('transform.stroke') : 'H'} icon={StretchVertical} value={effectiveH} min={1} step={1} precision={0} onChange={setHeight} />
         </div>
-        <SubLabel>Align to {parentLayer ? 'parent' : 'canvas'}</SubLabel>
+        <SubLabel>{t('transform.alignTo', { target: parentLayer ? t('transform.parent') : t('transform.canvas') })}</SubLabel>
         <div className="grid grid-cols-3 gap-1 justify-items-stretch">
-          <IconAction title="Align left" icon={AlignStartVertical} onClick={() => alignX('left')} />
-          <IconAction title="Align center" icon={AlignCenterVertical} onClick={() => alignX('center')} />
-          <IconAction title="Align right" icon={AlignEndVertical} onClick={() => alignX('right')} />
-          <IconAction title="Align top" icon={AlignStartHorizontal} onClick={() => alignY('top')} />
-          <IconAction title="Align middle" icon={AlignCenterHorizontal} onClick={() => alignY('middle')} />
-          <IconAction title="Align bottom" icon={AlignEndHorizontal} onClick={() => alignY('bottom')} />
+          <IconAction title={t('transform.alignLeft')} icon={AlignStartVertical} onClick={() => alignX('left')} />
+          <IconAction title={t('transform.alignCenter')} icon={AlignCenterVertical} onClick={() => alignX('center')} />
+          <IconAction title={t('transform.alignRight')} icon={AlignEndVertical} onClick={() => alignX('right')} />
+          <IconAction title={t('transform.alignTop')} icon={AlignStartHorizontal} onClick={() => alignY('top')} />
+          <IconAction title={t('transform.alignMiddle')} icon={AlignCenterHorizontal} onClick={() => alignY('middle')} />
+          <IconAction title={t('transform.alignBottom')} icon={AlignEndHorizontal} onClick={() => alignY('bottom')} />
         </div>
-        <SubLabel>Sizing mode</SubLabel>
+        <SubLabel>{t('transform.sizingMode')}</SubLabel>
         <div className="grid grid-cols-3 gap-1">
         {([
-          ['fixed', 'Fixed'],
-          ['fit-content', 'Fit'],
-          ['fill-canvas', 'Fill'],
+          ['fixed', t('transform.fixed')],
+          ['fit-content', t('transform.fit')],
+          ['fill-canvas', t('transform.fill')],
         ] as const).map(([mode, label]) => (
           <button
             key={mode}
@@ -287,7 +319,7 @@ export function TransformPanel() {
       </PanelGroup>
 
       {canUseLayout && (
-        <PanelGroup title="Layout" icon={Maximize2}>
+        <PanelGroup title={t('transform.layout')} icon={Maximize2}>
             <div className="grid grid-cols-3 gap-1">
               {LAYOUT_MODES.map((mode) => (
                 <button
@@ -301,7 +333,7 @@ export function TransformPanel() {
                     color: layoutMode === mode.value ? '#20d5f8' : 'var(--text2)',
                   }}
                 >
-                  {mode.label}
+                  {t(`transform.${mode.value}`, { defaultValue: mode.label })}
                 </button>
               ))}
             </div>
@@ -309,34 +341,34 @@ export function TransformPanel() {
               <>
                 {layoutMode === 'flex' && (
                   <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--text2)' }}>
-                    Direction
+                    {t('transform.direction')}
                     <select
                       value={layer.layoutDirection ?? 'row'}
                       onChange={(e) => updateLayerProp(layer.id, 'layoutDirection', e.target.value as LayoutDirection)}
                       className="input-base flex-1"
                     >
-                      {LAYOUT_DIRECTIONS.map((direction) => <option key={direction.value} value={direction.value}>{direction.label}</option>)}
+                      {LAYOUT_DIRECTIONS.map((direction) => <option key={direction.value} value={direction.value}>{t(`transform.${direction.value}`, { defaultValue: direction.label })}</option>)}
                     </select>
                   </label>
                 )}
                 <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--text2)' }}>
-                  Align
+                  {t('transform.align')}
                   <select
                     value={layer.layoutAlign ?? 'center'}
                     onChange={(e) => updateLayerProp(layer.id, 'layoutAlign', e.target.value as LayoutAlign)}
                     className="input-base flex-1"
                   >
-                    {LAYOUT_ALIGNS.map((align) => <option key={align.value} value={align.value}>{align.label}</option>)}
+                    {LAYOUT_ALIGNS.map((align) => <option key={align.value} value={align.value}>{t(`transform.${align.value}`, { defaultValue: align.label })}</option>)}
                   </select>
                 </label>
                 <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--text2)' }}>
-                  Justify
+                  {t('transform.justify')}
                   <select
                     value={layer.layoutJustify ?? 'start'}
                     onChange={(e) => updateLayerProp(layer.id, 'layoutJustify', e.target.value as LayoutJustify)}
                     className="input-base flex-1"
                   >
-                    {LAYOUT_JUSTIFIES.map((justify) => <option key={justify.value} value={justify.value}>{justify.label}</option>)}
+                    {LAYOUT_JUSTIFIES.map((justify) => <option key={justify.value} value={justify.value}>{t(`transform.${justify.value === 'space-between' ? 'spaceBetween' : justify.value}`, { defaultValue: justify.label })}</option>)}
                   </select>
                 </label>
               </>
@@ -344,16 +376,16 @@ export function TransformPanel() {
           {layoutMode !== 'none' && (
             <>
               <ScrubField
-                label="Padding" value={layer.layoutPadding ?? 16} min={0} step={1} sensitivity={1} unit="px"
+                label={t('transform.padding')} value={layer.layoutPadding ?? 16} min={0} step={1} sensitivity={1} unit="px"
                 onChange={(v) => updateLayerProp(layer.id, 'layoutPadding', Math.max(0, Math.round(v)))}
               />
               <ScrubField
-                label="Gap" value={layer.layoutGap ?? 12} min={0} step={1} sensitivity={1} unit="px"
+                label={t('transform.gap')} value={layer.layoutGap ?? 12} min={0} step={1} sensitivity={1} unit="px"
                 onChange={(v) => updateLayerProp(layer.id, 'layoutGap', Math.max(0, Math.round(v)))}
               />
               {layoutMode === 'grid' && (
                 <ScrubField
-                  label="Columns" value={layer.gridColumns ?? 2} min={1} max={12} step={1} sensitivity={0.1}
+                  label={t('transform.columns')} value={layer.gridColumns ?? 2} min={1} max={12} step={1} sensitivity={0.1}
                   onChange={(v) => updateLayerProp(layer.id, 'gridColumns', Math.max(1, Math.round(v)))}
                 />
               )}
@@ -363,40 +395,40 @@ export function TransformPanel() {
       )}
 
       {/* Transform section */}
-      <PanelGroup title="Transform" icon={Rotate3D}>
-      <SubLabel>Scale</SubLabel>
+      <PanelGroup title={t('transform.transform')} icon={Rotate3D}>
+      <SubLabel>{t('transform.scale')}</SubLabel>
       <div className="grid grid-cols-2 gap-2">
-        <IconNumberField label="Scale" icon={Scaling} value={p.scale} step={0.01} precision={3} onChange={(v) => handleTransformChange('scale', v)} />
+        <IconNumberField label={t('transform.scale')} icon={Scaling} value={p.scale} step={0.01} precision={3} onChange={(v) => handleTransformChange('scale', v)} />
         <IconNumberField label="X" icon={StretchHorizontal} value={p.scaleX} step={0.01} precision={3} onChange={(v) => handleTransformChange('scaleX', v)} />
         <IconNumberField label="Y" icon={StretchVertical} value={p.scaleY} step={0.01} precision={3} onChange={(v) => handleTransformChange('scaleY', v)} />
       </div>
-      <SubLabel>Rotation</SubLabel>
+      <SubLabel>{t('transform.rotation')}</SubLabel>
       <div className="grid grid-cols-3 gap-2">
         <IconNumberField label="X" icon={RotateCw} value={p.rotateX} unit="deg" step={1} precision={1} onChange={(v) => handleTransformChange('rotateX', v)} />
         <IconNumberField label="Y" icon={RotateCw} value={p.rotateY} unit="deg" step={1} precision={1} onChange={(v) => handleTransformChange('rotateY', v)} />
         <IconNumberField label="Z" icon={RotateCw} value={p.rotateZ} unit="deg" step={1} precision={1} onChange={(v) => handleTransformChange('rotateZ', v)} />
       </div>
-      <SubLabel>Opacity</SubLabel>
-      <ScrubField label="Opacity" value={p.opacity} step={0.01} sensitivity={0.01} precision={2} onChange={(v) => handleTransformChange('opacity', v)} />
-      <SubLabel>Skew</SubLabel>
+      <SubLabel>{t('transform.opacity')}</SubLabel>
+      <ScrubField label={t('transform.opacity')} value={p.opacity} step={0.01} sensitivity={0.01} precision={2} onChange={(v) => handleTransformChange('opacity', v)} />
+      <SubLabel>{t('transform.skew')}</SubLabel>
       <div className="grid grid-cols-2 gap-2">
         <IconNumberField label="X" icon={StretchHorizontal} value={p.skewX} unit="deg" step={0.5} precision={1} onChange={(v) => handleTransformChange('skewX', v)} />
         <IconNumberField label="Y" icon={StretchVertical} value={p.skewY} unit="deg" step={0.5} precision={1} onChange={(v) => handleTransformChange('skewY', v)} />
       </div>
-      <SubLabel>Origin</SubLabel>
+      <SubLabel>{t('transform.origin')}</SubLabel>
       <div className="grid grid-cols-2 gap-2">
         <IconNumberField label="X" icon={MoveHorizontal} value={p.originX} unit="%" step={1} precision={1} onChange={(v) => handleTransformChange('originX', v)} />
         <IconNumberField label="Y" icon={MoveVertical} value={p.originY} unit="%" step={1} precision={1} onChange={(v) => handleTransformChange('originY', v)} />
       </div>
-      <SubLabel>Depth</SubLabel>
-      <ScrubField label="Perspective" value={p.perspective} step={10} sensitivity={10} precision={0} onChange={(v) => handleTransformChange('perspective', v)} />
+      <SubLabel>{t('transform.depth')}</SubLabel>
+      <ScrubField label={t('transform.perspective')} value={p.perspective} step={10} sensitivity={10} precision={0} onChange={(v) => handleTransformChange('perspective', v)} />
       </PanelGroup>
 
       {/* Keyframe controls */}
-      <PanelGroup title="Keyframe" icon={Clock3}>
+      <PanelGroup title={t('transform.keyframe')} icon={Clock3}>
       <div className="px-3 py-2 flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs flex-shrink-0" style={{ color: 'var(--text2)' }}>Easing</span>
+          <span className="text-xs flex-shrink-0" style={{ color: 'var(--text2)' }}>{t('transform.easing')}</span>
           <select
             value={activeKf?.easing ?? 'ease-out'}
             onChange={(e) => activeKf && updateKeyframeEasing(layer.id, activeKf.frame, e.target.value as PairEasingType, activeKf.bezier)}
@@ -429,17 +461,17 @@ export function TransformPanel() {
           </div>
         )}
         <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
-          Applies from the active keyframe to the next keyframe.
+          {t('transform.appliesNext')}
         </div>
         <button
           onClick={handleAddKeyframe}
           className="w-full text-xs font-semibold rounded py-1.5 transition-colors"
           style={{ background: '#f59e0b', color: '#000' }}
         >
-          ◆ Add Keyframe at {currentFrame}
+          ◆ {t('transform.addKeyframeAt', { frame: currentFrame })}
         </button>
         <div className="text-center" style={{ color: 'var(--text3)', fontSize: 10 }}>
-          {layer.keyframes.length} keyframe{layer.keyframes.length !== 1 ? 's' : ''}
+          {t('transform.keyframesCount', { count: layer.keyframes.length })}
         </div>
       </div>
       </PanelGroup>

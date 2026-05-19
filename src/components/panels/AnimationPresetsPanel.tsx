@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { interpolateProps } from '../../remotion/interpolateProps'
 import { Keyframe, TransformProps, EasingType, Layer, TextRevealMode } from '../../types'
 import { SectionHeader } from './TransformPanel'
 
 type PresetCategory = 'in' | 'out' | 'attention' | 'text'
+type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective'
+type MotionBuilderState = Record<MotionBuilderKey, { enabled: boolean; from: number; to: number }>
 
 interface PresetDef {
   label: string
@@ -250,7 +253,49 @@ const CATEGORY_LABELS: Record<PresetCategory, string> = {
   text: 'Text',
 }
 
+const BUILDER_FIELDS: Array<{
+  key: MotionBuilderKey
+  labelKey: string
+  unit: string
+  step: number
+  precision: number
+  percent?: boolean
+  min?: number
+  max?: number
+}> = [
+  { key: 'rotateY', labelKey: 'rotateY', unit: 'deg', step: 1, precision: 0 },
+  { key: 'rotateX', labelKey: 'rotateX', unit: 'deg', step: 1, precision: 0 },
+  { key: 'rotateZ', labelKey: 'rotateZ', unit: 'deg', step: 1, precision: 0 },
+  { key: 'skewX', labelKey: 'skewX', unit: 'deg', step: 1, precision: 0 },
+  { key: 'skewY', labelKey: 'skewY', unit: 'deg', step: 1, precision: 0 },
+  { key: 'scale', labelKey: 'scale', unit: '%', step: 1, precision: 0, percent: true, min: 0 },
+  { key: 'opacity', labelKey: 'opacity', unit: '%', step: 1, precision: 0, percent: true, min: 0, max: 100 },
+  { key: 'perspective', labelKey: 'perspective', unit: 'px', step: 25, precision: 0, min: 100 },
+]
+
+function makeBuilderState(base: TransformProps): MotionBuilderState {
+  return {
+    rotateY: { enabled: true, from: base.rotateY, to: base.rotateY + 180 },
+    rotateX: { enabled: false, from: base.rotateX, to: base.rotateX },
+    rotateZ: { enabled: false, from: base.rotateZ, to: base.rotateZ },
+    skewX: { enabled: false, from: base.skewX, to: base.skewX + 12 },
+    skewY: { enabled: false, from: base.skewY, to: base.skewY },
+    scale: { enabled: false, from: base.scale, to: base.scale },
+    opacity: { enabled: false, from: base.opacity, to: base.opacity },
+    perspective: { enabled: true, from: base.perspective, to: base.perspective },
+  }
+}
+
+function displayValue(value: number, percent?: boolean) {
+  return percent ? value * 100 : value
+}
+
+function storedValue(value: number, percent?: boolean) {
+  return percent ? value / 100 : value
+}
+
 export function AnimationPresetsPanel() {
+  const { t } = useTranslation()
   const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, updateLayerProp } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
 
@@ -259,6 +304,7 @@ export function AnimationPresetsPanel() {
   const [timeUnit, setTimeUnit] = useState<'frames' | 'seconds'>('seconds')
   const [easing, setEasing] = useState<EasingType>('ease-out')
   const [activeCategory, setActiveCategory] = useState<PresetCategory>('in')
+  const [builder, setBuilder] = useState<MotionBuilderState>(() => makeBuilderState(interpolateProps(0, [])))
 
   useEffect(() => {
     if (!layer) return
@@ -272,6 +318,7 @@ export function AnimationPresetsPanel() {
     setStartFrame(inferredStart)
     setDuration(inferredDuration)
     if (layer.type === 'text') setActiveCategory('text')
+    setBuilder(makeBuilderState(interpolateProps(inferredStart, layer.keyframes)))
   }, [layer?.id, layer?.startFrame, layer?.endFrame, layer?.type, layer?.text, currentFrame, fps, totalFrames])
 
   if (!layer) return null
@@ -285,6 +332,49 @@ export function AnimationPresetsPanel() {
     const keyframes = preset.generate(start, dur, easing, base, layer)
     if (preset.textRevealMode) updateLayerProp(layer.id, 'textRevealMode', preset.textRevealMode)
     keyframes.forEach((kf) => addKeyframe(layer.id, kf.frame, kf.props, kf.easing))
+  }
+
+  function updateBuilder(key: MotionBuilderKey, patch: Partial<MotionBuilderState[MotionBuilderKey]>) {
+    setBuilder((current) => ({ ...current, [key]: { ...current[key], ...patch } }))
+  }
+
+  function useCurrentAsFrom() {
+    if (!layer) return
+    const current = interpolateProps(Math.max(0, Math.round(startFrame)), layer.keyframes)
+    setBuilder((state) => {
+      const next = { ...state }
+      BUILDER_FIELDS.forEach(({ key }) => {
+        next[key] = { ...next[key], from: current[key] }
+      })
+      return next
+    })
+  }
+
+  function swapBuilderValues() {
+    setBuilder((state) => {
+      const next = { ...state }
+      BUILDER_FIELDS.forEach(({ key }) => {
+        next[key] = { ...next[key], from: next[key].to, to: next[key].from }
+      })
+      return next
+    })
+  }
+
+  function applyBuilderMotion() {
+    if (!layer) return
+    const enabled = BUILDER_FIELDS.filter(({ key }) => builder[key].enabled)
+    if (!enabled.length) return
+    const start = Math.max(0, Math.round(startFrame))
+    const dur = Math.max(1, Math.round(duration))
+    const base = interpolateProps(start, layer.keyframes)
+    const fromProps: TransformProps = { ...base }
+    const toProps: TransformProps = { ...base }
+    enabled.forEach(({ key }) => {
+      fromProps[key] = builder[key].from
+      toProps[key] = builder[key].to
+    })
+    addKeyframe(layer.id, start, fromProps, easing)
+    addKeyframe(layer.id, start + dur, toProps, 'linear')
   }
 
   const categories = (layer.type === 'text' ? ['text', 'in', 'out', 'attention'] : ['in', 'out', 'attention']) as PresetCategory[]
@@ -316,7 +406,7 @@ export function AnimationPresetsPanel() {
 
   return (
     <div className="flex flex-col gap-0">
-      <SectionHeader label="Parameters" />
+      <SectionHeader label={t('motion.parameters')} />
       <div className="px-3 pb-2 flex flex-col gap-1.5">
         <div className="grid grid-cols-2 gap-1">
           {(['seconds', 'frames'] as const).map((unit) => (
@@ -330,12 +420,12 @@ export function AnimationPresetsPanel() {
                 border: '1px solid var(--border)',
               }}
             >
-              {unit === 'seconds' ? 'Seconds' : 'Frames'}
+              {unit === 'seconds' ? t('motion.seconds') : t('motion.frames')}
             </button>
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Duration</span>
+          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.duration')}</span>
           <input
             type="number"
             min={timeUnit === 'seconds' ? 0.01 : 1}
@@ -347,7 +437,7 @@ export function AnimationPresetsPanel() {
           <span style={{ color: 'var(--text3)', fontSize: 10 }}>{unitLabel}</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Start at</span>
+          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.startAt')}</span>
           <input
             type="number"
             min={0}
@@ -363,10 +453,10 @@ export function AnimationPresetsPanel() {
           className="text-xs rounded py-1 transition-colors"
           style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
         >
-          Use playhead: {(currentFrame / fps).toFixed(2)}s / {currentFrame}fr
+          {t('motion.usePlayhead', { seconds: (currentFrame / fps).toFixed(2), frames: currentFrame })}
         </button>
         <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Easing</span>
+          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.easing')}</span>
           <select value={easing} onChange={(e) => setEasing(e.target.value as EasingType)}
             className="input-base flex-1"
           >
@@ -375,7 +465,77 @@ export function AnimationPresetsPanel() {
         </div>
       </div>
 
-      <SectionHeader label="Presets" />
+      <SectionHeader label={t('motion.custom3d')} />
+      <div className="px-3 pb-3 flex flex-col gap-2">
+        <div className="grid grid-cols-[22px_1fr_72px_72px_24px] items-center gap-1 text-[10px]" style={{ color: 'var(--text3)' }}>
+          <span />
+          <span>{t('motion.property')}</span>
+          <span className="text-right">{t('motion.from')}</span>
+          <span className="text-right">{t('motion.to')}</span>
+          <span />
+        </div>
+        {BUILDER_FIELDS.map((field) => {
+          const item = builder[field.key]
+          const disabled = !item.enabled
+          return (
+            <div key={field.key} className="grid grid-cols-[22px_1fr_72px_72px_24px] items-center gap-1">
+              <input
+                type="checkbox"
+                checked={item.enabled}
+                onChange={(e) => updateBuilder(field.key, { enabled: e.target.checked })}
+                className="accent-[#20d5f8]"
+                aria-label={t(`motion.${field.labelKey}`)}
+              />
+              <span className="text-xs truncate" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>
+                {t(`motion.${field.labelKey}`)}
+              </span>
+              {(['from', 'to'] as const).map((side) => (
+                <input
+                  key={side}
+                  type="number"
+                  min={field.min}
+                  max={field.max}
+                  step={field.step}
+                  value={Number(displayValue(item[side], field.percent).toFixed(field.precision))}
+                  disabled={disabled}
+                  onChange={(e) => updateBuilder(field.key, { [side]: storedValue(Number(e.target.value), field.percent) })}
+                  className="input-base w-full text-right"
+                  style={{ opacity: disabled ? 0.45 : 1 }}
+                />
+              ))}
+              <span className="text-[10px]" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>{field.unit}</span>
+            </div>
+          )
+        })}
+        <div className="grid grid-cols-2 gap-1">
+          <button
+            type="button"
+            onClick={useCurrentAsFrom}
+            className="text-xs rounded py-1 transition-colors"
+            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          >
+            {t('motion.useCurrentAsFrom')}
+          </button>
+          <button
+            type="button"
+            onClick={swapBuilderValues}
+            className="text-xs rounded py-1 transition-colors"
+            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          >
+            {t('motion.swapFromTo')}
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={applyBuilderMotion}
+          className="text-xs rounded py-2 font-medium transition-colors"
+          style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)' }}
+        >
+          {t('motion.apply3d')}
+        </button>
+      </div>
+
+      <SectionHeader label={t('motion.presets')} />
       {/* Category tabs */}
       <div className="px-3 pb-2 flex gap-1">
         {categories.map((cat) => (
@@ -388,7 +548,7 @@ export function AnimationPresetsPanel() {
               border: '1px solid var(--border)',
             }}
           >
-            {CATEGORY_LABELS[cat]}
+            {t(`motion.${cat}`, { defaultValue: CATEGORY_LABELS[cat] })}
           </button>
         ))}
       </div>
@@ -407,7 +567,7 @@ export function AnimationPresetsPanel() {
                 border: '1px solid var(--border)',
               }}
             >
-              {def.label}
+              {t(`motion.${key}`, { defaultValue: def.label })}
             </button>
           ))}
       </div>

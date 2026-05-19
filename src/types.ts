@@ -1,4 +1,4 @@
-export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'text' | 'image' | 'group'
+export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'group'
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
 export type PairEasingType = EasingType | 'custom'
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
@@ -10,7 +10,7 @@ export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
 export type LayoutJustify = 'start' | 'center' | 'end' | 'space-between'
 export type TextRevealMode = 'plain' | 'char-pop' | 'char-fall' | 'char-rise' | 'char-spin' | 'char-blur'
-export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle'
+export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle' | 'pen'
 
 export interface TextRangeStyle {
   id: string
@@ -132,6 +132,8 @@ export interface Layer {
   strokeWidth: number
   // Shape
   borderRadius: number
+  pathData?: string
+  pathClosed?: boolean
   // Shadow static props (color; position/size are keyframeable)
   shadowEnabled: boolean
   shadowColor: string
@@ -152,6 +154,10 @@ export interface Layer {
   imageKind?: ImageKind
   imageNaturalWidth?: number
   imageNaturalHeight?: number
+  svgStrokeColor?: string
+  svgFillColor?: string
+  svgFillEnabled?: boolean
+  svgStrokeWidth?: number
   // Time range
   startFrame: number
   endFrame: number
@@ -240,6 +246,7 @@ export const LAYER_TYPE_COLOR: Record<LayerType, string> = {
   ellipse: '#22c55e',
   line: '#06b6d4',
   triangle: '#f97316',
+  path: '#e879f9',
   text: '#f59e0b',
   image: '#a855f7',
   group: '#60a5fa',

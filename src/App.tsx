@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle, Check, Circle, CircleDot, Download, FileJson, Hand, History,
-  Home, LoaderCircle, Moon, MousePointer2, Redo2, Save, Slash, Square,
-  Sun, Triangle, Type, Undo2,
+  Home, LoaderCircle, Moon, MousePointer2, PenLine, Redo2, Save, Slash, Square,
+  Settings, Sparkles, Sun, Triangle, Type, Undo2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { LayersPanel } from './components/LayersPanel'
@@ -10,7 +11,9 @@ import { PreviewCanvas } from './components/PreviewCanvas'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { Timeline } from './components/Timeline'
 import { ExportModal } from './components/ExportModal'
+import { AiAssistantModal } from './components/AiAssistantModal'
 import { HomeScreen } from './components/HomeScreen'
+import { SettingsModal } from './components/SettingsModal'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
@@ -32,6 +35,7 @@ const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon }[] = [
   { id: 'text', label: 'Text', key: 'T', icon: Type },
   { id: 'line', label: 'Line', key: 'L', icon: Slash },
   { id: 'triangle', label: 'Triangle', key: '', icon: Triangle },
+  { id: 'pen', label: 'Pen', key: 'P', icon: PenLine },
 ]
 
 type Route = { name: 'home' } | { name: 'editor'; projectId: string }
@@ -49,11 +53,13 @@ function pushRoute(route: Route) {
 }
 
 function ToolButton({ tool, active, onClick }: { tool: typeof TOOLS[0]; active: boolean; onClick: () => void }) {
+  const { t } = useTranslation()
   const Icon = tool.icon
+  const label = t(`tools.${tool.id}`, { defaultValue: tool.label })
   return (
     <button
       onClick={onClick}
-      title={`${tool.label}${tool.key ? ` (${tool.key})` : ''}`}
+      title={`${label}${tool.key ? ` (${tool.key})` : ''}`}
       className={`icon-btn ${active ? 'active' : ''}`}
     >
       <Icon size={15} strokeWidth={2.2} />
@@ -62,23 +68,25 @@ function ToolButton({ tool, active, onClick }: { tool: typeof TOOLS[0]; active: 
 }
 
 function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
+  const { t } = useTranslation()
   const map = {
-    saved: { icon: Check, text: 'Saved', color: '#22c55e' },
-    unsaved: { icon: CircleDot, text: 'Unsaved changes', color: '#f59e0b' },
-    saving: { icon: LoaderCircle, text: 'Saving...', color: '#60a5fa' },
-    failed: { icon: AlertTriangle, text: 'Save failed', color: '#ef4444' },
+    saved: { icon: Check, text: t('topbar.saved'), color: '#22c55e' },
+    unsaved: { icon: CircleDot, text: t('topbar.unsaved'), color: '#f59e0b' },
+    saving: { icon: LoaderCircle, text: t('topbar.saving'), color: '#60a5fa' },
+    failed: { icon: AlertTriangle, text: t('topbar.failed'), color: '#ef4444' },
   }[status]
   const Icon = map.icon
   return (
     <div className="flex items-center gap-1 text-xs" style={{ color: map.color }}>
       <Icon size={13} className={status === 'saving' ? 'animate-spin' : ''} />
       <span>{map.text}</span>
-      {status === 'failed' && <button onClick={onRetry} className="underline ml-1">retry</button>}
+      {status === 'failed' && <button onClick={onRetry} className="underline ml-1">{t('topbar.retry')}</button>}
     </div>
   )
 }
 
 function ProjectTitle() {
+  const { t } = useTranslation()
   const { projectName, renameProject } = useStore()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(projectName)
@@ -108,27 +116,40 @@ function ProjectTitle() {
     )
   }
   return (
-    <button className="text-xs font-semibold truncate max-w-[260px]" title="Rename project" onClick={() => setEditing(true)}>
+    <button className="text-xs font-semibold truncate max-w-[260px]" title={t('topbar.renameProject')} onClick={() => setEditing(true)}>
       {projectName}
     </button>
   )
 }
 
-function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: (snapshot: ProjectHistorySnapshot) => void }) {
+function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: (snapshot: ProjectHistorySnapshot) => void | Promise<void> }) {
+  const { t } = useTranslation()
   const projectId = useStore((s) => s.projectId)
-  const snapshots = useMemo(() => projectId ? readHistory(projectId) : [], [projectId])
-  const [active, setActive] = useState<ProjectHistorySnapshot | null>(snapshots[0] ?? null)
+  const [snapshots, setSnapshots] = useState<ProjectHistorySnapshot[]>([])
+  const [active, setActive] = useState<ProjectHistorySnapshot | null>(null)
+
+  useEffect(() => {
+    if (!projectId) {
+      setSnapshots([])
+      setActive(null)
+      return
+    }
+    void readHistory(projectId).then((items) => {
+      setSnapshots(items)
+      setActive(items[0] ?? null)
+    })
+  }, [projectId])
 
   return (
     <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 3000 }}>
       <div className="w-[720px] max-w-[calc(100vw-32px)] rounded-lg p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold">History</h2>
+          <h2 className="text-base font-semibold">{t('topbar.history')}</h2>
           <button onClick={onClose} style={{ color: 'var(--text2)' }}>x</button>
         </div>
         <div className="grid grid-cols-[260px_1fr] gap-4 min-h-[280px]">
           <div className="overflow-auto" style={{ borderRight: '1px solid var(--border)' }}>
-            {snapshots.length === 0 && <div className="text-xs" style={{ color: 'var(--text3)' }}>No manual saves yet.</div>}
+            {snapshots.length === 0 && <div className="text-xs" style={{ color: 'var(--text3)' }}>{t('topbar.noManualSaves')}</div>}
             {snapshots.map((snapshot) => (
               <button
                 key={snapshot.id}
@@ -149,8 +170,8 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
                     {active.project.canvas.width} x {active.project.canvas.height} · {active.project.layers.length} layers
                   </div>
                 </div>
-                <button onClick={() => onRestore(active)} className="rounded px-3 py-2 text-sm" style={{ background: '#6366f1', color: '#fff' }}>
-                  Restore this version
+                <button onClick={() => void onRestore(active)} className="rounded px-3 py-2 text-sm" style={{ background: '#6366f1', color: '#fff' }}>
+                  {t('topbar.restoreVersion')}
                 </button>
               </>
             ) : null}
@@ -161,14 +182,17 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
   )
 }
 
-function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4 }: {
+function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi }: {
   saveStatus: SaveStatus
   onForceSave: () => void
   onGoHome: () => void
   onExportMp4: () => void
+  onOpenAi: () => void
 }) {
+  const { t } = useTranslation()
   const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool, autoKeyframe, setAutoKeyframe } = useStore()
   const [showHistory, setShowHistory] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   function exportProject() {
     const project = projectFromStore()
@@ -180,10 +204,10 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4 }: {
       className="capcut-topbar flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
       style={{ minHeight: 44, zIndex: 5 }}
     >
-      <button onClick={onGoHome} className="pill-btn" title="Home"><Home size={14} />Home</button>
+      <button onClick={onGoHome} className="pill-btn" title={t('topbar.home')}><Home size={14} />{t('topbar.home')}</button>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-      <button onClick={undo} disabled={_past.length === 0} title="Undo (Ctrl+Z)" className="icon-btn disabled:opacity-30"><Undo2 size={15} /></button>
-      <button onClick={redo} disabled={_future.length === 0} title="Redo (Ctrl+Shift+Z)" className="icon-btn disabled:opacity-30"><Redo2 size={15} /></button>
+      <button onClick={undo} disabled={_past.length === 0} title={`${t('topbar.undo')} (Ctrl+Z)`} className="icon-btn disabled:opacity-30"><Undo2 size={15} /></button>
+      <button onClick={redo} disabled={_future.length === 0} title={`${t('topbar.redo')} (Ctrl+Shift+Z)`} className="icon-btn disabled:opacity-30"><Redo2 size={15} /></button>
       <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
       {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
 
@@ -192,18 +216,22 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4 }: {
         <SaveIndicator status={saveStatus} onRetry={onForceSave} />
       </div>
 
-      <button onClick={() => setShowHistory(true)} className="pill-btn"><History size={14} />History</button>
-      <button onClick={exportProject} className="pill-btn"><FileJson size={14} />Project</button>
-      <button onClick={() => setAutoKeyframe(!autoKeyframe)} title="Auto-keyframe" className={`icon-btn ${autoKeyframe ? 'active' : ''}`} style={autoKeyframe ? { background: '#ef4444', color: '#fff' } : undefined}><CircleDot size={15} /></button>
-      <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title="Toggle theme">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</button>
-      <button onClick={onExportMp4} className="pill-btn primary-btn ml-1"><Download size={14} />Export MP4</button>
-      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onRestore={(snapshot) => { useStore.getState().loadProject(snapshot.project); upsertProject(snapshot.project); setShowHistory(false) }} />}
+      <button onClick={() => setShowHistory(true)} className="pill-btn"><History size={14} />{t('topbar.history')}</button>
+      <button onClick={onOpenAi} className="pill-btn"><Sparkles size={14} />{t('topbar.ai')}</button>
+      <button onClick={exportProject} className="pill-btn"><FileJson size={14} />{t('topbar.project')}</button>
+      <button onClick={() => setAutoKeyframe(!autoKeyframe)} title={t('topbar.autoKeyframe')} className={`icon-btn ${autoKeyframe ? 'active' : ''}`} style={autoKeyframe ? { background: '#ef4444', color: '#fff' } : undefined}><CircleDot size={15} /></button>
+      <button onClick={() => setShowSettings(true)} className="icon-btn" title={t('common.settings')}><Settings size={15} /></button>
+      <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title={t('topbar.toggleTheme')}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</button>
+      <button onClick={onExportMp4} className="pill-btn primary-btn ml-1"><Download size={14} />{t('topbar.exportMp4')}</button>
+      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onRestore={async (snapshot) => { useStore.getState().loadProject(snapshot.project); await upsertProject(snapshot.project); setShowHistory(false) }} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </header>
   )
 }
 
 function EditorScreen({ projectId }: { projectId: string }) {
   const [showExport, setShowExport] = useState(false)
+  const [showAi, setShowAi] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const saveTimer = useRef<number | null>(null)
   const loadedId = useRef<string | null>(null)
@@ -215,23 +243,29 @@ function EditorScreen({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     if (loadedId.current === projectId) return
-    const project = readProject(projectId)
-    if (project) {
-      useStore.getState().loadProject(project)
-      loadedId.current = projectId
-      setSaveStatus('saved')
-    } else {
-      pushRoute({ name: 'home' })
+    let cancelled = false
+    void readProject(projectId).then((project) => {
+      if (cancelled) return
+      if (project) {
+        useStore.getState().loadProject(project)
+        loadedId.current = projectId
+        setSaveStatus('saved')
+      } else {
+        pushRoute({ name: 'home' })
+      }
+    })
+    return () => {
+      cancelled = true
     }
   }, [projectId])
 
-  const forceSave = (history = false) => {
+  const forceSave = async (history = false) => {
     try {
       setSaveStatus('saving')
       const project = projectFromStore()
-      upsertProject(project)
+      await upsertProject(project)
       useStore.setState({ projectUpdatedAt: project.updatedAt })
-      if (history) saveHistorySnapshot(project)
+      if (history) await saveHistorySnapshot(project)
       setSaveStatus('saved')
     } catch {
       setSaveStatus('failed')
@@ -243,7 +277,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
     setSaveStatus((s) => s === 'failed' ? s : 'unsaved')
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     if (storeState.activeInteractionCount > 0) return
-    saveTimer.current = window.setTimeout(() => forceSave(false), 500)
+    saveTimer.current = window.setTimeout(() => void forceSave(false), 500)
     return () => {
       if (saveTimer.current) window.clearTimeout(saveTimer.current)
     }
@@ -282,7 +316,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault()
         if (saveTimer.current) window.clearTimeout(saveTimer.current)
-        forceSave(true)
+        void forceSave(true)
       }
     }
     window.addEventListener('keydown', onKey)
@@ -296,7 +330,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
 
   return (
     <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
-      <EditorTopBar saveStatus={saveStatus} onForceSave={() => forceSave(false)} onGoHome={goHome} onExportMp4={() => setShowExport(true)} />
+      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onExportMp4={() => setShowExport(true)} onOpenAi={() => setShowAi((v) => !v)} />
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: timelinePanelHeight }}>
           <LayersPanel />
@@ -305,6 +339,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
         </div>
         <Timeline />
       </div>
+      {showAi && <AiAssistantModal onClose={() => setShowAi(false)} />}
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
     </div>
   )
@@ -325,7 +360,7 @@ function App() {
   }, [theme])
 
   if (route.name === 'home') {
-    return <HomeScreen onOpenProject={(project: MotionProject) => { upsertProject(project); pushRoute({ name: 'editor', projectId: project.id }) }} />
+    return <HomeScreen onOpenProject={(project: MotionProject) => { pushRoute({ name: 'editor', projectId: project.id }) }} />
   }
 
   return <EditorScreen projectId={route.projectId} />

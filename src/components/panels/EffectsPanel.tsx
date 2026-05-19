@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { TransformProps } from '../../types'
 import { SectionHeader } from './TransformPanel'
@@ -86,6 +87,7 @@ function DebouncedColorInput({ value, onChange }: { value: string; onChange: (va
 }
 
 export function EffectsPanel() {
+  const { t } = useTranslation()
   const { layers, selectedLayerIds, currentFrame, setLayerAnimatedProperty, updateLayerProp } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!layer) return null
@@ -98,17 +100,17 @@ export function EffectsPanel() {
 
   return (
     <div className="flex flex-col gap-0">
-      <SectionHeader label="Filters" />
+      <SectionHeader label={t('effects.filters')} />
       {EFFECT_FIELDS.map((f) => (
         <SliderRow
           key={f.propKey}
-          label={f.label} min={f.min} max={f.max} step={f.step} unit={f.unit}
+          label={t(`effects.${f.propKey}`, { defaultValue: f.label })} min={f.min} max={f.max} step={f.step} unit={f.unit}
           value={p[f.propKey] as number}
           onChange={(v) => handleChange(f.propKey, v)}
         />
       ))}
 
-      <SectionHeader label="Shadow" />
+      <SectionHeader label={t('effects.shadow')} />
       <div className="px-3 pb-1">
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
           <input
@@ -117,14 +119,14 @@ export function EffectsPanel() {
             onChange={(e) => updateLayerProp(layer.id, 'shadowEnabled', e.target.checked)}
             className="accent-[#6366f1]"
           />
-          Enable shadow
+          {t('effects.enableShadow')}
         </label>
       </div>
 
       {layer.shadowEnabled && (
         <>
           <div className="flex items-center gap-2 px-3 pb-2">
-            <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
+            <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('effects.color')}</span>
             <DebouncedColorInput
               value={layer.shadowColor.startsWith('rgba')
                 ? '#000000'
@@ -135,7 +137,7 @@ export function EffectsPanel() {
           {SHADOW_FIELDS.map((f) => (
             <SliderRow
               key={f.propKey}
-              label={f.label} min={f.min} max={f.max} step={f.step} unit={f.unit}
+              label={t(`effects.${f.propKey}`, { defaultValue: f.label })} min={f.min} max={f.max} step={f.step} unit={f.unit}
               value={p[f.propKey] as number}
               onChange={(v) => handleChange(f.propKey, v)}
             />

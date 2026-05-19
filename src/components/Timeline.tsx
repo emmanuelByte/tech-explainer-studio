@@ -1,5 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { AnimatableProperty, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { interpolateProps } from '../remotion/interpolateProps'
@@ -108,7 +109,22 @@ const EASINGS = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring
 function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
   x: number; y: number; layerId: string; frame: number; propKey?: AnimatableProperty; onClose: () => void
 }) {
-  const { layers, updateKeyframeEasing, updatePropertyKeyframeEasing } = useStore()
+  const { t } = useTranslation()
+  const {
+    layers,
+    updateKeyframeEasing,
+    updatePropertyKeyframeEasing,
+    currentFrame,
+    isPlaying,
+    loopIn,
+    loopOut,
+    loopEnabled,
+    setLoop,
+    clearLoop,
+    setLoopEnabled,
+    setCurrentFrame,
+    setPlaying,
+  } = useStore()
   const layer = layers.find((item) => item.id === layerId)
   const current = propKey
     ? layer?.propertyKeyframes?.[propKey]?.find((kf) => kf.frame === frame)
@@ -119,6 +135,34 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
   const nextFrame = sortedFrames.find((item) => item > frame)
   const [selectedEasing, setSelectedEasing] = useState<PairEasingType>(current?.easing ?? 'ease-out')
   const [bezier, setBezier] = useState<[number, number, number, number]>(current?.bezier ?? [0.25, 0.1, 0.25, 1])
+  const previewStateRef = useRef<{
+    currentFrame: number
+    isPlaying: boolean
+    loopIn: number | null
+    loopOut: number | null
+    loopEnabled: boolean
+  } | null>(null)
+
+  useEffect(() => {
+    if (!nextFrame) return
+    previewStateRef.current = { currentFrame, isPlaying, loopIn, loopOut, loopEnabled }
+    setLoop(frame, nextFrame)
+    setLoopEnabled(true)
+    setCurrentFrame(frame)
+    setPlaying(true)
+
+    return () => {
+      const previous = previewStateRef.current
+      if (!previous) return
+      if (previous.loopIn === null || previous.loopOut === null) clearLoop()
+      else setLoop(previous.loopIn, previous.loopOut)
+      setLoopEnabled(previous.loopEnabled)
+      setCurrentFrame(previous.currentFrame)
+      setPlaying(previous.isPlaying)
+      previewStateRef.current = null
+    }
+  }, [layerId, frame, propKey, nextFrame])
+
   function apply(easing: PairEasingType) {
     setSelectedEasing(easing)
     if (propKey) updatePropertyKeyframeEasing(layerId, propKey, frame, easing, easing === 'custom' ? bezier : undefined)
@@ -157,10 +201,10 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-1" style={{ color: 'var(--text3)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        Easing segment
+        {t('timeline.easingSegment')}
       </div>
       <div className="px-3 pb-2 text-[10px]" style={{ color: 'var(--text2)' }}>
-        {nextFrame ? `${frame} → ${nextFrame}` : `${frame} has no next keyframe`}
+        {nextFrame ? `${frame} → ${nextFrame}` : t('timeline.noNextKeyframe', { frame })}
       </div>
       {EASINGS.map((e) => (
         <button key={e} onClick={() => apply(e)}
@@ -170,7 +214,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
         </button>
       ))}
       <div className="px-3 py-2" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>Custom cubic bezier</div>
+        <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>{t('timeline.customBezier')}</div>
         {bezier.map((v, i) => (
           <div key={i} className="flex items-center gap-2">
             <span className="text-[10px] w-6" style={{ color: 'var(--text3)' }}>{['x1', 'y1', 'x2', 'y2'][i]}</span>
@@ -194,10 +238,10 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
             />
           </div>
         ))}
-        <button onClick={() => apply('custom')} className="pill-btn mt-2 w-full">Apply custom curve</button>
+        <button onClick={() => apply('custom')} className="pill-btn mt-2 w-full">{t('timeline.applyCustomCurve')}</button>
       </div>
       <div className="px-3 pb-2">
-        <button onClick={onClose} className="pill-btn w-full">Done</button>
+        <button onClick={onClose} className="pill-btn w-full">{t('common.done')}</button>
       </div>
     </div>
   )
@@ -216,6 +260,7 @@ function SortableLabel({
   childCount: number
   showValueGraph: boolean
 }) {
+  const { t } = useTranslation()
   const { toggleVisibility, toggleLock, toggleLayerCollapsed } = useStore()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: layer.id })
 
@@ -262,7 +307,7 @@ function SortableLabel({
             transform: (childCount > 0 || layer.type === 'group' || layer.isGroup ? !layer.collapsed : expanded) ? 'rotate(90deg)' : 'none',
             transition: 'transform 0.15s',
           }}
-          title={childCount > 0 ? 'Collapse or expand group' : hasMultipleKf || animProps.length > 0 ? 'Expand sub-tracks' : 'No animated properties'}
+          title={childCount > 0 ? t('timeline.collapseOrExpandGroup') : hasMultipleKf || animProps.length > 0 ? t('timeline.expandSubtracks') : t('timeline.noAnimatedProps')}
         >
           <ChevronRight size={12} />
         </button>
@@ -309,7 +354,7 @@ function SortableLabel({
                   background: 'rgba(0,0,0,0.15)',
                 }}>
                   <span style={{ fontSize: 8, color: group.color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    {group.label}
+                    {t(`timeline.${group.label.toLowerCase()}`, { defaultValue: group.label })}
                   </span>
                 </div>
                 {groupProps.map((propKey) => (
@@ -326,7 +371,7 @@ function SortableLabel({
                     <button
                       onClick={(e) => { e.stopPropagation(); onAddSubKf(layer.id, propKey) }}
                       style={{ fontSize: 10, color: group.color, flexShrink: 0, lineHeight: 1 }}
-                      title={`Add ${PROPERTY_LABELS[propKey]} keyframe at playhead`}
+                      title={t('timeline.addPropertyKeyframe', { property: PROPERTY_LABELS[propKey] })}
                     >+</button>
                   </div>
                 ))}
@@ -407,15 +452,15 @@ function TrackRow({
                 const x = ((kf.frame + next.frame) / 2) * fpx
                 return (
                   <button
-                    key={`${kf.frame}-main-ease`}
+                    key={`main-ease-${idx}-${kf.frame}-${next.frame}`}
                     onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true) }}
                     style={{ position: 'absolute', left: x - 5, top: rowH / 2 - 16, width: 10, height: 10, borderRadius: '50%', background: color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
                     title={`${kf.easing} easing from ${kf.frame} to ${next.frame}`}
                   >~</button>
                 )
               })}
-              {sorted.map((kf) => (
-                <div key={kf.frame}
+              {sorted.map((kf, idx) => (
+                <div key={`main-kf-${idx}-${kf.frame}`}
                   className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                   style={{
                     left: kf.frame * fpx,
@@ -471,7 +516,7 @@ function TrackRow({
                           const w = x2 - x1
                           if (w < 2) return null
                           return (
-                            <svg key={kf.frame} style={{ position: 'absolute', left: x1, top: 0, width: w, height: graphH, pointerEvents: 'none', overflow: 'visible' }}>
+                            <svg key={`value-line-${i}-${kf.frame}-${next.frame}`} style={{ position: 'absolute', left: x1, top: 0, width: w, height: graphH, pointerEvents: 'none', overflow: 'visible' }}>
                               <line x1={0} y1={y1} x2={w} y2={y2} stroke={group.color} strokeWidth={1} strokeOpacity={0.6} />
                             </svg>
                           )
@@ -483,7 +528,7 @@ function TrackRow({
                         const x = ((kf.frame + next.frame) / 2) * fpx
                         return (
                           <button
-                            key={`${kf.frame}-ease`}
+                            key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
                             onClick={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
                             style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
                             title={`${kf.easing} easing`}
@@ -492,8 +537,8 @@ function TrackRow({
                       })}
 
                       {/* Keyframe diamonds on sub-track */}
-                      {sourceKfs.map((kf) => (
-                        <div key={kf.frame}
+                      {sourceKfs.map((kf, idx) => (
+                        <div key={`prop-kf-${idx}-${kf.frame}`}
                           className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                           style={{
                             left: kf.frame * fpx,
@@ -527,6 +572,7 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
   onClose: () => void
   onApply: (startSec: number, durationSec: number) => void
 }) {
+  const { t } = useTranslation()
   const [start, setStart] = useState(state.start)
   const [duration, setDuration] = useState(state.duration)
   const parseSeconds = (value: string) => Number(value.trim().replace(',', '.'))
@@ -549,11 +595,11 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
         }}
       >
         <div>
-          <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Edit timing</div>
+          <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('timeline.editTiming')}</div>
           <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>{state.name}</div>
         </div>
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text2)' }}>
-          Start time
+          {t('timeline.startTime')}
           <div className="flex items-center gap-2">
             <input
               autoFocus
@@ -567,7 +613,7 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
           </div>
         </label>
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text2)' }}>
-          Duration
+          {t('timeline.duration')}
           <div className="flex items-center gap-2">
             <input
               type="text"
@@ -580,17 +626,17 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
           </div>
         </label>
         <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
-          Frames {startFrame}-{endFrame} at {fps}fps
+          {t('timeline.framesAtFps', { start: startFrame, end: endFrame, fps })}
         </div>
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" className="pill-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="pill-btn" onClick={onClose}>{t('common.cancel')}</button>
           <button
             type="submit"
             className="pill-btn active"
             disabled={!valid}
             style={{ opacity: valid ? 1 : 0.45 }}
           >
-            Apply
+            {t('common.apply')}
           </button>
         </div>
       </form>
@@ -600,6 +646,7 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
 
 // ── Main Timeline ─────────────────────────────────────────────────────────
 export function Timeline() {
+  const { t } = useTranslation()
   const {
     layers, currentFrame, totalFrames, fps, isPlaying,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
@@ -868,7 +915,7 @@ export function Timeline() {
           style={{
             background: loopEnabled ? 'rgba(32,213,248,0.16)' : 'var(--input)',
             color: loopEnabled ? '#20d5f8' : 'var(--text2)',
-          }}><Repeat2 size={13} />Loop</button>
+          }}><Repeat2 size={13} />{t('timeline.loop')}</button>
         {loopEnabled && (loopIn !== null || loopOut !== null) && (
           <button onClick={clearLoop} className="text-xs" style={{ color: 'var(--text3)' }}>✕</button>
         )}
@@ -878,14 +925,14 @@ export function Timeline() {
           className="pill-btn"
           style={{ background: showAllSubtracks ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showAllSubtracks ? '#20d5f8' : 'var(--text2)' }}
         >
-          All props
+          {t('timeline.allProps')}
         </button>
         <button
           onClick={() => setShowValueGraph(!showValueGraph)}
           className="pill-btn"
           style={{ background: showValueGraph ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showValueGraph ? '#20d5f8' : 'var(--text2)' }}
         >
-          <LineChart size={13} />Value graph
+          <LineChart size={13} />{t('timeline.valueGraph')}
         </button>
 
         <div className="flex-1" />
@@ -895,7 +942,7 @@ export function Timeline() {
         <button onClick={() => setTimelineZoom(Math.min(8, timelineZoom * 1.5))} className="icon-btn"><ZoomIn size={14} /></button>
 
         <div className="flex items-center gap-1.5 ml-2">
-          <span className="text-xs" style={{ color: 'var(--text3)' }}>Dur</span>
+          <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('timeline.durationShort')}</span>
           <input type="number" min={1} max={300} value={Math.round(durationSec)}
             onChange={(e) => setTotalFrames(Math.max(1, Number(e.target.value)) * fps)}
             className="input-base w-12 text-right" />
@@ -1006,10 +1053,10 @@ export function Timeline() {
         <div style={{ position: 'fixed', left: kfContextMenu.x, top: kfContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
-            { label: 'Delete keyframe', danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
-            { label: 'Copy keyframe', danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } },
-            ...(copiedKf && !kfContextMenu.propKey ? [{ label: 'Paste keyframe', danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
-            { label: 'Set easing…', danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
+            { label: t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
+            { label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } },
+            ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
+            { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
           ].map(({ label, action, danger }) => (
             <button key={label} onClick={action} className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
               style={{ color: danger ? '#ef4444' : 'var(--text)', background: 'transparent', display: 'block' }}>{label}</button>
@@ -1032,12 +1079,12 @@ export function Timeline() {
         <div style={{ position: 'fixed', left: barContextMenu.x, top: barContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 180, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
-            { label: 'Set in point to playhead', danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, currentFrame, l.endFrame ?? totalFrames); setBarContextMenu(null) } },
-            { label: 'Set out point to playhead', danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, l.startFrame ?? 0, currentFrame); setBarContextMenu(null) } },
-            { label: 'Edit timing...', danger: false, action: () => openTimingModal(barContextMenu.layerId) },
-            { label: 'Set duration...', danger: false, action: () => openTimingModal(barContextMenu.layerId) },
-            { label: 'Duplicate layer', danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
-            { label: 'Delete layer', danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
+            { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, currentFrame, l.endFrame ?? totalFrames); setBarContextMenu(null) } },
+            { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) updateLayerTimeRange(l.id, l.startFrame ?? 0, currentFrame); setBarContextMenu(null) } },
+            { label: t('timeline.editTimingMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+            { label: t('timeline.setDurationMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+            { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
+            { label: t('timeline.deleteLayer'), danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
           ].map(({ label, action, danger }) => (
             <button key={label} onClick={action} className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
               style={{ color: danger ? '#ef4444' : 'var(--text)', background: 'transparent', display: 'block' }}>{label}</button>

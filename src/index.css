@@ -82,6 +82,12 @@ button:disabled {
   cursor: default;
 }
 
+:root:not(.dark) button,
+:root:not(.dark) button:hover,
+:root:not(.dark) button:focus-visible {
+  border-color: transparent !important;
+}
+
 .capcut-shell {
   background:
     radial-gradient(circle at 50% -20%, rgba(32,213,248,0.08), transparent 32%),
@@ -136,6 +142,40 @@ button:disabled {
 .pill-btn:hover {
   color: var(--text);
   border-color: rgba(32,213,248,0.45);
+}
+
+.add-menu-item {
+  color: var(--text);
+  background: transparent;
+  transition: background 0.14s ease, color 0.14s ease, transform 0.14s ease;
+}
+
+.add-menu-item:hover,
+.add-menu-item:focus-visible {
+  color: var(--text);
+  background: var(--hover);
+  transform: translateX(1px);
+}
+
+.add-menu-item:hover svg,
+.add-menu-item:focus-visible svg {
+  color: var(--accent) !important;
+}
+
+.icon-grid-item {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+}
+
+.icon-grid-item:hover,
+.icon-grid-item:focus-visible {
+  color: var(--text);
+  background: var(--hover);
+  border-color: rgba(32,213,248,0.55);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(32,213,248,0.12);
 }
 
 .primary-btn {

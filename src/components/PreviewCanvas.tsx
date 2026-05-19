@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Player, PlayerRef } from '@remotion/player'
 import { Clapperboard, Maximize2, Minus, Plus, Scan } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { EditorComposition } from '../remotion/Composition'
 import { Layer, CANVAS_PRESETS } from '../types'
@@ -19,6 +20,7 @@ function ZoomButton({ children, onClick, title }: { children: React.ReactNode; o
 }
 
 export function PreviewCanvas() {
+  const { t } = useTranslation()
   const {
     layers, currentFrame, totalFrames, fps,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
@@ -210,27 +212,27 @@ export function PreviewCanvas() {
         <div className="flex-1" />
 
         {/* Zoom controls */}
-        <ZoomButton title="Zoom out" onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={14} /></ZoomButton>
+        <ZoomButton title={t('preview.zoomOut')} onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={14} /></ZoomButton>
         <button
           onClick={resetZoom}
           className="pill-btn"
           style={{ minWidth: 54 }}
-          title="Click to reset to 100%"
+          title={t('preview.resetZoom')}
         >
           {Math.round(zoom * 100)}%
         </button>
-        <ZoomButton title="Zoom in" onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={14} /></ZoomButton>
+        <ZoomButton title={t('preview.zoomIn')} onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={14} /></ZoomButton>
         <button
           onClick={fitToScreen}
           className="pill-btn"
-          title="Fit to screen"
+          title={t('preview.fitToScreen')}
         >
-          <Maximize2 size={13} />Fit
+          <Maximize2 size={13} />{t('preview.fit')}
         </button>
         <button
           onClick={resetZoom}
           className="pill-btn"
-          title="Actual pixel size"
+          title={t('preview.actualSize')}
         >
           <Scan size={13} />1:1
         </button>

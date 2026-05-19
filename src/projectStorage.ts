@@ -1,8 +1,62 @@
 import { CANVAS_PRESETS, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem } from './types'
 import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
+import { styledSvgDataUrl } from './svgImage'
 
-export const PROJECT_INDEX_KEY = 'projects:index'
+export interface ProjectStorageStats {
+  totalBytes: number
+  projects: Array<{ id: string; name: string; bytes: number }>
+}
+
+const PROJECT_INDEX_KEY = 'projects:index'
+let legacyMigrationPromise: Promise<void> | null = null
+
+async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options)
+  if (!response.ok) {
+    let message = 'Project storage request failed.'
+    try {
+      const data = await response.json() as { error?: string }
+      if (data.error) message = data.error
+    } catch {
+      // Keep the generic message when the server did not return JSON.
+    }
+    throw new Error(message)
+  }
+  return response.json() as Promise<T>
+}
+
+async function migrateLegacyLocalStorageProjects() {
+  if (legacyMigrationPromise) return legacyMigrationPromise
+  legacyMigrationPromise = (async () => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(PROJECT_INDEX_KEY) || '[]') as ProjectIndexItem[]
+      if (!Array.isArray(parsed) || parsed.length === 0) return
+      const existing = await readProjectIndex()
+      const existingIds = new Set(existing.map((project) => project.id))
+      await Promise.all(parsed.map(async (item) => {
+        if (existingIds.has(item.id)) return
+        const raw = localStorage.getItem(`project:${item.id}`)
+        if (!raw) return
+        await upsertProject(JSON.parse(raw) as MotionProject)
+        const historyRaw = localStorage.getItem(`project:${item.id}:history`)
+        if (!historyRaw) return
+        const snapshots = JSON.parse(historyRaw) as ProjectHistorySnapshot[]
+        if (!Array.isArray(snapshots)) return
+        await Promise.all([...snapshots].reverse().map((snapshot) => (
+          requestJson<{ ok: true }>(`/api/projects/${encodeURIComponent(item.id)}/history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(snapshot),
+          })
+        )))
+      }))
+    } catch {
+      // Legacy migration is best-effort; the JSON file store remains the source of truth.
+    }
+  })()
+  return legacyMigrationPromise
+}
 
 export function uuid() {
   if (crypto.randomUUID) return crypto.randomUUID()
@@ -15,27 +69,18 @@ export function getCanvasSize(presetName: string, customWidth: number, customHei
   return { width: preset.width, height: preset.height, presetName: preset.name }
 }
 
-export function readProjectIndex(): ProjectIndexItem[] {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(PROJECT_INDEX_KEY) || '[]') as ProjectIndexItem[]
-    if (!Array.isArray(parsed)) return []
-    return parsed.map((item) => {
-      const project = readProject(item.id)
-      return project ? { ...item, thumbnail: thumbnailFor(project), layerCount: layerCount(project.layers) } : item
-    })
-  } catch {
-    return []
-  }
+export function readProjectIndex(): Promise<ProjectIndexItem[]> {
+  return requestJson<ProjectIndexItem[]>('/api/projects')
 }
 
-export function writeProjectIndex(items: ProjectIndexItem[]) {
-  localStorage.setItem(PROJECT_INDEX_KEY, JSON.stringify(items))
+export async function readProjectIndexWithLegacyMigration(): Promise<ProjectIndexItem[]> {
+  await migrateLegacyLocalStorageProjects()
+  return readProjectIndex()
 }
 
-export function readProject(id: string): MotionProject | null {
+export async function readProject(id: string): Promise<MotionProject | null> {
   try {
-    const raw = localStorage.getItem(`project:${id}`)
-    return raw ? JSON.parse(raw) as MotionProject : null
+    return await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(id)}`)
   } catch {
     return null
   }
@@ -86,6 +131,11 @@ function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, can
   if (layer.type === 'line') {
     return `<rect width="${width}" height="${height}" rx="${height / 2}" fill="${escapeXml(layer.strokeColor)}" ${common}/>`
   }
+  if (layer.type === 'path') {
+    const pathFill = layer.fillType !== 'none' ? escapeXml(fillForLayer(layer, 'transparent')) : 'none'
+    const pathStroke = layer.strokeEnabled ? ` stroke="${escapeXml(layer.strokeColor)}" stroke-width="${layer.strokeWidth}" stroke-linecap="round" stroke-linejoin="round"` : ''
+    return `<path d="${escapeXml(layer.pathData || '')}" fill="${pathFill}"${pathStroke} ${common}/>`
+  }
   if (layer.type === 'text') {
     const size = Math.max(4, layer.fontSize)
     const anchor = layer.textAlign === 'center' ? 'middle' : layer.textAlign === 'right' ? 'end' : 'start'
@@ -95,7 +145,8 @@ function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, can
   }
   if (layer.type === 'image' && layer.src) {
     const fit = layer.imageFit === 'cover' ? 'xMidYMid slice' : layer.imageFit === 'fill' ? 'none' : 'xMidYMid meet'
-    return `<image href="${escapeXml(layer.src)}" width="${width}" height="${height}" preserveAspectRatio="${fit}" ${common}/>`
+    const imageSrc = layer.imageKind === 'svg' ? styledSvgDataUrl(layer.src, layer) : layer.src
+    return `<image href="${escapeXml(imageSrc || layer.src)}" width="${width}" height="${height}" preserveAspectRatio="${fit}" ${common}/>`
   }
   return `<rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${fill}"${stroke} ${common}/>`
 }
@@ -129,36 +180,36 @@ export function indexItemFromProject(project: MotionProject): ProjectIndexItem {
   } as ProjectIndexItem
 }
 
-export function upsertProject(project: MotionProject) {
+export async function upsertProject(project: MotionProject) {
   project.thumbnail = thumbnailFor(project)
-  localStorage.setItem(`project:${project.id}`, JSON.stringify(project))
-  const item = indexItemFromProject(project)
-  const index = readProjectIndex().filter((p) => p.id !== project.id)
-  writeProjectIndex([item, ...index])
+  await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(project.id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(project),
+  })
 }
 
 export function deleteProject(id: string) {
-  localStorage.removeItem(`project:${id}`)
-  localStorage.removeItem(`project:${id}:history`)
-  writeProjectIndex(readProjectIndex().filter((p) => p.id !== id))
+  return requestJson<{ ok: true }>(`/api/projects/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
-export function saveHistorySnapshot(project: MotionProject, label?: string) {
-  const key = `project:${project.id}:history`
-  const snapshots = readHistory(project.id)
+export async function saveHistorySnapshot(project: MotionProject, label?: string) {
   const snapshot: ProjectHistorySnapshot = {
     id: uuid(),
     timestamp: new Date().toISOString(),
     label: label || inferSnapshotLabel(project),
     project,
   }
-  localStorage.setItem(key, JSON.stringify([snapshot, ...snapshots].slice(0, 20)))
+  await requestJson<{ ok: true }>(`/api/projects/${encodeURIComponent(project.id)}/history`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(snapshot),
+  })
 }
 
-export function readHistory(projectId: string): ProjectHistorySnapshot[] {
+export async function readHistory(projectId: string): Promise<ProjectHistorySnapshot[]> {
   try {
-    const parsed = JSON.parse(localStorage.getItem(`project:${projectId}:history`) || '[]') as ProjectHistorySnapshot[]
-    return Array.isArray(parsed) ? parsed : []
+    return await requestJson<ProjectHistorySnapshot[]>(`/api/projects/${encodeURIComponent(projectId)}/history`)
   } catch {
     return []
   }
@@ -236,8 +287,8 @@ export function createBlankProject(options: {
   return project
 }
 
-export function duplicateProject(id: string) {
-  const source = readProject(id)
+export async function duplicateProject(id: string) {
+  const source = await readProject(id)
   if (!source) return null
   const clone = structuredClone(source) as MotionProject
   clone.id = uuid()
@@ -245,7 +296,7 @@ export function duplicateProject(id: string) {
   clone.createdAt = new Date().toISOString()
   clone.updatedAt = clone.createdAt
   clone.thumbnail = thumbnailFor(clone)
-  upsertProject(clone)
+  await upsertProject(clone)
   return clone
 }
 
@@ -259,11 +310,6 @@ export function exportJson(filename: string, data: unknown) {
   URL.revokeObjectURL(url)
 }
 
-export function estimateLocalStorageBytes() {
-  let total = 0
-  for (let i = 0; i < localStorage.length; i += 1) {
-    const key = localStorage.key(i) || ''
-    total += key.length + (localStorage.getItem(key)?.length ?? 0)
-  }
-  return total * 2
+export function readProjectStorageStats(): Promise<ProjectStorageStats> {
+  return requestJson<ProjectStorageStats>('/api/projects/storage')
 }

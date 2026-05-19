@@ -1,7 +1,9 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 
 export function ExportModal({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
   const { canvasPreset, customWidth, customHeight, totalFrames, fps } = useStore()
   const [copied, setCopied] = useState(false)
   const isCustom = canvasPreset.name === 'Custom'
@@ -21,11 +23,11 @@ export function ExportModal({ onClose }: { onClose: () => void }) {
         style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Export MP4</h2>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('exportModal.title')}</h2>
           <button onClick={onClose} className="text-lg leading-none" style={{ color: 'var(--text3)' }}>×</button>
         </div>
         <p className="text-xs mb-3" style={{ color: 'var(--text2)' }}>
-          Run this command in your terminal to render via Remotion CLI:
+          {t('exportModal.help')}
         </p>
         <div className="rounded-lg p-3 mb-4 font-mono text-xs break-all" style={{ background: 'var(--bg2)', color: '#a5f3fc', border: '1px solid var(--border)' }}>
           {cmd}
@@ -39,12 +41,12 @@ export function ExportModal({ onClose }: { onClose: () => void }) {
           <button onClick={copyCmd} className="flex-1 text-xs rounded px-4 py-2 font-semibold transition-colors"
             style={{ background: copied ? '#22c55e' : '#6366f1', color: '#fff' }}
           >
-            {copied ? '✓ Copied!' : 'Copy command'}
+            {copied ? `✓ ${t('common.copied')}` : t('common.copyCommand')}
           </button>
           <button onClick={onClose} className="text-xs rounded px-4 py-2 transition-colors"
             style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
           >
-            Close
+            {t('common.close')}
           </button>
         </div>
       </div>

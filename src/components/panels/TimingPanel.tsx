@@ -1,4 +1,5 @@
 import { Clock3 } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { ScrubField } from './ScrubField'
 
@@ -17,6 +18,7 @@ function PanelGroup({ title, children }: { title: string; children: React.ReactN
 }
 
 export function TimingPanel() {
+  const { t } = useTranslation()
   const { layers, selectedLayerIds, totalFrames, fps, updateLayerTimeRange } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!layer) return null
@@ -26,9 +28,9 @@ export function TimingPanel() {
   const durationSec = totalFrames / fps
 
   return (
-    <PanelGroup title="Timing">
+    <PanelGroup title={t('timeline.editTiming')}>
       <ScrubField
-        label="Start"
+        label={t('timeline.startTime')}
         value={startFrame / fps}
         min={0}
         max={(endFrame - 1) / fps}
@@ -39,7 +41,7 @@ export function TimingPanel() {
         onChange={(v) => updateLayerTimeRange(layer.id, Math.round(v * fps), endFrame)}
       />
       <ScrubField
-        label="End"
+        label={t('transform.end', { defaultValue: 'End' })}
         value={endFrame / fps}
         min={(startFrame + 1) / fps}
         max={durationSec}
@@ -50,7 +52,7 @@ export function TimingPanel() {
         onChange={(v) => updateLayerTimeRange(layer.id, startFrame, Math.round(v * fps))}
       />
       <div className="px-3 pb-1 text-[10px]" style={{ color: 'var(--text3)' }}>
-        Frames {startFrame}-{endFrame}
+        {t('common.frames')} {startFrame}-{endFrame}
       </div>
     </PanelGroup>
   )

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Clapperboard, Palette, SlidersHorizontal, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
@@ -18,6 +19,7 @@ const TABS: { id: Tab; label: string; icon: LucideIcon }[] = [
 ]
 
 export function PropertiesPanel() {
+  const { t } = useTranslation()
   const { selectedLayerIds, layers } = useStore()
   const [activeTab, setActiveTab] = useState<Tab>('transform')
 
@@ -31,18 +33,18 @@ export function PropertiesPanel() {
       {/* Header */}
       <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="text-xs font-semibold tracking-widest uppercase" style={{ color: 'var(--text2)' }}>
-          Properties
+          {t('panels.properties')}
         </div>
         {layer ? (
           <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text)' }}>{layer.name}</div>
         ) : (
-          <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text3)' }}>Select a layer</div>
+          <div className="text-xs mt-0.5 truncate" style={{ color: 'var(--text3)' }}>{t('panels.selectLayer')}</div>
         )}
       </div>
 
       {!layer ? (
         <div className="flex-1 flex items-center justify-center px-4 text-center">
-          <span className="text-xs" style={{ color: 'var(--text3)' }}>Select a layer to edit its properties.</span>
+          <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('panels.selectLayerHelp')}</span>
         </div>
       ) : (
         <>

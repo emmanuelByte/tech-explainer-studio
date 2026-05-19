@@ -47,6 +47,25 @@ function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canv
   }
 }
 
+function getLayersFrameBounds(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number) {
+  if (!layers.length) return null
+  const boxes = layers.map((layer) => getLayerFrameBox(layer, frame, canvasWidth, canvasHeight))
+  const left = Math.min(...boxes.map((box) => box.left))
+  const right = Math.max(...boxes.map((box) => box.right))
+  const top = Math.min(...boxes.map((box) => box.top))
+  const bottom = Math.max(...boxes.map((box) => box.bottom))
+  const width = Math.max(1, Math.round(right - left))
+  const height = Math.max(1, Math.round(bottom - top))
+  return {
+    width,
+    height,
+    x: left + width / 2 - canvasWidth / 2,
+    y: top + height / 2 - canvasHeight / 2,
+    startFrame: Math.min(...layers.map((layer) => layer.startFrame ?? 0)),
+    endFrame: Math.max(...layers.map((layer) => layer.endFrame ?? totalFrames)),
+  }
+}
+
 function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number) {
   let next = layers
   for (let pass = 0; pass < 3; pass += 1) {
@@ -329,7 +348,7 @@ const LAYOUT_PROP_KEYS = new Set<keyof Layer>([
 
 const TYPE_NAMES: Record<LayerType, string> = {
   rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line',
-  triangle: 'Triangle', text: 'Text', image: 'Image',
+  triangle: 'Triangle', path: 'Path', text: 'Text', image: 'Image',
   group: 'Group',
 }
 
@@ -345,7 +364,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     isGroup: type === 'group',
     autoFit: false,
     width: type === 'text' ? 400 : type === 'line' ? 200 : 200,
-    height: type === 'text' ? 80 : type === 'line' ? 4 : 140,
+    height: type === 'text' ? 80 : type === 'line' ? 4 : type === 'path' ? 200 : 140,
     sizeMode: 'fixed',
     layoutMode: 'none',
     layoutDirection: 'row',
@@ -358,10 +377,12 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     fillColor: type === 'group' ? 'transparent' : `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
     gradientStops: [{ color: '#6366f1', position: 0 }, { color: '#a855f7', position: 100 }],
     gradientAngle: 135,
-    strokeEnabled: type === 'line',
+    strokeEnabled: type === 'line' || type === 'path',
     strokeColor: '#ffffff',
-    strokeWidth: type === 'line' ? 2 : 0,
+    strokeWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
     borderRadius: 0,
+    pathData: type === 'path' ? 'M 20 180 L 100 20 L 180 180' : undefined,
+    pathClosed: false,
     shadowEnabled: false,
     shadowColor: 'rgba(0,0,0,0.5)',
     text: type === 'text' ? 'Edit text' : '',
@@ -375,6 +396,10 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     textSpans: [],
     textRevealMode: 'plain',
     imageFit: 'contain',
+    svgStrokeColor: '#ffffff',
+    svgFillColor: '#ffffff',
+    svgFillEnabled: false,
+    svgStrokeWidth: 2,
     startFrame: 0,
     endFrame: 150,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
@@ -388,6 +413,7 @@ interface Actions {
   createEmptyProjectState: (project: MotionProject) => void
   // Layers
   addLayer: (type: LayerType) => void
+  addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
   addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
   deleteLayer: (id: string) => void
   duplicateLayer: (id: string) => void
@@ -408,6 +434,7 @@ interface Actions {
   reorderLayers: (from: number, to: number) => void
   // Keyframes
   addKeyframe: (layerId: string, frame: number, props: TransformProps, easing?: string) => void
+  resizeLayerBox: (layerId: string, frame: number, props: TransformProps, size: { width?: number; height?: number }) => void
   removeKeyframe: (layerId: string, frame: number) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
   updateKeyframeEasing: (layerId: string, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
@@ -585,7 +612,20 @@ export const useStore = create<Store>()(
       addLayer: (type) => {
         get()._snapshot()
         const { layers, totalFrames } = get()
-        set({ layers: [...layers, makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`, endFrame: totalFrames })] })
+        const layer = makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`, endFrame: totalFrames })
+        set({ layers: [...layers, layer], selectedLayerIds: [layer.id], selectedKeyframes: [] })
+      },
+
+      addGeneratedLayer: (type, overrides = {}) => {
+        get()._snapshot()
+        const { layers, totalFrames } = get()
+        const layer = makeLayer(type, {
+          name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`,
+          endFrame: totalFrames,
+          ...overrides,
+        })
+        set((s) => ({ layers: [...s.layers, layer], selectedLayerIds: [layer.id] }))
+        return layer.id
       },
 
       addImage: (src, name, imageKind = 'raster', naturalWidth, naturalHeight) => {
@@ -839,6 +879,27 @@ export const useStore = create<Store>()(
         })
       },
 
+      resizeLayerBox: (layerId, frame, props, size) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => {
+          const layers = s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            let next = upsertTransformKeyframe(layer, frame, props)
+            if (typeof size.width === 'number' && Number.isFinite(size.width) && layer.type !== 'line') {
+              next = setLayerValueAtFrame(next, 'width', Math.max(1, Math.round(size.width)), frame)
+            }
+            if (typeof size.height === 'number' && Number.isFinite(size.height)) {
+              const height = Math.max(1, Math.round(size.height))
+              next = layer.type === 'line'
+                ? { ...next, strokeWidth: height }
+                : setLayerValueAtFrame(next, 'height', height, frame)
+            }
+            return next
+          })
+          return { layers: normalizeLayerTree(s, layers, layerId, false) }
+        })
+      },
+
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
         set((s) => ({
           layers: s.layers.map((l) => l.id === layerId ? { ...l, startFrame, endFrame } : l),
@@ -881,33 +942,26 @@ export const useStore = create<Store>()(
             const wrapIds = Array.from(new Set([...layerIds, target.id]))
             const wrapLayers = s.layers.filter((l) => wrapIds.includes(l.id))
             const { width: canvasWidth, height: canvasHeight } = getCanvasSize(s)
-            const boxes = wrapLayers.map((l) => getLayerFrameBox(l, s.currentFrame, canvasWidth, canvasHeight))
-            const left = Math.min(...boxes.map((b) => b.left))
-            const right = Math.max(...boxes.map((b) => b.right))
-            const top = Math.min(...boxes.map((b) => b.top))
-            const bottom = Math.max(...boxes.map((b) => b.bottom))
-            const groupWidth = Math.max(1, Math.round(right - left))
-            const groupHeight = Math.max(1, Math.round(bottom - top))
-            const centerX = left + groupWidth / 2
-            const centerY = top + groupHeight / 2
+            const bounds = getLayersFrameBounds(wrapLayers, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames)
+            if (!bounds) return {}
             const group = makeLayer('group', {
               name: 'Group',
               parentId: target.parentId ?? null,
-              width: groupWidth,
-              height: groupHeight,
+              width: bounds.width,
+              height: bounds.height,
               sizeMode: 'fit-content',
               fillType: 'none',
               strokeEnabled: false,
               autoFit: true,
-              startFrame: Math.min(...wrapLayers.map((l) => l.startFrame ?? 0)),
-              endFrame: Math.max(...wrapLayers.map((l) => l.endFrame ?? s.totalFrames)),
+              startFrame: bounds.startFrame,
+              endFrame: bounds.endFrame,
               keyframes: [{
-                frame: 0,
+                frame: s.currentFrame,
                 easing: 'ease-out',
                 props: {
                   ...DEFAULT_TRANSFORM,
-                  x: centerX - canvasWidth / 2,
-                  y: centerY - canvasHeight / 2,
+                  x: bounds.x,
+                  y: bounds.y,
                 },
               }],
             })
@@ -938,18 +992,47 @@ export const useStore = create<Store>()(
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, collapsed: !l.collapsed } : l) })),
 
       groupSelected: () => {
-        const { selectedLayerIds, layers, totalFrames } = get()
+        const { selectedLayerIds } = get()
         if (selectedLayerIds.length === 0) return
         get()._snapshot()
-        const selected = layers.filter((l) => selectedLayerIds.includes(l.id))
-        const parentId = selected[0]?.parentId ?? null
-        const group = makeLayer('group', { name: 'Group', parentId, endFrame: totalFrames })
-        const firstIdx = Math.min(...selected.map((l) => layers.findIndex((x) => x.id === l.id)).filter((i) => i >= 0))
-        const next = [...layers]
-        next.splice(firstIdx, 0, group)
-        set({
-          layers: next.map((l) => selectedLayerIds.includes(l.id) ? { ...l, parentId: group.id } : l),
-          selectedLayerIds: [group.id],
+        set((s) => {
+          const selected = s.layers.filter((l) => selectedLayerIds.includes(l.id))
+          if (!selected.length) return {}
+          const sharedParent = selected.every((layer) => (layer.parentId ?? null) === (selected[0].parentId ?? null))
+            ? selected[0].parentId ?? null
+            : null
+          const { width: canvasWidth, height: canvasHeight } = getCanvasSize(s)
+          const bounds = getLayersFrameBounds(selected, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames)
+          if (!bounds) return {}
+          const group = makeLayer('group', {
+            name: 'Group',
+            parentId: sharedParent,
+            width: bounds.width,
+            height: bounds.height,
+            sizeMode: 'fit-content',
+            fillType: 'none',
+            strokeEnabled: false,
+            autoFit: true,
+            startFrame: bounds.startFrame,
+            endFrame: bounds.endFrame,
+            keyframes: [{
+              frame: s.currentFrame,
+              easing: 'ease-out',
+              props: {
+                ...DEFAULT_TRANSFORM,
+                x: bounds.x,
+                y: bounds.y,
+              },
+            }],
+          })
+          const firstIdx = Math.min(...selected.map((l) => s.layers.findIndex((x) => x.id === l.id)).filter((i) => i >= 0))
+          const next = [...s.layers]
+          next.splice(firstIdx, 0, group)
+          const layers = next.map((l) => selectedLayerIds.includes(l.id) ? { ...l, parentId: group.id } : l)
+          return {
+            layers: normalizeLayerTree(s, layers, group.id, true),
+            selectedLayerIds: [group.id],
+          }
         })
       },
 
@@ -1120,21 +1203,23 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'motion-editor-v1',
+      version: 2,
+      migrate: (persisted) => {
+        const s = persisted as Partial<Store>
+        return {
+          theme: s.theme,
+          timelineZoom: s.timelineZoom,
+          timelineScrollX: s.timelineScrollX,
+          timelinePanelHeight: s.timelinePanelHeight,
+          showAllSubtracks: s.showAllSubtracks,
+          showValueGraph: s.showValueGraph,
+          editorZoom: s.editorZoom,
+          editorPanX: s.editorPanX,
+          editorPanY: s.editorPanY,
+        }
+      },
       partialize: (s) => ({
-        layers: s.layers,
-        guides: s.guides,
-        projectId: s.projectId,
-        projectName: s.projectName,
-        projectCreatedAt: s.projectCreatedAt,
-        projectUpdatedAt: s.projectUpdatedAt,
-        totalFrames: s.totalFrames,
-        fps: s.fps,
-        canvasPreset: s.canvasPreset,
-        customWidth: s.customWidth,
-        customHeight: s.customHeight,
-        canvasBackgroundColor: s.canvasBackgroundColor,
         theme: s.theme,
-        markers: s.markers,
         timelineZoom: s.timelineZoom,
         timelineScrollX: s.timelineScrollX,
         timelinePanelHeight: s.timelinePanelHeight,
