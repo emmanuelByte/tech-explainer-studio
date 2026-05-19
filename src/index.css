@@ -1,0 +1,52 @@
+@import "tailwindcss";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #0f0f0f;
+  color: #e0e0e0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+  height: 100vh;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #1a1a1a; }
+::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+
+/* Timeline keyframe diamond */
+.keyframe-diamond {
+  width: 10px;
+  height: 10px;
+  background: #f59e0b;
+  transform: rotate(45deg);
+  border-radius: 1px;
+  cursor: pointer;
+  position: absolute;
+  top: 50%;
+  margin-top: -5px;
+  margin-left: -5px;
+  transition: background 0.1s;
+}
+.keyframe-diamond:hover { background: #fbbf24; }
+.keyframe-diamond.selected { background: #60a5fa; }
+
+/* Input number style */
+input[type=number] {
+  -moz-appearance: textfield;
+}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+}
