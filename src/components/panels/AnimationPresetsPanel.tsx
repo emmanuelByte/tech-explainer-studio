@@ -1,13 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useStore } from '../../store'
 import { interpolateProps } from '../../remotion/interpolateProps'
-import { Keyframe, TransformProps, EasingType, DEFAULT_TRANSFORM } from '../../types'
+import { Keyframe, TransformProps, EasingType, Layer, TextRevealMode } from '../../types'
 import { SectionHeader } from './TransformPanel'
+
+type PresetCategory = 'in' | 'out' | 'attention' | 'text'
 
 interface PresetDef {
   label: string
-  category: 'in' | 'out' | 'attention'
-  generate: (start: number, dur: number, easing: EasingType, base: TransformProps) => Keyframe[]
+  category: PresetCategory
+  textOnly?: boolean
+  textRevealMode?: TextRevealMode
+  generate: (start: number, dur: number, easing: EasingType, base: TransformProps, layer: Layer) => Keyframe[]
 }
 
 const PRESETS: Record<string, PresetDef> = {
@@ -114,10 +118,118 @@ const PRESETS: Record<string, PresetDef> = {
     },
   },
   'typewriter': {
-    label: 'Typewriter', category: 'in',
+    label: 'Typewriter', category: 'text', textOnly: true, textRevealMode: 'plain',
     generate: (s, d, e, b) => [
-      { frame: s, easing: e, props: { ...b, charProgress: 0 } },
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: Math.max(0.35, b.opacity) } },
       { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1 } },
+    ],
+  },
+  'typewriter-soft': {
+    label: 'Soft Type In', category: 'text', textOnly: true, textRevealMode: 'char-rise',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 0, blur: 3, y: b.y + 10 } },
+      { frame: s + Math.round(d * 0.35), easing: 'linear', props: { ...b, charProgress: 0.45, opacity: 1, blur: 1, y: b.y } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1, blur: 0, y: b.y } },
+    ],
+  },
+  'char-pop-type': {
+    label: 'Pop Characters', category: 'text', textOnly: true, textRevealMode: 'char-pop',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'falling-letters': {
+    label: 'Falling Letters', category: 'text', textOnly: true, textRevealMode: 'char-fall',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'rising-letters': {
+    label: 'Rising Letters', category: 'text', textOnly: true, textRevealMode: 'char-rise',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'spin-type': {
+    label: 'Spin Type', category: 'text', textOnly: true, textRevealMode: 'char-spin',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'blur-type': {
+    label: 'Blur Type', category: 'text', textOnly: true, textRevealMode: 'char-blur',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'type-out': {
+    label: 'Type Out', category: 'text', textOnly: true, textRevealMode: 'plain',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 1, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 0, opacity: Math.max(0, b.opacity * 0.35) } },
+    ],
+  },
+  'word-reveal': {
+    label: 'Word Reveal', category: 'text', textOnly: true, textRevealMode: 'plain',
+    generate: (s, d, _e, b, layer) => {
+      const text = layer.text || ''
+      const ends = [...text.matchAll(/\S+/g)].map((match) => (match.index ?? 0) + match[0].length)
+      if (!ends.length) return [
+        { frame: s, easing: 'linear', props: { ...b, charProgress: 0 } },
+        { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1 } },
+      ]
+      return [
+        { frame: s, easing: 'linear', props: { ...b, charProgress: 0, opacity: 1 } },
+        ...ends.map((end, index) => ({
+          frame: s + Math.max(1, Math.round(((index + 1) / ends.length) * d)),
+          easing: 'linear' as EasingType,
+          props: { ...b, charProgress: Math.min(1, end / Math.max(1, text.length)), opacity: 1 },
+        })),
+      ]
+    },
+  },
+  'line-reveal': {
+    label: 'Line Reveal', category: 'text', textOnly: true, textRevealMode: 'plain',
+    generate: (s, d, _e, b, layer) => {
+      const text = layer.text || ''
+      const lines = text.split('\n')
+      const ends = lines.reduce<number[]>((acc, line, index) => {
+        const previous = acc[index - 1] ?? 0
+        acc.push(previous + line.length + (index < lines.length - 1 ? 1 : 0))
+        return acc
+      }, [])
+      return [
+        { frame: s, easing: 'linear', props: { ...b, charProgress: 0, opacity: 1 } },
+        ...ends.map((end, index) => ({
+          frame: s + Math.max(1, Math.round(((index + 1) / Math.max(1, ends.length)) * d)),
+          easing: 'linear' as EasingType,
+          props: { ...b, charProgress: Math.min(1, end / Math.max(1, text.length)), opacity: 1 },
+        })),
+      ]
+    },
+  },
+  'text-pop': {
+    label: 'Text Pop', category: 'text', textOnly: true, textRevealMode: 'char-pop',
+    generate: (s, d, _e, b) => [
+      { frame: s, easing: 'ease-out', props: { ...b, charProgress: 0, scale: b.scale * 0.94, opacity: 0 } },
+      { frame: s + Math.round(d * 0.65), easing: 'ease-out', props: { ...b, charProgress: 1, scale: b.scale * 1.04, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, scale: b.scale, opacity: 1 } },
+    ],
+  },
+  'text-flicker': {
+    label: 'Flicker In', category: 'text', textOnly: true, textRevealMode: 'plain',
+    generate: (s, d, _e, b) => [
+      { frame: s, easing: 'linear', props: { ...b, charProgress: 1, opacity: 0 } },
+      { frame: s + Math.round(d * 0.18), easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+      { frame: s + Math.round(d * 0.28), easing: 'linear', props: { ...b, charProgress: 1, opacity: 0.25 } },
+      { frame: s + Math.round(d * 0.42), easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+      { frame: s + Math.round(d * 0.55), easing: 'linear', props: { ...b, charProgress: 1, opacity: 0.55 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
     ],
   },
   'perspective-tilt': {
@@ -131,47 +243,128 @@ const PRESETS: Record<string, PresetDef> = {
 }
 
 const EASINGS: EasingType[] = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce']
-const CATEGORIES = ['in', 'out', 'attention'] as const
+const CATEGORY_LABELS: Record<PresetCategory, string> = {
+  in: 'In',
+  out: 'Out',
+  attention: 'Attention',
+  text: 'Text',
+}
 
 export function AnimationPresetsPanel() {
-  const { layers, selectedLayerIds, currentFrame, addKeyframe } = useStore()
+  const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, updateLayerProp } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
 
   const [duration, setDuration] = useState(30)
-  const [delay, setDelay] = useState(0)
+  const [startFrame, setStartFrame] = useState(currentFrame)
+  const [timeUnit, setTimeUnit] = useState<'frames' | 'seconds'>('seconds')
   const [easing, setEasing] = useState<EasingType>('ease-out')
-  const [activeCategory, setActiveCategory] = useState<'in' | 'out' | 'attention'>('in')
+  const [activeCategory, setActiveCategory] = useState<PresetCategory>('in')
+
+  useEffect(() => {
+    if (!layer) return
+    const layerStart = layer.startFrame ?? 0
+    const layerEnd = layer.endFrame ?? totalFrames
+    const inferredStart = Math.max(layerStart, Math.min(currentFrame, Math.max(layerStart, layerEnd - 1)))
+    const remaining = Math.max(1, layerEnd - inferredStart)
+    const textLength = layer.type === 'text' ? Math.max(1, layer.text.length) : 0
+    const textDuration = layer.type === 'text' ? Math.max(Math.round(fps * 0.8), Math.min(Math.round(fps * 2), textLength * 2)) : fps
+    const inferredDuration = Math.max(1, Math.min(remaining, textDuration))
+    setStartFrame(inferredStart)
+    setDuration(inferredDuration)
+    if (layer.type === 'text') setActiveCategory('text')
+  }, [layer?.id, layer?.startFrame, layer?.endFrame, layer?.type, layer?.text, currentFrame, fps, totalFrames])
 
   if (!layer) return null
 
   function applyPreset(key: string) {
     if (!layer) return
     const preset = PRESETS[key]
-    const base = interpolateProps(currentFrame, layer.keyframes)
-    const keyframes = preset.generate(delay, duration, easing, base)
+    const start = Math.max(0, Math.round(startFrame))
+    const dur = Math.max(1, Math.round(duration))
+    const base = interpolateProps(start, layer.keyframes)
+    const keyframes = preset.generate(start, dur, easing, base, layer)
+    if (preset.textRevealMode) updateLayerProp(layer.id, 'textRevealMode', preset.textRevealMode)
     keyframes.forEach((kf) => addKeyframe(layer.id, kf.frame, kf.props, kf.easing))
+  }
+
+  const categories = (layer.type === 'text' ? ['text', 'in', 'out', 'attention'] : ['in', 'out', 'attention']) as PresetCategory[]
+  const safeActiveCategory = categories.includes(activeCategory) ? activeCategory : categories[0]
+  const durationValue = timeUnit === 'seconds' ? Number((duration / fps).toFixed(2)) : duration
+  const startValue = timeUnit === 'seconds' ? Number((startFrame / fps).toFixed(2)) : startFrame
+  const unitLabel = timeUnit === 'seconds' ? 's' : 'fr'
+  const maxStartFrame = Math.max(0, (layer.endFrame ?? totalFrames) - 1)
+
+  const setDurationFromInput = (value: number) => {
+    if (!Number.isFinite(value)) return
+    const nextFrames = timeUnit === 'seconds' ? Math.round(value * fps) : Math.round(value)
+    setDuration(Math.max(1, nextFrames))
+  }
+
+  const setStartFromInput = (value: number) => {
+    if (!Number.isFinite(value)) return
+    const nextFrame = timeUnit === 'seconds' ? Math.round(value * fps) : Math.round(value)
+    setStartFrame(Math.max(0, Math.min(maxStartFrame, nextFrame)))
+  }
+
+  const syncToPlayhead = () => {
+    const layerStart = layer.startFrame ?? 0
+    const layerEnd = layer.endFrame ?? totalFrames
+    const nextStart = Math.max(layerStart, Math.min(currentFrame, Math.max(layerStart, layerEnd - 1)))
+    setStartFrame(nextStart)
+    setDuration(Math.max(1, Math.min(duration, layerEnd - nextStart)))
   }
 
   return (
     <div className="flex flex-col gap-0">
       <SectionHeader label="Parameters" />
       <div className="px-3 pb-2 flex flex-col gap-1.5">
+        <div className="grid grid-cols-2 gap-1">
+          {(['seconds', 'frames'] as const).map((unit) => (
+            <button
+              key={unit}
+              onClick={() => setTimeUnit(unit)}
+              className="text-xs rounded py-1 transition-colors"
+              style={{
+                background: timeUnit === unit ? 'rgba(32,213,248,0.16)' : 'var(--input)',
+                color: timeUnit === unit ? '#20d5f8' : 'var(--text2)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {unit === 'seconds' ? 'Seconds' : 'Frames'}
+            </button>
+          ))}
+        </div>
         <div className="flex items-center gap-2">
           <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Duration</span>
-          <input type="number" min={1} value={duration}
-            onChange={(e) => setDuration(Number(e.target.value))}
+          <input
+            type="number"
+            min={timeUnit === 'seconds' ? 0.01 : 1}
+            step={timeUnit === 'seconds' ? 0.1 : 1}
+            value={durationValue}
+            onChange={(e) => setDurationFromInput(Number(e.target.value))}
             className="input-base flex-1 w-0 text-right"
           />
-          <span style={{ color: 'var(--text3)', fontSize: 10 }}>fr</span>
+          <span style={{ color: 'var(--text3)', fontSize: 10 }}>{unitLabel}</span>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Start at</span>
-          <input type="number" min={0} value={delay}
-            onChange={(e) => setDelay(Number(e.target.value))}
+          <input
+            type="number"
+            min={0}
+            step={timeUnit === 'seconds' ? 0.1 : 1}
+            value={startValue}
+            onChange={(e) => setStartFromInput(Number(e.target.value))}
             className="input-base flex-1 w-0 text-right"
           />
-          <span style={{ color: 'var(--text3)', fontSize: 10 }}>fr</span>
+          <span style={{ color: 'var(--text3)', fontSize: 10 }}>{unitLabel}</span>
         </div>
+        <button
+          onClick={syncToPlayhead}
+          className="text-xs rounded py-1 transition-colors"
+          style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+        >
+          Use playhead: {(currentFrame / fps).toFixed(2)}s / {currentFrame}fr
+        </button>
         <div className="flex items-center gap-2">
           <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Easing</span>
           <select value={easing} onChange={(e) => setEasing(e.target.value as EasingType)}
@@ -185,24 +378,24 @@ export function AnimationPresetsPanel() {
       <SectionHeader label="Presets" />
       {/* Category tabs */}
       <div className="px-3 pb-2 flex gap-1">
-        {CATEGORIES.map((cat) => (
+        {categories.map((cat) => (
           <button key={cat}
             onClick={() => setActiveCategory(cat)}
             className="flex-1 text-xs rounded py-1 capitalize transition-colors"
             style={{
-              background: activeCategory === cat ? 'var(--accent)' : 'var(--input)',
-              color: activeCategory === cat ? '#fff' : 'var(--text2)',
+              background: safeActiveCategory === cat ? 'var(--accent)' : 'var(--input)',
+              color: safeActiveCategory === cat ? '#fff' : 'var(--text2)',
               border: '1px solid var(--border)',
             }}
           >
-            {cat}
+            {CATEGORY_LABELS[cat]}
           </button>
         ))}
       </div>
 
       <div className="px-3 pb-3 grid grid-cols-2 gap-1.5">
         {Object.entries(PRESETS)
-          .filter(([, def]) => def.category === activeCategory)
+          .filter(([, def]) => def.category === safeActiveCategory && (!def.textOnly || layer.type === 'text'))
           .map(([key, def]) => (
             <button
               key={key}

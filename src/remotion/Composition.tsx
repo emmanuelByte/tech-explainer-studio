@@ -13,6 +13,112 @@ function getBackground(fillType: FillType, fillColor: string, stops: GradientSto
   return fillColor
 }
 
+function textStyleForIndex(layer: Layer, index: number) {
+  return [...(layer.textSpans ?? [])].reverse().find((span) => index >= span.start && index < span.end)
+}
+
+function charRevealStyle(mode: Layer['textRevealMode'], progress: number): React.CSSProperties {
+  const t = Math.max(0, Math.min(1, progress))
+  if (mode === 'char-pop') {
+    return {
+      opacity: t,
+      transform: `scale(${0.25 + t * 0.75}) translateY(${(1 - t) * 4}px)`,
+      transformOrigin: '50% 80%',
+    }
+  }
+  if (mode === 'char-fall') {
+    return {
+      opacity: t,
+      transform: `translateY(${(1 - t) * -28}px) rotate(${(1 - t) * -10}deg)`,
+      filter: t < 1 ? `blur(${(1 - t) * 2}px)` : undefined,
+    }
+  }
+  if (mode === 'char-rise') {
+    return {
+      opacity: t,
+      transform: `translateY(${(1 - t) * 20}px) scale(${0.92 + t * 0.08})`,
+      filter: t < 1 ? `blur(${(1 - t) * 3}px)` : undefined,
+    }
+  }
+  if (mode === 'char-spin') {
+    return {
+      opacity: t,
+      transform: `rotateX(${(1 - t) * 90}deg) rotateZ(${(1 - t) * -18}deg) scale(${0.85 + t * 0.15})`,
+      transformOrigin: '50% 60%',
+    }
+  }
+  if (mode === 'char-blur') {
+    return {
+      opacity: t,
+      transform: `translateY(${(1 - t) * 8}px)`,
+      filter: t < 1 ? `blur(${(1 - t) * 8}px)` : undefined,
+    }
+  }
+  return {}
+}
+
+function renderAnimatedText(layer: Layer, charProgress: number) {
+  const progress = Math.max(0, Math.min(1, charProgress))
+  const mode = layer.textRevealMode ?? 'plain'
+  if (mode === 'plain') {
+    const visible = Math.floor(layer.text.length * progress)
+    const displayText = layer.text.slice(0, visible)
+    const spans = (layer.textSpans ?? [])
+      .filter((span) => span.end > 0 && span.start < displayText.length)
+      .sort((a, b) => a.start - b.start)
+    const runs: { text: string; style?: typeof spans[number] }[] = []
+    let cursor = 0
+    spans.forEach((span) => {
+      const start = Math.max(0, Math.min(displayText.length, span.start))
+      const end = Math.max(start, Math.min(displayText.length, span.end))
+      if (start > cursor) runs.push({ text: displayText.slice(cursor, start) })
+      if (end > start) runs.push({ text: displayText.slice(start, end), style: span })
+      cursor = Math.max(cursor, end)
+    })
+    if (cursor < displayText.length) runs.push({ text: displayText.slice(cursor) })
+    return runs.length ? runs.map((run, idx) => (
+      <span
+        key={idx}
+        style={{
+          fontFamily: run.style?.fontFamily,
+          fontSize: run.style?.fontSize,
+          fontWeight: run.style?.fontWeight,
+          color: run.style?.textColor,
+          letterSpacing: run.style?.letterSpacing,
+        }}
+      >
+        {run.text}
+      </span>
+    )) : displayText
+  }
+
+  const chars = Array.from(layer.text)
+  const reveal = progress * chars.length
+  return chars.map((char, index) => {
+    if (char === '\n') return <br key={index} />
+    const style = textStyleForIndex(layer, index)
+    const charT = Math.max(0, Math.min(1, reveal - index))
+    return (
+      <span
+        key={index}
+        style={{
+          display: 'inline-block',
+          whiteSpace: char === ' ' ? 'pre' : undefined,
+          fontFamily: style?.fontFamily,
+          fontSize: style?.fontSize,
+          fontWeight: style?.fontWeight,
+          color: style?.textColor,
+          letterSpacing: style?.letterSpacing,
+          willChange: charT < 1 ? 'transform, opacity, filter' : undefined,
+          ...charRevealStyle(mode, charT),
+        }}
+      >
+        {char === ' ' ? '\u00a0' : char}
+      </span>
+    )
+  })
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
@@ -85,21 +191,6 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'text') {
-    const visible = Math.floor(animatedLayer.text.length * Math.max(0, Math.min(1, p.charProgress)))
-    const displayText = animatedLayer.text.slice(0, visible)
-    const spans = (animatedLayer.textSpans ?? [])
-      .filter((span) => span.end > 0 && span.start < displayText.length)
-      .sort((a, b) => a.start - b.start)
-    const runs: { text: string; style?: typeof spans[number] }[] = []
-    let cursor = 0
-    spans.forEach((span) => {
-      const start = Math.max(0, Math.min(displayText.length, span.start))
-      const end = Math.max(start, Math.min(displayText.length, span.end))
-      if (start > cursor) runs.push({ text: displayText.slice(cursor, start) })
-      if (end > start) runs.push({ text: displayText.slice(start, end), style: span })
-      cursor = Math.max(cursor, end)
-    })
-    if (cursor < displayText.length) runs.push({ text: displayText.slice(cursor) })
     return (
       <div
         style={{
@@ -126,20 +217,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           useStore.getState().setEditingTextLayerId(animatedLayer.id)
         }}
       >
-        {runs.length ? runs.map((run, idx) => (
-          <span
-            key={idx}
-            style={{
-              fontFamily: run.style?.fontFamily,
-              fontSize: run.style?.fontSize,
-              fontWeight: run.style?.fontWeight,
-              color: run.style?.textColor,
-              letterSpacing: run.style?.letterSpacing,
-            }}
-          >
-            {run.text}
-          </span>
-        )) : displayText}
+        {renderAnimatedText(animatedLayer, p.charProgress)}
       </div>
     )
   }

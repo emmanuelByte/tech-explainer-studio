@@ -9,6 +9,7 @@ export type LayoutMode = 'none' | 'flex' | 'grid'
 export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
 export type LayoutJustify = 'start' | 'center' | 'end' | 'space-between'
+export type TextRevealMode = 'plain' | 'char-pop' | 'char-fall' | 'char-rise' | 'char-spin' | 'char-blur'
 export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle'
 
 export interface TextRangeStyle {
@@ -144,6 +145,7 @@ export interface Layer {
   lineHeight: number
   textColor: string
   textSpans?: TextRangeStyle[]
+  textRevealMode?: TextRevealMode
   // Image
   src?: string
   imageFit?: ImageFit

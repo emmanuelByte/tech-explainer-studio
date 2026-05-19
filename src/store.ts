@@ -4,6 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
+  PropertyKeyframe,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -126,6 +127,49 @@ function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformPr
   })
 
   return { ...layer, keyframes, propertyKeyframes }
+}
+
+function upsertPropertyKeyframe(layer: Layer, key: AnimatableProperty, frame: number, value: number | string): Layer {
+  const existing = layer.propertyKeyframes?.[key] ?? []
+  const current = existing.find((kf) => kf.frame === frame)
+  const nextFrame: PropertyKeyframe = {
+    id: current?.id ?? uid(),
+    frame,
+    value,
+    easing: current?.easing ?? 'ease-out',
+    bezier: current?.bezier,
+  }
+  return {
+    ...layer,
+    propertyKeyframes: {
+      ...(layer.propertyKeyframes ?? {}),
+      [key]: [...existing.filter((kf) => kf.frame !== frame), nextFrame].sort((a, b) => a.frame - b.frame),
+    },
+  }
+}
+
+function setLayerValueAtFrame(layer: Layer, key: AnimatableProperty, value: number | string, frame: number): Layer {
+  if (layer.propertyKeyframes?.[key]?.length) {
+    return upsertPropertyKeyframe(layer, key, frame, value)
+  }
+
+  if (key in DEFAULT_TRANSFORM) {
+    const targetFrame = layer.keyframes.length > 1 ? frame : layer.keyframes[0]?.frame ?? 0
+    const base = interpolateProps(targetFrame, layer.keyframes)
+    const existing = layer.keyframes.find((kf) => kf.frame === targetFrame)
+    const keyframe: Keyframe = {
+      frame: targetFrame,
+      easing: existing?.easing ?? layer.keyframes[0]?.easing ?? 'linear',
+      bezier: existing?.bezier,
+      props: { ...base, [key]: value } as TransformProps,
+    }
+    const keyframes = existing
+      ? layer.keyframes.map((item) => item.frame === targetFrame ? keyframe : item)
+      : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
+    return { ...layer, keyframes }
+  }
+
+  return { ...layer, [key]: value }
 }
 
 function getLayerLayoutSize(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
@@ -329,6 +373,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     lineHeight: 1.2,
     textColor: '#ffffff',
     textSpans: [],
+    textRevealMode: 'plain',
     imageFit: 'contain',
     startFrame: 0,
     endFrame: 150,
@@ -695,16 +740,7 @@ export const useStore = create<Store>()(
           return
         }
         set((s) => {
-          const layers = s.layers.map((l) => {
-            if (l.id !== id) return l
-            if (key in DEFAULT_TRANSFORM) {
-              const frame = l.keyframes[0]?.frame ?? 0
-              const base = interpolateProps(frame, l.keyframes)
-              const kf: Keyframe = { frame, easing: l.keyframes[0]?.easing ?? 'linear', props: { ...base, [key]: value } as TransformProps }
-              return { ...l, keyframes: l.keyframes.length ? l.keyframes.map((item, idx) => idx === 0 ? kf : item) : [kf] }
-            }
-            return { ...l, [key]: value }
-          })
+          const layers = s.layers.map((l) => l.id === id ? setLayerValueAtFrame(l, key, value, currentFrame) : l)
           const shouldLayout = key !== 'x' && key !== 'y'
           return { layers: shouldLayout ? normalizeLayerTree(s, layers, id, false) : withAutoFitGroups(s, layers) }
         })
@@ -712,28 +748,16 @@ export const useStore = create<Store>()(
 
       addPropertyKeyframe: (layerId, key, frame = get().currentFrame, value) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
-        set((s) => ({
-          layers: s.layers.map((layer) => {
+        set((s) => {
+          const layers = s.layers.map((layer) => {
             if (layer.id !== layerId) return layer
             const transform = interpolateProps(frame, layer.keyframes)
             const resolvedValue = value ?? getAnimatedPropertyValue(layer, key, frame, transform) ?? getStaticPropertyValue(layer, transform, key)
-            const existing = layer.propertyKeyframes?.[key] ?? []
-            const nextFrame = {
-              id: existing.find((kf) => kf.frame === frame)?.id ?? uid(),
-              frame,
-              value: resolvedValue,
-              easing: existing.find((kf) => kf.frame === frame)?.easing ?? 'ease-out',
-              bezier: existing.find((kf) => kf.frame === frame)?.bezier,
-            }
-            return {
-              ...layer,
-              propertyKeyframes: {
-                ...(layer.propertyKeyframes ?? {}),
-                [key]: [...existing.filter((kf) => kf.frame !== frame), nextFrame].sort((a, b) => a.frame - b.frame),
-              },
-            }
-          }),
-        }))
+            return upsertPropertyKeyframe(layer, key, frame, resolvedValue)
+          })
+          const shouldLayout = key !== 'x' && key !== 'y'
+          return { layers: shouldLayout ? normalizeLayerTree(s, layers, layerId, false) : withAutoFitGroups(s, layers) }
+        })
       },
 
       removePropertyKeyframe: (layerId, key, frame) => {

@@ -132,12 +132,25 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
       else updateKeyframeEasing(layerId, frame, 'custom', next)
     }
   }
+  const popupWidth = 240
+  const popupHeight = 360
+  const margin = 12
+  const viewportW = typeof window === 'undefined' ? 1280 : window.innerWidth
+  const viewportH = typeof window === 'undefined' ? 720 : window.innerHeight
+  const left = Math.max(margin, Math.min(x, viewportW - popupWidth - margin))
+  const opensUp = y + popupHeight + margin > viewportH
+  const top = Math.max(margin, Math.min(y, viewportH - popupHeight - margin))
+  const verticalPosition = opensUp
+    ? { bottom: Math.max(margin, viewportH - y), maxHeight: Math.max(140, y - margin) }
+    : { top, maxHeight: viewportH - top - margin }
   return (
     <div
       style={{
-        position: 'fixed', left: x, top: y,
+        position: 'fixed', left,
+        ...verticalPosition,
         background: 'var(--panel)', border: '1px solid var(--border)',
-        borderRadius: 6, zIndex: 1100, minWidth: 220,
+        borderRadius: 6, zIndex: 1100, width: popupWidth,
+        overflowY: 'auto',
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
         padding: '4px 0',
       }}
