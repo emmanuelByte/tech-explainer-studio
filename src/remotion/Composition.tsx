@@ -1,7 +1,8 @@
 import { useCurrentFrame } from 'remotion'
 import { Layer, GradientStop, FillType } from '../types'
-import { interpolateProps, buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
+import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
+import { resolveLayerAnimation } from '../animationProperties'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -12,33 +13,42 @@ function getBackground(fillType: FillType, fillColor: string, stops: GradientSto
   return fillColor
 }
 
-function LayerElement({ layer, frame, isSelected, onSelect }: {
+function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
+  canvasWidth: number
+  canvasHeight: number
   isSelected: boolean
-  onSelect: () => void
+  onSelect: (multi: boolean) => void
 }) {
+  if (layer.type === 'group') return null
   if (!layer.visible) return null
   if (frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return null
 
-  const p = interpolateProps(frame, layer.keyframes)
-  const bg = getBackground(layer.fillType, layer.fillColor, layer.gradientStops, layer.gradientAngle)
+  const resolved = resolveLayerAnimation(layer, frame)
+  const animatedLayer = resolved.layer
+  const p = resolved.transform
+  const bg = getBackground(animatedLayer.fillType, animatedLayer.fillColor, animatedLayer.gradientStops, animatedLayer.gradientAngle)
+  const layerWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasWidth : animatedLayer.width
+  const layerHeight = animatedLayer.sizeMode === 'fill-canvas'
+    ? canvasHeight
+    : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
 
   const wrapperStyle: React.CSSProperties = {
     position: 'absolute',
     left: '50%',
     top: '50%',
-    width: layer.width,
-    height: layer.type === 'line' ? layer.strokeWidth || 2 : layer.height,
-    marginLeft: -layer.width / 2,
-    marginTop: -(layer.type === 'line' ? layer.strokeWidth || 2 : layer.height) / 2,
+    width: layerWidth,
+    height: layerHeight,
+    marginLeft: -layerWidth / 2,
+    marginTop: -layerHeight / 2,
     opacity: p.opacity,
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
     transformStyle: 'preserve-3d',
     perspective: p.perspective,
     filter: buildFilter(p),
-    boxShadow: buildBoxShadow(p, layer.shadowColor, layer.shadowEnabled),
+    boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',
@@ -47,65 +57,96 @@ function LayerElement({ layer, frame, isSelected, onSelect }: {
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onSelect()
+    onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
   }
 
-  if (layer.type === 'image' && layer.src) {
+  if (animatedLayer.type === 'image' && animatedLayer.src) {
     return (
       <div style={wrapperStyle} onClick={handleClick}>
         <img
-          src={layer.src}
-          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: layer.borderRadius }}
-          alt={layer.name}
+          src={animatedLayer.src}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: animatedLayer.borderRadius }}
+          alt={animatedLayer.name}
         />
       </div>
     )
   }
 
-  if (layer.type === 'text') {
-    const visible = Math.floor(layer.text.length * Math.max(0, Math.min(1, p.charProgress)))
-    const displayText = layer.text.slice(0, visible)
+  if (animatedLayer.type === 'text') {
+    const visible = Math.floor(animatedLayer.text.length * Math.max(0, Math.min(1, p.charProgress)))
+    const displayText = animatedLayer.text.slice(0, visible)
+    const spans = (animatedLayer.textSpans ?? [])
+      .filter((span) => span.end > 0 && span.start < displayText.length)
+      .sort((a, b) => a.start - b.start)
+    const runs: { text: string; style?: typeof spans[number] }[] = []
+    let cursor = 0
+    spans.forEach((span) => {
+      const start = Math.max(0, Math.min(displayText.length, span.start))
+      const end = Math.max(start, Math.min(displayText.length, span.end))
+      if (start > cursor) runs.push({ text: displayText.slice(cursor, start) })
+      if (end > start) runs.push({ text: displayText.slice(start, end), style: span })
+      cursor = Math.max(cursor, end)
+    })
+    if (cursor < displayText.length) runs.push({ text: displayText.slice(cursor) })
     return (
       <div
         style={{
           ...wrapperStyle,
-          background: layer.fillType !== 'none' ? bg : 'transparent',
+          background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: layer.textAlign === 'center' ? 'center' : layer.textAlign === 'right' ? 'flex-end' : 'flex-start',
-          fontFamily: layer.fontFamily,
-          fontSize: layer.fontSize,
-          fontWeight: layer.fontWeight,
-          color: layer.textColor,
-          letterSpacing: layer.letterSpacing,
-          lineHeight: layer.lineHeight,
+          justifyContent: animatedLayer.textAlign === 'center' ? 'center' : animatedLayer.textAlign === 'right' ? 'flex-end' : 'flex-start',
+          fontFamily: animatedLayer.fontFamily,
+          fontSize: animatedLayer.fontSize,
+          fontWeight: animatedLayer.fontWeight,
+          color: animatedLayer.textColor,
+          letterSpacing: animatedLayer.letterSpacing,
+          lineHeight: animatedLayer.lineHeight,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
           padding: '4px 8px',
-          borderRadius: layer.borderRadius,
+          borderRadius: animatedLayer.borderRadius,
         }}
         onClick={handleClick}
+        onDoubleClick={(e) => {
+          e.stopPropagation()
+          onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
+          useStore.getState().setEditingTextLayerId(animatedLayer.id)
+        }}
       >
-        {displayText}
+        {runs.length ? runs.map((run, idx) => (
+          <span
+            key={idx}
+            style={{
+              fontFamily: run.style?.fontFamily,
+              fontSize: run.style?.fontSize,
+              fontWeight: run.style?.fontWeight,
+              color: run.style?.textColor,
+              letterSpacing: run.style?.letterSpacing,
+            }}
+          >
+            {run.text}
+          </span>
+        )) : displayText}
       </div>
     )
   }
 
-  if (layer.type === 'ellipse') {
+  if (animatedLayer.type === 'ellipse') {
     return (
       <div
         style={{
           ...wrapperStyle,
           background: bg,
           borderRadius: '50%',
-          border: layer.strokeEnabled ? `${layer.strokeWidth}px solid ${layer.strokeColor}` : undefined,
+          border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
         }}
         onClick={handleClick}
       />
     )
   }
 
-  if (layer.type === 'triangle') {
+  if (animatedLayer.type === 'triangle') {
     return (
       <div
         style={{
@@ -118,13 +159,13 @@ function LayerElement({ layer, frame, isSelected, onSelect }: {
     )
   }
 
-  if (layer.type === 'line') {
+  if (animatedLayer.type === 'line') {
     return (
       <div
         style={{
           ...wrapperStyle,
-          background: layer.strokeColor,
-          borderRadius: layer.strokeWidth,
+          background: animatedLayer.strokeColor,
+          borderRadius: animatedLayer.strokeWidth,
         }}
         onClick={handleClick}
       />
@@ -137,8 +178,8 @@ function LayerElement({ layer, frame, isSelected, onSelect }: {
       style={{
         ...wrapperStyle,
         background: bg,
-        borderRadius: layer.borderRadius,
-        border: layer.strokeEnabled ? `${layer.strokeWidth}px solid ${layer.strokeColor}` : undefined,
+        borderRadius: animatedLayer.borderRadius,
+        border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
       }}
       onClick={handleClick}
     />
@@ -149,15 +190,16 @@ interface CompositionProps {
   layers: Layer[]
   canvasWidth: number
   canvasHeight: number
+  backgroundColor?: string
 }
 
-export function EditorComposition({ layers, canvasWidth, canvasHeight }: CompositionProps) {
+export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e' }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectLayer } = useStore()
 
   return (
     <div
-      style={{ width: canvasWidth, height: canvasHeight, background: '#1a1a2e', position: 'relative', overflow: 'hidden' }}
+      style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: 'hidden' }}
       onClick={() => selectLayer(null)}
     >
       {[...layers].reverse().map((layer) => (
@@ -165,8 +207,10 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight }: Composi
           key={layer.id}
           layer={layer}
           frame={frame}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
           isSelected={selectedLayerIds.includes(layer.id)}
-          onSelect={() => selectLayer(layer.id)}
+          onSelect={(multi) => selectLayer(layer.id, multi)}
         />
       ))}
     </div>

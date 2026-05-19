@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useStore } from '../store'
-import { Layer, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { AnimatableProperty, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
   DndContext, closestCenter, DragEndEvent,
@@ -11,6 +12,8 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { descendantsOf, visibleLayerRows } from '../layerTree'
+import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
 
 const BASE_FPX = 4
 const RULER_H = 24
@@ -56,29 +59,30 @@ function getChangingProps(layer: Layer): (keyof TransformProps)[] {
   })
 }
 
+function getVisibleAnimProps(layer: Layer, showAll: boolean): AnimatableProperty[] {
+  if (showAll) return ANIMATION_GROUPS.flatMap((group) => group.keys)
+  const props = new Set<AnimatableProperty>()
+  for (const group of ANIMATION_GROUPS) {
+    for (const key of group.keys) {
+      if (layer.propertyKeyframes?.[key]?.length) props.add(key)
+    }
+  }
+  getChangingProps(layer).forEach((key) => {
+    if ((ANIMATION_GROUPS.flatMap((group) => group.keys) as string[]).includes(key)) props.add(key as AnimatableProperty)
+  })
+  return [...props]
+}
+
 function savedTimelineH() {
   const v = localStorage.getItem('tl-h')
   return v ? Math.max(MIN_TL_H, parseInt(v)) : 200
-}
-
-// ── Icons ──────────────────────────────────────────────────────────────────
-function PlayIcon() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21" /></svg>
-}
-function PauseIcon() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" /></svg>
-}
-function ZoomInIcon() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="11" y1="8" x2="11" y2="14" /><line x1="8" y1="11" x2="14" y2="11" /><line x1="16" y1="16" x2="21" y2="21" /></svg>
-}
-function ZoomOutIcon() {
-  return <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="11" cy="11" r="7" /><line x1="8" y1="11" x2="14" y2="11" /><line x1="16" y1="16" x2="21" y2="21" /></svg>
 }
 
 // ── Context menus ──────────────────────────────────────────────────────────
 interface KfContextMenu {
   x: number; y: number; layerId: string; frame: number
   showEasing?: boolean
+  propKey?: AnimatableProperty
 }
 interface BarContextMenu { x: number; y: number; layerId: string }
 
@@ -93,33 +97,89 @@ interface BarDragState {
 }
 
 // ── Easing picker popup ───────────────────────────────────────────────────
-const EASINGS = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce'] as const
+const EASINGS = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce', 'custom'] as const
 
-function EasingPicker({ x, y, layerId, frame, onClose }: {
-  x: number; y: number; layerId: string; frame: number; onClose: () => void
+function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
+  x: number; y: number; layerId: string; frame: number; propKey?: AnimatableProperty; onClose: () => void
 }) {
-  const { updateKeyframeEasing } = useStore()
+  const { layers, updateKeyframeEasing, updatePropertyKeyframeEasing } = useStore()
+  const layer = layers.find((item) => item.id === layerId)
+  const current = propKey
+    ? layer?.propertyKeyframes?.[propKey]?.find((kf) => kf.frame === frame)
+    : layer?.keyframes.find((kf) => kf.frame === frame)
+  const sortedFrames = propKey
+    ? [...(layer?.propertyKeyframes?.[propKey] ?? [])].sort((a, b) => a.frame - b.frame).map((kf) => kf.frame)
+    : [...(layer?.keyframes ?? [])].sort((a, b) => a.frame - b.frame).map((kf) => kf.frame)
+  const nextFrame = sortedFrames.find((item) => item > frame)
+  const [selectedEasing, setSelectedEasing] = useState<PairEasingType>(current?.easing ?? 'ease-out')
+  const [bezier, setBezier] = useState<[number, number, number, number]>(current?.bezier ?? [0.25, 0.1, 0.25, 1])
+  function apply(easing: PairEasingType) {
+    setSelectedEasing(easing)
+    if (propKey) updatePropertyKeyframeEasing(layerId, propKey, frame, easing, easing === 'custom' ? bezier : undefined)
+    else updateKeyframeEasing(layerId, frame, easing, easing === 'custom' ? bezier : undefined)
+  }
+  function updateBezier(index: number, value: number) {
+    const next = bezier.map((item, idx) => idx === index ? value : item) as [number, number, number, number]
+    setBezier(next)
+    if (selectedEasing === 'custom') {
+      if (propKey) updatePropertyKeyframeEasing(layerId, propKey, frame, 'custom', next)
+      else updateKeyframeEasing(layerId, frame, 'custom', next)
+    }
+  }
   return (
     <div
       style={{
         position: 'fixed', left: x, top: y,
         background: 'var(--panel)', border: '1px solid var(--border)',
-        borderRadius: 6, zIndex: 1100, minWidth: 140,
+        borderRadius: 6, zIndex: 1100, minWidth: 220,
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
         padding: '4px 0',
       }}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-1" style={{ color: 'var(--text3)', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-        Easing
+        Easing segment
+      </div>
+      <div className="px-3 pb-2 text-[10px]" style={{ color: 'var(--text2)' }}>
+        {nextFrame ? `${frame} → ${nextFrame}` : `${frame} has no next keyframe`}
       </div>
       {EASINGS.map((e) => (
-        <button key={e} onClick={() => { updateKeyframeEasing(layerId, frame, e); onClose() }}
+        <button key={e} onClick={() => apply(e)}
           className="w-full text-left px-3 py-1.5 text-xs hover:opacity-80"
-          style={{ color: 'var(--text)', background: 'transparent', display: 'block' }}>
+          style={{ color: selectedEasing === e ? '#20d5f8' : 'var(--text)', background: selectedEasing === e ? 'rgba(32,213,248,0.08)' : 'transparent', display: 'block' }}>
           {e}
         </button>
       ))}
+      <div className="px-3 py-2" style={{ borderTop: '1px solid var(--border)' }}>
+        <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>Custom cubic bezier</div>
+        {bezier.map((v, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-[10px] w-6" style={{ color: 'var(--text3)' }}>{['x1', 'y1', 'x2', 'y2'][i]}</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={v}
+              onChange={(e) => updateBezier(i, Number(e.target.value))}
+              className="flex-1"
+            />
+            <input
+              type="number"
+              min={0}
+              max={1}
+              step={0.01}
+              value={v}
+              onChange={(e) => updateBezier(i, Number(e.target.value))}
+              className="input-base w-14 text-right"
+            />
+          </div>
+        ))}
+        <button onClick={() => apply('custom')} className="pill-btn mt-2 w-full">Apply custom curve</button>
+      </div>
+      <div className="px-3 pb-2">
+        <button onClick={onClose} className="pill-btn w-full">Done</button>
+      </div>
     </div>
   )
 }
@@ -127,14 +187,17 @@ function EasingPicker({ x, y, layerId, frame, onClose }: {
 // ── Sortable label (with sub-tracks) ──────────────────────────────────────
 function SortableLabel({
   layer, selected, currentFrame, onSelect, rowH,
-  expanded, onToggleExpand, changingProps,
-  onAddSubKf,
+  expanded, onToggleExpand, animProps,
+  onAddSubKf, depth, childCount, showValueGraph,
 }: {
-  layer: Layer; selected: boolean; currentFrame: number; onSelect: () => void; rowH: number
-  expanded: boolean; onToggleExpand: () => void; changingProps: (keyof TransformProps)[]
-  onAddSubKf: (layerId: string) => void
+  layer: Layer; selected: boolean; currentFrame: number; onSelect: (e: React.MouseEvent) => void; rowH: number
+  expanded: boolean; onToggleExpand: () => void; animProps: AnimatableProperty[]
+  onAddSubKf: (layerId: string, propKey: AnimatableProperty) => void
+  depth: number
+  childCount: number
+  showValueGraph: boolean
 }) {
-  const { toggleVisibility, toggleLock } = useStore()
+  const { toggleVisibility, toggleLock, toggleLayerCollapsed } = useStore()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: layer.id })
 
   const outOfRange = currentFrame < (layer.startFrame ?? 0) || currentFrame > (layer.endFrame ?? Infinity)
@@ -165,18 +228,24 @@ function SortableLabel({
           overflow: 'hidden',
         }}
       >
+        <div style={{ width: depth * 14, flexShrink: 0 }} />
         {/* Expand toggle */}
         <button
-          onClick={(e) => { e.stopPropagation(); onToggleExpand() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            if (childCount > 0 || layer.type === 'group' || layer.isGroup) toggleLayerCollapsed(layer.id)
+            else onToggleExpand()
+          }}
           style={{
             width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: hasMultipleKf ? 'var(--text2)' : 'var(--text3)',
-            fontSize: 8, background: 'transparent', cursor: hasMultipleKf ? 'pointer' : 'default',
-            transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s',
+            color: childCount > 0 || hasMultipleKf || animProps.length > 0 ? 'var(--text2)' : 'var(--text3)',
+            background: 'transparent', cursor: childCount > 0 || hasMultipleKf || animProps.length > 0 ? 'pointer' : 'default',
+            transform: (childCount > 0 || layer.type === 'group' || layer.isGroup ? !layer.collapsed : expanded) ? 'rotate(90deg)' : 'none',
+            transition: 'transform 0.15s',
           }}
-          title={hasMultipleKf ? 'Expand sub-tracks' : 'No animated properties'}
+          title={childCount > 0 ? 'Collapse or expand group' : hasMultipleKf || animProps.length > 0 ? 'Expand sub-tracks' : 'No animated properties'}
         >
-          ▶
+          <ChevronRight size={12} />
         </button>
 
         {/* Drag handle */}
@@ -184,7 +253,7 @@ function SortableLabel({
           {...attributes} {...listeners}
           onClick={(e) => e.stopPropagation()}
           style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 12, flexShrink: 0, touchAction: 'none' }}
-        >⠿</span>
+        ><GripVertical size={12} /></span>
 
         {/* Color dot */}
         <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: LAYER_TYPE_COLOR[layer.type] ?? '#888' }} />
@@ -196,20 +265,22 @@ function SortableLabel({
 
         {/* Actions */}
         <button onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}
-          style={{ color: layer.visible ? 'var(--text2)' : 'var(--text3)', fontSize: 10, lineHeight: 1, flexShrink: 0 }}>
-          {layer.visible ? '👁' : '○'}
+          className="icon-btn"
+          style={{ color: layer.visible ? 'var(--text2)' : 'var(--text3)', width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }}>
+          {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
         </button>
         <button onClick={(e) => { e.stopPropagation(); toggleLock(layer.id) }}
-          style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', fontSize: 10, lineHeight: 1, flexShrink: 0 }}>
-          {layer.locked ? '🔒' : '🔓'}
+          className="icon-btn"
+          style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }}>
+          {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
         </button>
       </div>
 
       {/* Sub-track labels */}
-      {expanded && hasMultipleKf && (
+      {expanded && (hasMultipleKf || animProps.length > 0) && (
         <div>
-          {PROP_GROUPS.map((group) => {
-            const groupProps = group.keys.filter((k) => changingProps.includes(k))
+          {ANIMATION_GROUPS.map((group) => {
+            const groupProps = group.keys.filter((k) => animProps.includes(k))
             if (groupProps.length === 0) return null
             return (
               <div key={group.label}>
@@ -224,19 +295,19 @@ function SortableLabel({
                 </div>
                 {groupProps.map((propKey) => (
                   <div key={propKey} style={{
-                    height: SUBTRACK_H, display: 'flex', alignItems: 'center', gap: 4,
+                    height: showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? 42 : SUBTRACK_H, display: 'flex', alignItems: 'center', gap: 4,
                     paddingLeft: 28, paddingRight: 6,
                     borderLeft: `2px solid ${group.color}40`,
                     background: 'rgba(0,0,0,0.08)',
                   }}>
                     <div style={{ width: 3, height: 3, borderRadius: '50%', background: group.color, flexShrink: 0 }} />
                     <span className="flex-1 truncate" style={{ fontSize: 9, color: 'var(--text2)' }}>
-                      {PROP_LABELS[propKey] ?? propKey}
+                      {PROPERTY_LABELS[propKey] ?? propKey}
                     </span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); onAddSubKf(layer.id) }}
+                      onClick={(e) => { e.stopPropagation(); onAddSubKf(layer.id, propKey) }}
                       style={{ fontSize: 10, color: group.color, flexShrink: 0, lineHeight: 1 }}
-                      title="Add keyframe at playhead"
+                      title={`Add ${PROPERTY_LABELS[propKey]} keyframe at playhead`}
                     >+</button>
                   </div>
                 ))}
@@ -252,20 +323,23 @@ function SortableLabel({
 // ── Track row (with sub-tracks) ───────────────────────────────────────────
 function TrackRow({
   layer, fpx, totalWidth, selected, currentFrame, rowH,
-  expanded, changingProps,
+  expanded, animProps, showValueGraph,
   onKfMouseDown, onKfContextMenu, onClick,
-  onBarMouseDown, onBarContextMenu,
+  onBarMouseDown, onBarContextMenu, groupRange,
+  selectedKeyframes,
 }: {
   layer: Layer; fpx: number; totalWidth: number; selected: boolean; currentFrame: number; rowH: number
-  expanded: boolean; changingProps: (keyof TransformProps)[]
-  onKfMouseDown: (e: React.MouseEvent, layerId: string, frame: number) => void
-  onKfContextMenu: (e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean) => void
+  expanded: boolean; animProps: AnimatableProperty[]; showValueGraph: boolean
+  onKfMouseDown: (e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) => void
+  onKfContextMenu: (e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => void
   onClick: () => void
   onBarMouseDown: (e: React.MouseEvent, layerId: string, type: 'left' | 'right' | 'move') => void
   onBarContextMenu: (e: React.MouseEvent, layerId: string) => void
+  groupRange?: { start: number; end: number }
+  selectedKeyframes: { layerId: string; frame: number; propKey?: AnimatableProperty }[]
 }) {
-  const startF = layer.startFrame ?? 0
-  const endF = layer.endFrame ?? (totalWidth / fpx)
+  const startF = groupRange?.start ?? layer.startFrame ?? 0
+  const endF = groupRange?.end ?? (layer.endFrame ?? (totalWidth / fpx))
   const barLeft = startF * fpx
   const barW = Math.max(4, (endF - startF) * fpx)
   const color = LAYER_TYPE_COLOR[layer.type] ?? '#6366f1'
@@ -284,12 +358,14 @@ function TrackRow({
           }}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
         >
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
+          {layer.type !== 'group' && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
             style={{ position: 'absolute', left: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px' }} />
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
-            style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: 'grab' }} />
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
+          }
+          <div onMouseDown={(e) => { if (layer.type === 'group') return; e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
+            style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: layer.type === 'group' ? 'default' : 'grab' }} />
+          {layer.type !== 'group' && <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
             style={{ position: 'absolute', right: 0, top: 0, width: BAR_HANDLE_W, height: '100%', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0' }} />
+          }
         </div>
 
         {/* Keyframe connector */}
@@ -303,67 +379,114 @@ function TrackRow({
         })()}
 
         {/* Keyframes */}
-        {layer.keyframes.map((kf) => (
-          <div key={kf.frame}
-            className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
-            style={{ left: kf.frame * fpx, top: rowH / 2 - 5 }}
-            onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame) }}
-            onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame)}
-            onClick={(e) => e.stopPropagation()}
-            title={`Frame ${kf.frame} (${kf.easing})`}
-          />
-        ))}
+        {(() => {
+          const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
+          return (
+            <>
+              {sorted.slice(0, -1).map((kf, idx) => {
+                const next = sorted[idx + 1]
+                const x = ((kf.frame + next.frame) / 2) * fpx
+                return (
+                  <button
+                    key={`${kf.frame}-main-ease`}
+                    onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true) }}
+                    style={{ position: 'absolute', left: x - 5, top: rowH / 2 - 16, width: 10, height: 10, borderRadius: '50%', background: color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
+                    title={`${kf.easing} easing from ${kf.frame} to ${next.frame}`}
+                  >~</button>
+                )
+              })}
+              {sorted.map((kf) => (
+                <div key={kf.frame}
+                  className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
+                  style={{
+                    left: kf.frame * fpx,
+                    top: rowH / 2 - 5,
+                    outline: selectedKeyframes.some((sel) => sel.layerId === layer.id && sel.frame === kf.frame && !sel.propKey) ? '2px solid #fff' : undefined,
+                  }}
+                  onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame) }}
+                  onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame)}
+                  onClick={(e) => e.stopPropagation()}
+                  title={`Frame ${kf.frame}. Easing controls the segment after this keyframe.`}
+                />
+              ))}
+            </>
+          )
+        })()}
       </div>
 
       {/* Sub-track rows */}
-      {expanded && hasMultipleKf && (
+      {expanded && (hasMultipleKf || animProps.length > 0) && (
         <div>
-          {PROP_GROUPS.map((group) => {
-            const groupProps = group.keys.filter((k) => changingProps.includes(k))
+          {ANIMATION_GROUPS.map((group) => {
+            const groupProps = group.keys.filter((k) => animProps.includes(k))
             if (groupProps.length === 0) return null
             return (
               <div key={group.label}>
                 {/* Group header track */}
                 <div style={{ height: 16, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
                 {groupProps.map((propKey) => {
-                  const p0 = layer.keyframes[0]?.props[propKey] as number
-                  const pRange = layer.keyframes.map((kf) => kf.props[propKey] as number)
+                  const propKfs = getPropertyKeyframes(layer, propKey)
+                  const effectivePropKey = propKfs.length ? propKey : undefined
+                  const sourceKfs = propKfs.length
+                    ? propKfs
+                    : layer.keyframes.map((kf) => ({ id: `${propKey}-${kf.frame}`, frame: kf.frame, value: kf.props[propKey as keyof TransformProps] as number | string, easing: kf.easing, bezier: kf.bezier }))
+                  const pRange = sourceKfs.map((kf) => typeof kf.value === 'number' ? kf.value : 0)
                   const pMin = Math.min(...pRange)
                   const pMax = Math.max(...pRange)
+                  const graphH = showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? 42 : SUBTRACK_H
 
                   return (
-                    <div key={propKey} style={{ height: SUBTRACK_H, position: 'relative', background: 'rgba(0,0,0,0.08)', borderLeft: `2px solid ${group.color}30` }}>
+                    <div key={propKey} style={{ height: graphH, position: 'relative', background: 'rgba(0,0,0,0.08)', borderLeft: `2px solid ${group.color}30` }}>
                       {/* Mini value line between consecutive keyframes */}
-                      {layer.keyframes.length >= 2 && (() => {
-                        const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
+                      {sourceKfs.length >= 2 && (() => {
+                        const sorted = [...sourceKfs].sort((a, b) => a.frame - b.frame)
                         return sorted.slice(0, -1).map((kf, i) => {
                           const next = sorted[i + 1]
                           const x1 = kf.frame * fpx
                           const x2 = next.frame * fpx
-                          const v1 = kf.props[propKey] as number
-                          const v2 = next.props[propKey] as number
+                          const v1 = typeof kf.value === 'number' ? kf.value : 0
+                          const v2 = typeof next.value === 'number' ? next.value : 0
                           const range = pMax - pMin || 1
-                          const y1 = SUBTRACK_H / 2 - ((v1 - pMin) / range - 0.5) * (SUBTRACK_H - 6)
-                          const y2 = SUBTRACK_H / 2 - ((v2 - pMin) / range - 0.5) * (SUBTRACK_H - 6)
+                          const y1 = graphH / 2 - ((v1 - pMin) / range - 0.5) * (graphH - 8)
+                          const y2 = graphH / 2 - ((v2 - pMin) / range - 0.5) * (graphH - 8)
                           const w = x2 - x1
                           if (w < 2) return null
                           return (
-                            <svg key={kf.frame} style={{ position: 'absolute', left: x1, top: 0, width: w, height: SUBTRACK_H, pointerEvents: 'none', overflow: 'visible' }}>
+                            <svg key={kf.frame} style={{ position: 'absolute', left: x1, top: 0, width: w, height: graphH, pointerEvents: 'none', overflow: 'visible' }}>
                               <line x1={0} y1={y1} x2={w} y2={y2} stroke={group.color} strokeWidth={1} strokeOpacity={0.6} />
                             </svg>
                           )
                         })
                       })()}
 
+                      {sourceKfs.length >= 2 && sourceKfs.slice(0, -1).map((kf, idx) => {
+                        const next = sourceKfs[idx + 1]
+                        const x = ((kf.frame + next.frame) / 2) * fpx
+                        return (
+                          <button
+                            key={`${kf.frame}-ease`}
+                            onClick={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
+                            style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
+                            title={`${kf.easing} easing`}
+                          >~</button>
+                        )
+                      })}
+
                       {/* Keyframe diamonds on sub-track */}
-                      {layer.keyframes.map((kf) => (
+                      {sourceKfs.map((kf) => (
                         <div key={kf.frame}
                           className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
-                          style={{ left: kf.frame * fpx, top: SUBTRACK_H / 2 - 5, width: 8, height: 8 }}
-                          onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame) }}
-                          onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame, true)}
+                          style={{
+                            left: kf.frame * fpx,
+                            top: graphH / 2 - 5,
+                            width: 8,
+                            height: 8,
+                            outline: selectedKeyframes.some((sel) => sel.layerId === layer.id && sel.frame === kf.frame && sel.propKey === propKey) ? '2px solid #fff' : undefined,
+                          }}
+                          onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame, effectivePropKey) }}
+                          onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
                           onClick={(e) => e.stopPropagation()}
-                          title={`${PROP_LABELS[propKey] ?? propKey}: ${(kf.props[propKey] as number).toFixed(2)}`}
+                          title={`${PROPERTY_LABELS[propKey] ?? propKey}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value}`}
                         />
                       ))}
                     </div>
@@ -382,12 +505,16 @@ function TrackRow({
 export function Timeline() {
   const {
     layers, currentFrame, totalFrames, fps, isPlaying,
-    selectedLayerIds, timelineZoom, markers,
+    selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
+    timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames,
-    selectLayer, removeKeyframe, moveKeyframe, addKeyframe,
+    selectLayer, removeKeyframe, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
     updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById,
+    setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
+    selectedKeyframes, selectKeyframe,
+    beginInteraction, endInteraction,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -397,15 +524,39 @@ export function Timeline() {
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
 
   const scrollRef = useRef<HTMLDivElement>(null)
+  const labelScrollRef = useRef<HTMLDivElement>(null)
   const isDragging = useRef(false)
-  const kfDrag = useRef<{ layerId: string; fromFrame: number } | null>(null)
+  const kfDrag = useRef<{ layerId: string; fromFrame: number; propKey?: AnimatableProperty } | null>(null)
   const barDrag = useRef<BarDragState | null>(null)
   const resizeDragging = useRef(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
+  useEffect(() => {
+    setTimelinePanelHeight(timelineH)
+  }, [timelineH, setTimelinePanelHeight])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el && Math.abs(el.scrollLeft - timelineScrollX) > 1) el.scrollLeft = timelineScrollX
+  }, [timelineScrollX])
+
   const fpx = BASE_FPX * timelineZoom
   const totalWidth = totalFrames * fpx
-  const reversed = [...layers].reverse()
+  const rows = visibleLayerRows(layers, true)
+  const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
+  const getGroupRange = (id: string) => {
+    const descendants = descendantsOf(layers, id)
+    if (!descendants.length) return undefined
+    return {
+      start: Math.min(...descendants.map((l) => l.startFrame ?? 0)),
+      end: Math.max(...descendants.map((l) => l.endFrame ?? totalFrames)),
+    }
+  }
+
+  function syncVerticalScroll(from: 'labels' | 'tracks', scrollTop: number) {
+    const target = from === 'labels' ? scrollRef.current : labelScrollRef.current
+    if (target && Math.abs(target.scrollTop - scrollTop) > 1) target.scrollTop = scrollTop
+  }
 
   function toggleExpand(layerId: string) {
     setExpandedLayers((prev) => {
@@ -416,11 +567,11 @@ export function Timeline() {
     })
   }
 
-  function onAddSubKf(layerId: string) {
+  function onAddSubKf(layerId: string, propKey: AnimatableProperty) {
     const layer = layers.find((l) => l.id === layerId)
     if (!layer) return
     const p = interpolateProps(currentFrame, layer.keyframes)
-    addKeyframe(layerId, currentFrame, { ...p })
+    addPropertyKeyframe(layerId, propKey, currentFrame, getAnimatedPropertyValue(layer, propKey, currentFrame, p))
   }
 
   // ── Timeline resize ────────────────────────────────────────────────────
@@ -430,13 +581,17 @@ export function Timeline() {
       const newH = window.innerHeight - e.clientY
       const clamped = Math.max(MIN_TL_H, Math.min(window.innerHeight * MAX_TL_H_RATIO, newH))
       setTimelineH(clamped)
+      setTimelinePanelHeight(clamped)
       localStorage.setItem('tl-h', String(Math.round(clamped)))
     }
-    function onMouseUp() { resizeDragging.current = false }
+    function onMouseUp() {
+      if (resizeDragging.current) endInteraction()
+      resizeDragging.current = false
+    }
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
-  }, [])
+  }, [endInteraction])
 
   // ── Scrub ──────────────────────────────────────────────────────────────
   const frameFromX = useCallback((clientX: number) => {
@@ -447,15 +602,17 @@ export function Timeline() {
     return Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
   }, [totalFrames, fpx])
 
-  function onRulerDown(e: React.MouseEvent) { isDragging.current = true; setCurrentFrame(frameFromX(e.clientX)) }
+  function onRulerDown(e: React.MouseEvent) { isDragging.current = true; beginInteraction(false); setCurrentFrame(frameFromX(e.clientX)) }
   function onRulerMove(e: React.MouseEvent) { if (isDragging.current) setCurrentFrame(frameFromX(e.clientX)) }
-  function onRulerUp() { isDragging.current = false }
+  function onRulerUp() { if (isDragging.current) endInteraction(); isDragging.current = false }
   function onRulerContextMenu(e: React.MouseEvent) { e.preventDefault(); addMarker(frameFromX(e.clientX)) }
 
   // ── Keyframe drag ──────────────────────────────────────────────────────
-  function onKfMouseDown(e: React.MouseEvent, layerId: string, frame: number) {
+  function onKfMouseDown(e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) {
     e.stopPropagation()
-    kfDrag.current = { layerId, fromFrame: frame }
+    selectKeyframe({ layerId, frame, propKey }, e.shiftKey || e.metaKey || e.ctrlKey)
+    beginInteraction(true)
+    kfDrag.current = { layerId, fromFrame: frame, propKey }
   }
 
   // ── Bar drag ───────────────────────────────────────────────────────────
@@ -463,7 +620,7 @@ export function Timeline() {
     e.stopPropagation()
     const layer = layers.find((l) => l.id === layerId)
     if (!layer) return
-    useStore.getState()._snapshot()
+    beginInteraction(true)
     barDrag.current = {
       type, layerId, startClientX: e.clientX,
       origStart: layer.startFrame ?? 0,
@@ -486,7 +643,8 @@ export function Timeline() {
         const x = e.clientX - rect.left + el.scrollLeft
         const newFrame = Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
         if (newFrame !== kfDrag.current.fromFrame) {
-          moveKeyframe(kfDrag.current.layerId, kfDrag.current.fromFrame, newFrame)
+          if (kfDrag.current.propKey) movePropertyKeyframe(kfDrag.current.layerId, kfDrag.current.propKey, kfDrag.current.fromFrame, newFrame)
+          else moveKeyframe(kfDrag.current.layerId, kfDrag.current.fromFrame, newFrame)
           kfDrag.current = { ...kfDrag.current, fromFrame: newFrame }
         }
         return
@@ -507,11 +665,15 @@ export function Timeline() {
         }
       }
     }
-    function onMouseUp() { kfDrag.current = null; barDrag.current = null }
+    function onMouseUp() {
+      if (kfDrag.current || barDrag.current) endInteraction()
+      kfDrag.current = null
+      barDrag.current = null
+    }
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
-  }, [totalFrames, fpx, moveKeyframe, updateLayerTimeRange, setLayerRange, currentFrame])
+  }, [totalFrames, fpx, moveKeyframe, movePropertyKeyframe, updateLayerTimeRange, setLayerRange, currentFrame, endInteraction])
 
   // ── Context menu auto-close ────────────────────────────────────────────
   useEffect(() => {
@@ -528,16 +690,17 @@ export function Timeline() {
     const px = currentFrame * fpx
     if (px < el.scrollLeft || px > el.scrollLeft + el.clientWidth - 40) {
       el.scrollLeft = Math.max(0, px - el.clientWidth / 2)
+      setTimelineScrollX(el.scrollLeft)
     }
-  }, [currentFrame, fpx])
+  }, [currentFrame, fpx, setTimelineScrollX])
 
   // ── DnD reorder ───────────────────────────────────────────────────────
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     if (!over || active.id === over.id) return
-    const oldIdx = reversed.findIndex((l) => l.id === active.id)
-    const newIdx = reversed.findIndex((l) => l.id === over.id)
-    reorderLayersById([...arrayMove(reversed, oldIdx, newIdx)].reverse().map((l) => l.id))
+    const oldIdx = rows.findIndex((r) => r.layer.id === active.id)
+    const newIdx = rows.findIndex((r) => r.layer.id === over.id)
+    reorderLayersById([...arrayMove(rows, oldIdx, newIdx)].reverse().map((r) => r.layer.id))
   }
 
   // ── Ruler marks ───────────────────────────────────────────────────────
@@ -566,11 +729,11 @@ export function Timeline() {
     <div style={{
       background: 'var(--timeline)', borderTop: '1px solid var(--border)',
       display: 'flex', flexDirection: 'column', flexShrink: 0,
-      height: timelineH, minHeight: MIN_TL_H, position: 'relative',
+      height: timelineH, minHeight: MIN_TL_H, position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 30,
     }}>
       {/* Resize handle */}
       <div
-        onMouseDown={() => { resizeDragging.current = true }}
+        onMouseDown={() => { resizeDragging.current = true; beginInteraction(false) }}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, cursor: 'row-resize', zIndex: 20, background: 'transparent' }}
         onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(99,102,241,0.35)' }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
@@ -578,32 +741,46 @@ export function Timeline() {
 
       {/* Control bar */}
       <div className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
-        style={{ borderBottom: '1px solid var(--border)', background: 'var(--panel)', marginTop: 4 }}>
+        style={{ borderBottom: '1px solid var(--border)', background: 'var(--toolbar)', marginTop: 4 }}>
         <button onClick={() => setPlaying(!isPlaying)}
-          className="w-7 h-7 flex items-center justify-center rounded transition-colors"
-          style={{ background: '#6366f1', color: '#fff' }}>
-          {isPlaying ? <PauseIcon /> : <PlayIcon />}
+          className="icon-btn active"
+          style={{ width: 30 }}>
+          {isPlaying ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" />}
         </button>
         <span className="font-mono text-xs" style={{ color: 'var(--text3)', minWidth: 80 }}>
           {currentFrame} / {totalFrames - 1}
         </span>
 
         <button onClick={() => setLoopEnabled(!loopEnabled)}
-          className="text-xs rounded px-2 py-1 transition-colors"
+          className="pill-btn"
           style={{
-            background: loopEnabled ? 'rgba(99,102,241,0.15)' : 'var(--input)',
-            color: loopEnabled ? '#6366f1' : 'var(--text2)',
-            border: `1px solid ${loopEnabled ? '#6366f1' : 'var(--border)'}`,
-          }}>↺ Loop</button>
+            background: loopEnabled ? 'rgba(32,213,248,0.16)' : 'var(--input)',
+            color: loopEnabled ? '#20d5f8' : 'var(--text2)',
+          }}><Repeat2 size={13} />Loop</button>
         {loopEnabled && (loopIn !== null || loopOut !== null) && (
           <button onClick={clearLoop} className="text-xs" style={{ color: 'var(--text3)' }}>✕</button>
         )}
 
+        <button
+          onClick={() => setShowAllSubtracks(!showAllSubtracks)}
+          className="pill-btn"
+          style={{ background: showAllSubtracks ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showAllSubtracks ? '#20d5f8' : 'var(--text2)' }}
+        >
+          All props
+        </button>
+        <button
+          onClick={() => setShowValueGraph(!showValueGraph)}
+          className="pill-btn"
+          style={{ background: showValueGraph ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showValueGraph ? '#20d5f8' : 'var(--text2)' }}
+        >
+          <LineChart size={13} />Value graph
+        </button>
+
         <div className="flex-1" />
 
-        <button onClick={() => setTimelineZoom(Math.max(0.25, timelineZoom / 1.5))} className="p-1 rounded" style={{ color: 'var(--text2)' }}><ZoomOutIcon /></button>
+        <button onClick={() => setTimelineZoom(Math.max(0.25, timelineZoom / 1.5))} className="icon-btn"><ZoomOut size={14} /></button>
         <span className="text-xs" style={{ color: 'var(--text3)' }}>{Math.round(timelineZoom * 100)}%</span>
-        <button onClick={() => setTimelineZoom(Math.min(8, timelineZoom * 1.5))} className="p-1 rounded" style={{ color: 'var(--text2)' }}><ZoomInIcon /></button>
+        <button onClick={() => setTimelineZoom(Math.min(8, timelineZoom * 1.5))} className="icon-btn"><ZoomIn size={14} /></button>
 
         <div className="flex items-center gap-1.5 ml-2">
           <span className="text-xs" style={{ color: 'var(--text3)' }}>Dur</span>
@@ -619,20 +796,28 @@ export function Timeline() {
         {/* Label column */}
         <div className="flex flex-col flex-shrink-0" style={{ width: LABEL_W, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
           <div style={{ height: RULER_H, flexShrink: 0, borderBottom: '1px solid var(--border2)' }} />
-          <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ overflowY: 'auto' }}>
+          <div
+            ref={labelScrollRef}
+            className="flex-1 overflow-y-auto overflow-x-hidden"
+            style={{ overflowY: 'auto' }}
+            onScroll={(e) => syncVerticalScroll('labels', e.currentTarget.scrollTop)}
+          >
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-              <SortableContext items={reversed.map((l) => l.id)} strategy={verticalListSortingStrategy}>
-                {reversed.map((layer) => (
+              <SortableContext items={rows.map((r) => r.layer.id)} strategy={verticalListSortingStrategy}>
+                {rows.map(({ layer, depth }) => (
                   <SortableLabel
                     key={layer.id}
                     layer={layer}
+                    depth={depth}
+                    childCount={childCount(layer.id)}
+                    showValueGraph={showValueGraph}
                     selected={selectedLayerIds.includes(layer.id)}
                     currentFrame={currentFrame}
-                    onSelect={() => selectLayer(layer.id)}
+                    onSelect={(e) => selectLayer(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)}
                     rowH={ROW_H}
                     expanded={expandedLayers.has(layer.id)}
                     onToggleExpand={() => toggleExpand(layer.id)}
-                    changingProps={getChangingProps(layer)}
+                    animProps={getVisibleAnimProps(layer, showAllSubtracks)}
                     onAddSubKf={onAddSubKf}
                   />
                 ))}
@@ -642,7 +827,15 @@ export function Timeline() {
         </div>
 
         {/* Scrollable tracks */}
-        <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-auto" style={{ position: 'relative', cursor: 'default' }}>
+        <div
+          ref={scrollRef}
+          className="flex-1 overflow-x-auto overflow-y-auto"
+          style={{ position: 'relative', cursor: 'default' }}
+          onScroll={(e) => {
+            setTimelineScrollX(e.currentTarget.scrollLeft)
+            syncVerticalScroll('tracks', e.currentTarget.scrollTop)
+          }}
+        >
           <div style={{ width: Math.max(totalWidth, 400), position: 'relative' }}>
             {/* Ruler */}
             <div
@@ -666,18 +859,21 @@ export function Timeline() {
             </div>
 
             {/* Track rows — same order as label column */}
-            {reversed.map((layer) => (
+            {rows.map(({ layer }) => (
               <TrackRow
                 key={layer.id}
                 layer={layer} fpx={fpx} totalWidth={totalWidth}
                 selected={selectedLayerIds.includes(layer.id)}
                 currentFrame={currentFrame} rowH={ROW_H}
                 expanded={expandedLayers.has(layer.id)}
-                changingProps={getChangingProps(layer)}
+                animProps={getVisibleAnimProps(layer, showAllSubtracks)}
+                showValueGraph={showValueGraph}
+                groupRange={getGroupRange(layer.id)}
+                selectedKeyframes={selectedKeyframes}
                 onKfMouseDown={onKfMouseDown}
-                onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean) => {
+                onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => {
                   e.preventDefault(); e.stopPropagation()
-                  setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing })
+                  setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing, propKey })
                 }}
                 onClick={() => selectLayer(layer.id)}
                 onBarMouseDown={onBarMouseDown}
@@ -698,9 +894,9 @@ export function Timeline() {
         <div style={{ position: 'fixed', left: kfContextMenu.x, top: kfContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
-            { label: 'Delete keyframe', danger: true, action: () => { removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
+            { label: 'Delete keyframe', danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
             { label: 'Copy keyframe', danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } },
-            ...(copiedKf ? [{ label: 'Paste keyframe', danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
+            ...(copiedKf && !kfContextMenu.propKey ? [{ label: 'Paste keyframe', danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
             { label: 'Set easing…', danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
           ].map(({ label, action, danger }) => (
             <button key={label} onClick={action} className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
@@ -714,6 +910,7 @@ export function Timeline() {
         <EasingPicker
           x={kfContextMenu.x} y={kfContextMenu.y}
           layerId={kfContextMenu.layerId} frame={kfContextMenu.frame}
+          propKey={kfContextMenu.propKey}
           onClose={() => setKfContextMenu(null)}
         />
       )}

@@ -1,7 +1,9 @@
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store'
-import { interpolateProps } from '../../remotion/interpolateProps'
 import { TransformProps } from '../../types'
 import { SectionHeader } from './TransformPanel'
+import { ScrubField } from './ScrubField'
+import { resolveLayerAnimation } from '../../animationProperties'
 
 type SliderField = {
   propKey: keyof TransformProps
@@ -30,24 +32,18 @@ const SHADOW_FIELDS: SliderField[] = [
 function SliderRow({ label, value, min, max, step, unit, onChange }: Omit<SliderField, 'propKey'> & {
   value: number; onChange: (v: number) => void
 }) {
+  const { beginInteraction, endInteraction } = useStore()
   return (
     <div className="px-3 py-1">
       <div className="flex items-center justify-between mb-0.5">
-        <span className="text-xs" style={{ color: 'var(--text2)' }}>{label}</span>
-        <div className="flex items-center gap-1">
-          <input
-            type="number"
-            value={parseFloat(value.toFixed(2))}
-            min={min} max={max} step={step}
-            onChange={(e) => onChange(parseFloat(e.target.value))}
-            className="input-base w-14 text-right"
-          />
-          {unit && <span style={{ color: 'var(--text3)', fontSize: 10, minWidth: 16 }}>{unit}</span>}
-        </div>
+        <ScrubField label={label} value={value} min={min} max={max} step={step} sensitivity={step} unit={unit} onChange={onChange} />
       </div>
       <input
         type="range" min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
+        onPointerDown={() => beginInteraction(true)}
+        onPointerUp={() => endInteraction()}
+        onBlur={() => endInteraction()}
         className="w-full"
         style={{ accentColor: 'var(--accent)' }}
       />
@@ -55,15 +51,49 @@ function SliderRow({ label, value, min, max, step, unit, onChange }: Omit<Slider
   )
 }
 
+function DebouncedColorInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [local, setLocal] = useState(value)
+  const timer = useRef<number | null>(null)
+  const active = useRef(false)
+  const { beginInteraction, endInteraction } = useStore()
+
+  useEffect(() => {
+    if (!active.current) setLocal(value)
+  }, [value])
+
+  function schedule(next: string) {
+    setLocal(next)
+    if (!active.current) {
+      active.current = true
+      beginInteraction(true)
+    }
+    if (timer.current) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      onChange(next)
+      active.current = false
+      endInteraction()
+    }, 120)
+  }
+
+  function flush() {
+    if (timer.current) window.clearTimeout(timer.current)
+    onChange(local)
+    if (active.current) endInteraction()
+    active.current = false
+  }
+
+  return <input type="color" value={local} onChange={(e) => schedule(e.target.value)} onBlur={flush} className="w-8 h-7 cursor-pointer border-0 bg-transparent" />
+}
+
 export function EffectsPanel() {
-  const { layers, selectedLayerIds, currentFrame, addKeyframe, updateLayerProp } = useStore()
+  const { layers, selectedLayerIds, currentFrame, setLayerAnimatedProperty, updateLayerProp } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!layer) return null
 
-  const p = interpolateProps(currentFrame, layer.keyframes)
+  const p = resolveLayerAnimation(layer, currentFrame).transform
 
   function handleChange(key: keyof TransformProps, value: number) {
-    addKeyframe(layer!.id, currentFrame, { ...p, [key]: value })
+    setLayerAnimatedProperty(layer!.id, key, value)
   }
 
   return (
@@ -95,13 +125,11 @@ export function EffectsPanel() {
         <>
           <div className="flex items-center gap-2 px-3 pb-2">
             <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
-            <input
-              type="color"
+            <DebouncedColorInput
               value={layer.shadowColor.startsWith('rgba')
                 ? '#000000'
                 : layer.shadowColor}
-              onChange={(e) => updateLayerProp(layer.id, 'shadowColor', e.target.value)}
-              className="w-8 h-7 cursor-pointer border-0 bg-transparent"
+              onChange={(value) => updateLayerProp(layer.id, 'shadowColor', value)}
             />
           </div>
           {SHADOW_FIELDS.map((f) => (

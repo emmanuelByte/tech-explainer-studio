@@ -1,4 +1,4 @@
-import { Keyframe, TransformProps, DEFAULT_TRANSFORM, EasingType } from '../types'
+import { Keyframe, TransformProps, DEFAULT_TRANSFORM, EasingType, PairEasingType } from '../types'
 
 // Standard easing functions
 const easings: Record<EasingType, (t: number) => number> = {
@@ -24,22 +24,34 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t
 }
 
+function cubicBezierY(t: number, bezier: [number, number, number, number]) {
+  const [, y1, , y2] = bezier
+  const inv = 1 - t
+  return 3 * inv * inv * t * y1 + 3 * inv * t * t * y2 + t * t * t
+}
+
+function easingProgress(easing: PairEasingType, t: number, bezier?: [number, number, number, number]) {
+  const clamped = Math.max(0, Math.min(1, t))
+  if (easing === 'custom') return cubicBezierY(clamped, bezier ?? [0.25, 0.1, 0.25, 1])
+  return easings[easing as EasingType](clamped)
+}
+
 export function interpolateProps(frame: number, keyframes: Keyframe[]): TransformProps {
   if (keyframes.length === 0) return { ...DEFAULT_TRANSFORM }
 
   const sorted = [...keyframes].sort((a, b) => a.frame - b.frame)
 
-  if (frame <= sorted[0].frame) return { ...sorted[0].props }
-  if (frame >= sorted[sorted.length - 1].frame) return { ...sorted[sorted.length - 1].props }
+  if (frame <= sorted[0].frame) return { ...DEFAULT_TRANSFORM, ...sorted[0].props }
+  if (frame >= sorted[sorted.length - 1].frame) return { ...DEFAULT_TRANSFORM, ...sorted[sorted.length - 1].props }
 
   for (let i = 0; i < sorted.length - 1; i++) {
     const a = sorted[i], b = sorted[i + 1]
     if (frame >= a.frame && frame <= b.frame) {
       const raw = (frame - a.frame) / (b.frame - a.frame)
-      const eased = easings[a.easing](Math.max(0, Math.min(1, raw)))
+      const eased = easingProgress(a.easing, raw, a.bezier)
       const result = {} as TransformProps
       for (const key of Object.keys(DEFAULT_TRANSFORM) as Array<keyof TransformProps>) {
-        result[key] = lerp(a.props[key] as number, b.props[key] as number, eased) as never
+        result[key] = lerp((a.props[key] ?? DEFAULT_TRANSFORM[key]) as number, (b.props[key] ?? DEFAULT_TRANSFORM[key]) as number, eased) as never
       }
       return result
     }
@@ -51,7 +63,7 @@ export function interpolateProps(frame: number, keyframes: Keyframe[]): Transfor
 export function buildTransform(p: TransformProps): string {
   return [
     `translate(${p.x}px,${p.y}px)`,
-    `scale(${p.scale})`,
+    `scale(${p.scale * p.scaleX},${p.scale * p.scaleY})`,
     `rotateX(${p.rotateX}deg)`,
     `rotateY(${p.rotateY}deg)`,
     `rotateZ(${p.rotateZ}deg)`,

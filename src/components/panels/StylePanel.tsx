@@ -1,16 +1,88 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS } from '../../types'
 import { SectionHeader } from './TransformPanel'
+import { ScrubField } from './ScrubField'
+import { resolveLayerAnimation } from '../../animationProperties'
+
+function estimateTextSize(text: string, fontSize: number, lineHeight: number, letterSpacing: number) {
+  const lines = (text || 'Text').split('\n')
+  const longest = Math.max(...lines.map((line) => line.length), 1)
+  return {
+    width: Math.ceil(longest * (fontSize * 0.58 + letterSpacing) + 24),
+    height: Math.ceil(lines.length * fontSize * lineHeight + 16),
+  }
+}
+
+function DebouncedColorInput({ value, onChange, className }: {
+  value: string
+  onChange: (value: string) => void
+  className?: string
+}) {
+  const [local, setLocal] = useState(value)
+  const timer = useRef<number | null>(null)
+  const active = useRef(false)
+  const { beginInteraction, endInteraction } = useStore()
+
+  useEffect(() => {
+    if (!active.current) setLocal(value)
+  }, [value])
+
+  function schedule(next: string) {
+    setLocal(next)
+    if (!active.current) {
+      active.current = true
+      beginInteraction(true)
+    }
+    if (timer.current) window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(() => {
+      onChange(next)
+      active.current = false
+      endInteraction()
+    }, 120)
+  }
+
+  function flush() {
+    if (timer.current) window.clearTimeout(timer.current)
+    onChange(local)
+    if (active.current) endInteraction()
+    active.current = false
+  }
+
+  return (
+    <input
+      type="color"
+      value={local}
+      onChange={(e) => schedule(e.target.value)}
+      onBlur={flush}
+      className={className ?? 'w-8 h-7 cursor-pointer border-0 bg-transparent'}
+    />
+  )
+}
 
 export function StylePanel() {
-  const { layers, selectedLayerIds, updateLayerProp } = useStore()
+  const {
+    layers, selectedLayerIds, currentFrame, updateLayerProp, setLayerAnimatedProperty,
+    setTextSelection, updateTextSelectionStyle, beginInteraction, endInteraction,
+  } = useStore()
   const maybeLayer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!maybeLayer) return null
 
   // Narrow type in closures
-  const layer: Layer = maybeLayer
-  const upd = <K extends keyof Layer>(k: K, v: Layer[K]) => updateLayerProp(layer.id, k, v)
+  const sourceLayer: Layer = maybeLayer
+  const layer: Layer = resolveLayerAnimation(sourceLayer, currentFrame).layer
+  const upd = <K extends keyof Layer>(k: K, v: Layer[K]) => updateLayerProp(sourceLayer.id, k, v)
+  const updateTextSizing = (next: Partial<Layer>) => {
+    if ((sourceLayer.sizeMode ?? 'fixed') !== 'fit-content') return
+    const sized = estimateTextSize(
+      String(next.text ?? sourceLayer.text),
+      Number(next.fontSize ?? sourceLayer.fontSize),
+      Number(next.lineHeight ?? sourceLayer.lineHeight),
+      Number(next.letterSpacing ?? sourceLayer.letterSpacing),
+    )
+    setLayerAnimatedProperty(sourceLayer.id, 'width', sized.width)
+    setLayerAnimatedProperty(sourceLayer.id, 'height', sized.height)
+  }
 
   function addGradientStop() {
     upd('gradientStops', [...layer.gradientStops, { color: '#ffffff', position: 100 }])
@@ -49,8 +121,8 @@ export function StylePanel() {
       {layer.fillType === 'solid' && (
         <div className="flex items-center gap-2 px-3 py-1.5">
           <span className="text-xs" style={{ color: 'var(--text2)' }}>Color</span>
-          <input type="color" value={layer.fillColor}
-            onChange={(e) => upd('fillColor', e.target.value)}
+          <DebouncedColorInput value={layer.fillColor}
+            onChange={(value) => setLayerAnimatedProperty(layer.id, 'fillColor', value)}
             className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent"
           />
           <span className="text-xs font-mono" style={{ color: 'var(--text2)' }}>{layer.fillColor}</span>
@@ -64,6 +136,9 @@ export function StylePanel() {
               <span className="text-xs" style={{ color: 'var(--text2)' }}>Angle</span>
               <input type="range" min={0} max={360} value={layer.gradientAngle}
                 onChange={(e) => upd('gradientAngle', Number(e.target.value))}
+                onPointerDown={() => beginInteraction(true)}
+                onPointerUp={() => endInteraction()}
+                onBlur={() => endInteraction()}
                 className="flex-1"
               />
               <span className="text-xs w-8 text-right" style={{ color: 'var(--text3)' }}>{layer.gradientAngle}°</span>
@@ -82,8 +157,8 @@ export function StylePanel() {
           {/* Stops */}
           {layer.gradientStops.map((stop, i) => (
             <div key={i} className="flex items-center gap-1.5">
-              <input type="color" value={stop.color}
-                onChange={(e) => updateStop(i, 'color', e.target.value)}
+              <DebouncedColorInput value={stop.color}
+                onChange={(value) => updateStop(i, 'color', value)}
                 className="w-7 h-6 cursor-pointer border-0 bg-transparent rounded"
               />
               <input type="number" min={0} max={100} value={stop.position}
@@ -119,17 +194,16 @@ export function StylePanel() {
           <>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Color</span>
-              <input type="color" value={layer.strokeColor}
-                onChange={(e) => upd('strokeColor', e.target.value)}
+              <DebouncedColorInput value={layer.strokeColor}
+                onChange={(value) => setLayerAnimatedProperty(layer.id, 'strokeColor', value)}
                 className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Width</span>
-              <input type="number" min={0} value={layer.strokeWidth}
-                onChange={(e) => upd('strokeWidth', Number(e.target.value))}
-                className="input-base flex-1 w-0 text-right"
-              />
+              <ScrubField label="" value={layer.strokeWidth} min={0} step={1} sensitivity={1} precision={0}
+                onChange={(v) => setLayerAnimatedProperty(layer.id, 'strokeWidth', Math.round(v))}
+                compact />
             </div>
           </>
         )}
@@ -139,13 +213,9 @@ export function StylePanel() {
       {layer.type !== 'line' && layer.type !== 'ellipse' && layer.type !== 'triangle' && (
         <>
           <SectionHeader label="Border Radius" />
-          <div className="px-3 pb-2 flex items-center gap-2">
-            <input type="range" min={0} max={200} value={layer.borderRadius}
-              onChange={(e) => upd('borderRadius', Number(e.target.value))}
-              className="flex-1"
-            />
-            <span className="text-xs w-8 text-right" style={{ color: 'var(--text3)' }}>{layer.borderRadius}px</span>
-          </div>
+          <ScrubField label="Radius" value={layer.borderRadius} min={0} max={200} step={1} sensitivity={1} precision={0} unit="px"
+            onChange={(v) => setLayerAnimatedProperty(layer.id, 'borderRadius', Math.round(v))}
+          />
         </>
       )}
 
@@ -156,14 +226,21 @@ export function StylePanel() {
           <div className="px-3 pb-2 flex flex-col gap-1.5">
             <textarea
               value={layer.text}
-              onChange={(e) => upd('text', e.target.value)}
+              onChange={(e) => {
+                upd('text', e.target.value)
+                updateTextSizing({ text: e.target.value } as Partial<Layer>)
+              }}
+              onSelect={(e) => {
+                const el = e.currentTarget
+                setTextSelection({ layerId: layer.id, start: el.selectionStart, end: el.selectionEnd })
+              }}
               className="input-base w-full resize-none"
               rows={3}
             />
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Font</span>
               <select value={layer.fontFamily}
-                onChange={(e) => upd('fontFamily', e.target.value)}
+                onChange={(e) => updateTextSelectionStyle(layer.id, { fontFamily: e.target.value })}
                 className="input-base flex-1"
               >
                 {GOOGLE_FONTS.map((f) => <option key={f} value={f}>{f}</option>)}
@@ -172,15 +249,17 @@ export function StylePanel() {
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>Size</span>
-                <input type="number" min={6} value={layer.fontSize}
-                  onChange={(e) => upd('fontSize', Number(e.target.value))}
-                  className="input-base flex-1 w-0 text-right"
-                />
+                <ScrubField label="" value={layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
+                  onChange={(v) => {
+                    updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
+                    updateTextSizing({ fontSize: Math.round(v) } as Partial<Layer>)
+                  }}
+                  compact />
               </div>
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>Weight</span>
                 <select value={layer.fontWeight}
-                  onChange={(e) => upd('fontWeight', e.target.value)}
+                  onChange={(e) => updateTextSelectionStyle(layer.id, { fontWeight: e.target.value })}
                   className="input-base flex-1"
                 >
                   {['300', '400', '500', '600', '700', '800', '900'].map((w) => (
@@ -191,8 +270,8 @@ export function StylePanel() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>Color</span>
-              <input type="color" value={layer.textColor}
-                onChange={(e) => upd('textColor', e.target.value)}
+              <DebouncedColorInput value={layer.textColor}
+                onChange={(value) => useStore.getState().updateTextSelectionStyle(layer.id, { textColor: value })}
                 className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
             </div>
@@ -212,17 +291,21 @@ export function StylePanel() {
             <div className="flex gap-2">
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>LS</span>
-                <input type="number" step={0.1} value={layer.letterSpacing}
-                  onChange={(e) => upd('letterSpacing', Number(e.target.value))}
-                  className="input-base flex-1 w-0 text-right"
-                />
+                <ScrubField label="" value={layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
+                  onChange={(v) => {
+                    updateTextSelectionStyle(layer.id, { letterSpacing: v })
+                    updateTextSizing({ letterSpacing: v } as Partial<Layer>)
+                  }}
+                  compact />
               </div>
               <div className="flex items-center gap-1 flex-1">
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>LH</span>
-                <input type="number" step={0.05} value={layer.lineHeight}
-                  onChange={(e) => upd('lineHeight', Number(e.target.value))}
-                  className="input-base flex-1 w-0 text-right"
-                />
+                <ScrubField label="" value={layer.lineHeight} min={0.1} step={0.05} sensitivity={0.01} precision={2}
+                  onChange={(v) => {
+                    setLayerAnimatedProperty(layer.id, 'lineHeight', v)
+                    updateTextSizing({ lineHeight: v } as Partial<Layer>)
+                  }}
+                  compact />
               </div>
             </div>
           </div>

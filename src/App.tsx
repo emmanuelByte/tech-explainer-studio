@@ -1,145 +1,334 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlertTriangle, Check, Circle, CircleDot, Download, FileJson, Hand, History,
+  Home, LoaderCircle, Moon, MousePointer2, Redo2, Save, Slash, Square,
+  Sun, Triangle, Type, Undo2,
+} from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { LayersPanel } from './components/LayersPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { Timeline } from './components/Timeline'
 import { ExportModal } from './components/ExportModal'
+import { HomeScreen } from './components/HomeScreen'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
-import { Tool } from './types'
+import { MotionProject, ProjectHistorySnapshot, Tool } from './types'
+import {
+  exportJson,
+  projectFromStore,
+  readHistory,
+  readProject,
+  saveHistorySnapshot,
+  upsertProject,
+} from './projectStorage'
 
-const TOOLS: { id: Tool; label: string; key: string; icon: string }[] = [
-  { id: 'select', label: 'Select', key: 'V', icon: '↖' },
-  { id: 'hand', label: 'Pan', key: 'H', icon: '✋' },
-  { id: 'rectangle', label: 'Rectangle', key: 'R', icon: '▭' },
-  { id: 'ellipse', label: 'Ellipse', key: 'E', icon: '◯' },
-  { id: 'text', label: 'Text', key: 'T', icon: 'T' },
-  { id: 'line', label: 'Line', key: 'L', icon: '╱' },
-  { id: 'triangle', label: 'Triangle', key: '', icon: '△' },
+const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon }[] = [
+  { id: 'select', label: 'Select', key: 'V', icon: MousePointer2 },
+  { id: 'hand', label: 'Pan', key: 'H', icon: Hand },
+  { id: 'rectangle', label: 'Rectangle', key: 'R', icon: Square },
+  { id: 'ellipse', label: 'Ellipse', key: 'E', icon: Circle },
+  { id: 'text', label: 'Text', key: 'T', icon: Type },
+  { id: 'line', label: 'Line', key: 'L', icon: Slash },
+  { id: 'triangle', label: 'Triangle', key: '', icon: Triangle },
 ]
 
+type Route = { name: 'home' } | { name: 'editor'; projectId: string }
+type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed'
+
+function routeFromPath(): Route {
+  const match = window.location.pathname.match(/^\/editor\/([^/]+)/)
+  return match ? { name: 'editor', projectId: decodeURIComponent(match[1]) } : { name: 'home' }
+}
+
+function pushRoute(route: Route) {
+  const path = route.name === 'home' ? '/' : `/editor/${encodeURIComponent(route.projectId)}`
+  window.history.pushState(null, '', path)
+  window.dispatchEvent(new PopStateEvent('popstate'))
+}
+
 function ToolButton({ tool, active, onClick }: { tool: typeof TOOLS[0]; active: boolean; onClick: () => void }) {
+  const Icon = tool.icon
   return (
     <button
       onClick={onClick}
       title={`${tool.label}${tool.key ? ` (${tool.key})` : ''}`}
-      className="w-7 h-7 flex items-center justify-center rounded text-xs transition-colors"
-      style={{
-        background: active ? 'rgba(99,102,241,0.2)' : 'transparent',
-        color: active ? '#6366f1' : 'var(--text2)',
-        border: `1px solid ${active ? '#6366f1' : 'transparent'}`,
-        fontFamily: 'monospace',
-      }}
+      className={`icon-btn ${active ? 'active' : ''}`}
     >
-      {tool.icon}
+      <Icon size={15} strokeWidth={2.2} />
     </button>
   )
 }
 
-function App() {
-  const [showExport, setShowExport] = useState(false)
+function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
+  const map = {
+    saved: { icon: Check, text: 'Saved', color: '#22c55e' },
+    unsaved: { icon: CircleDot, text: 'Unsaved changes', color: '#f59e0b' },
+    saving: { icon: LoaderCircle, text: 'Saving...', color: '#60a5fa' },
+    failed: { icon: AlertTriangle, text: 'Save failed', color: '#ef4444' },
+  }[status]
+  const Icon = map.icon
+  return (
+    <div className="flex items-center gap-1 text-xs" style={{ color: map.color }}>
+      <Icon size={13} className={status === 'saving' ? 'animate-spin' : ''} />
+      <span>{map.text}</span>
+      {status === 'failed' && <button onClick={onRetry} className="underline ml-1">retry</button>}
+    </div>
+  )
+}
+
+function ProjectTitle() {
+  const { projectName, renameProject } = useStore()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(projectName)
+
+  useEffect(() => setName(projectName), [projectName])
+
+  function commit() {
+    setEditing(false)
+    const next = name.trim()
+    if (next) renameProject(next)
+    else setName(projectName)
+  }
+
+  if (editing) {
+    return (
+      <input
+      className="input-base text-xs text-center"
+        value={name}
+        autoFocus
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') { setEditing(false); setName(projectName) }
+        }}
+      />
+    )
+  }
+  return (
+    <button className="text-xs font-semibold truncate max-w-[260px]" title="Rename project" onClick={() => setEditing(true)}>
+      {projectName}
+    </button>
+  )
+}
+
+function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: (snapshot: ProjectHistorySnapshot) => void }) {
+  const projectId = useStore((s) => s.projectId)
+  const snapshots = useMemo(() => projectId ? readHistory(projectId) : [], [projectId])
+  const [active, setActive] = useState<ProjectHistorySnapshot | null>(snapshots[0] ?? null)
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 3000 }}>
+      <div className="w-[720px] max-w-[calc(100vw-32px)] rounded-lg p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold">History</h2>
+          <button onClick={onClose} style={{ color: 'var(--text2)' }}>x</button>
+        </div>
+        <div className="grid grid-cols-[260px_1fr] gap-4 min-h-[280px]">
+          <div className="overflow-auto" style={{ borderRight: '1px solid var(--border)' }}>
+            {snapshots.length === 0 && <div className="text-xs" style={{ color: 'var(--text3)' }}>No manual saves yet.</div>}
+            {snapshots.map((snapshot) => (
+              <button
+                key={snapshot.id}
+                className="block w-full text-left px-2 py-2 rounded text-xs"
+                style={{ background: active?.id === snapshot.id ? 'rgba(99,102,241,0.16)' : 'transparent' }}
+                onClick={() => setActive(snapshot)}
+              >
+                <div>{snapshot.label}</div>
+                <div style={{ color: 'var(--text3)' }}>{new Date(snapshot.timestamp).toLocaleString()}</div>
+              </button>
+            ))}
+          </div>
+          <div>
+            {active ? (
+              <>
+                <div className="aspect-video rounded mb-3 flex items-center justify-center" style={{ background: 'var(--canvas-bg)', border: '1px solid var(--border)' }}>
+                  <div className="text-xs" style={{ color: 'var(--text2)' }}>
+                    {active.project.canvas.width} x {active.project.canvas.height} · {active.project.layers.length} layers
+                  </div>
+                </div>
+                <button onClick={() => onRestore(active)} className="rounded px-3 py-2 text-sm" style={{ background: '#6366f1', color: '#fff' }}>
+                  Restore this version
+                </button>
+              </>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4 }: {
+  saveStatus: SaveStatus
+  onForceSave: () => void
+  onGoHome: () => void
+  onExportMp4: () => void
+}) {
   const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool, autoKeyframe, setAutoKeyframe } = useStore()
+  const [showHistory, setShowHistory] = useState(false)
+
+  function exportProject() {
+    const project = projectFromStore()
+    exportJson(`${project.name}.motionproj`, project)
+  }
+
+  return (
+    <header
+      className="capcut-topbar flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
+      style={{ minHeight: 44, zIndex: 5 }}
+    >
+      <button onClick={onGoHome} className="pill-btn" title="Home"><Home size={14} />Home</button>
+      <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
+      <button onClick={undo} disabled={_past.length === 0} title="Undo (Ctrl+Z)" className="icon-btn disabled:opacity-30"><Undo2 size={15} /></button>
+      <button onClick={redo} disabled={_future.length === 0} title="Redo (Ctrl+Shift+Z)" className="icon-btn disabled:opacity-30"><Redo2 size={15} /></button>
+      <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
+      {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
+
+      <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
+        <ProjectTitle />
+        <SaveIndicator status={saveStatus} onRetry={onForceSave} />
+      </div>
+
+      <button onClick={() => setShowHistory(true)} className="pill-btn"><History size={14} />History</button>
+      <button onClick={exportProject} className="pill-btn"><FileJson size={14} />Project</button>
+      <button onClick={() => setAutoKeyframe(!autoKeyframe)} title="Auto-keyframe" className={`icon-btn ${autoKeyframe ? 'active' : ''}`} style={autoKeyframe ? { background: '#ef4444', color: '#fff' } : undefined}><CircleDot size={15} /></button>
+      <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title="Toggle theme">{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</button>
+      <button onClick={onExportMp4} className="pill-btn primary-btn ml-1"><Download size={14} />Export MP4</button>
+      {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onRestore={(snapshot) => { useStore.getState().loadProject(snapshot.project); upsertProject(snapshot.project); setShowHistory(false) }} />}
+    </header>
+  )
+}
+
+function EditorScreen({ projectId }: { projectId: string }) {
+  const [showExport, setShowExport] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
+  const saveTimer = useRef<number | null>(null)
+  const loadedId = useRef<string | null>(null)
+  const storeState = useStore()
+  const timelinePanelHeight = useStore((s) => s.timelinePanelHeight)
 
   usePlayback()
   useKeyboardShortcuts()
 
-  // Apply theme class to <html>
+  useEffect(() => {
+    if (loadedId.current === projectId) return
+    const project = readProject(projectId)
+    if (project) {
+      useStore.getState().loadProject(project)
+      loadedId.current = projectId
+      setSaveStatus('saved')
+    } else {
+      pushRoute({ name: 'home' })
+    }
+  }, [projectId])
+
+  const forceSave = (history = false) => {
+    try {
+      setSaveStatus('saving')
+      const project = projectFromStore()
+      upsertProject(project)
+      useStore.setState({ projectUpdatedAt: project.updatedAt })
+      if (history) saveHistorySnapshot(project)
+      setSaveStatus('saved')
+    } catch {
+      setSaveStatus('failed')
+    }
+  }
+
+  useEffect(() => {
+    if (!loadedId.current) return
+    setSaveStatus((s) => s === 'failed' ? s : 'unsaved')
+    if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    if (storeState.activeInteractionCount > 0) return
+    saveTimer.current = window.setTimeout(() => forceSave(false), 500)
+    return () => {
+      if (saveTimer.current) window.clearTimeout(saveTimer.current)
+    }
+  }, [
+    storeState.projectName,
+    storeState.layers,
+    storeState.guides,
+    storeState.currentFrame,
+    storeState.totalFrames,
+    storeState.fps,
+    storeState.canvasPreset,
+    storeState.customWidth,
+    storeState.customHeight,
+    storeState.canvasBackgroundColor,
+    storeState.timelineZoom,
+    storeState.timelineScrollX,
+    storeState.editorZoom,
+    storeState.editorPanX,
+    storeState.editorPanY,
+    storeState.selectedLayerIds,
+    storeState.activeInteractionCount,
+  ])
+
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (saveStatus === 'saved') return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [saveStatus])
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        if (saveTimer.current) window.clearTimeout(saveTimer.current)
+        forceSave(true)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  function goHome() {
+    if (saveStatus !== 'saved' && !confirm('You have unsaved changes. Leave the editor?')) return
+    pushRoute({ name: 'home' })
+  }
+
+  return (
+    <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
+      <EditorTopBar saveStatus={saveStatus} onForceSave={() => forceSave(false)} onGoHome={goHome} onExportMp4={() => setShowExport(true)} />
+      <div className="relative flex-1 min-h-0 overflow-hidden">
+        <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: timelinePanelHeight }}>
+          <LayersPanel />
+          <PreviewCanvas />
+          <PropertiesPanel />
+        </div>
+        <Timeline />
+      </div>
+      {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+    </div>
+  )
+}
+
+function App() {
+  const [route, setRoute] = useState<Route>(routeFromPath)
+  const theme = useStore((s) => s.theme)
+
+  useEffect(() => {
+    const onPop = () => setRoute(routeFromPath())
+    window.addEventListener('popstate', onPop)
+    return () => window.removeEventListener('popstate', onPop)
+  }, [])
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
   }, [theme])
 
-  return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--text)' }}>
-      {/* Top toolbar */}
-      <header
-        className="flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
-        style={{ background: 'var(--panel)', borderBottom: '1px solid var(--border)', minHeight: 40 }}
-      >
-        {/* Logo */}
-        <div className="flex items-center gap-1.5 mr-2">
-          <div className="w-2.5 h-2.5 rounded-sm" style={{ background: '#6366f1' }} />
-          <span className="text-xs font-bold tracking-tight" style={{ color: 'var(--text)' }}>MotionEditor</span>
-        </div>
+  if (route.name === 'home') {
+    return <HomeScreen onOpenProject={(project: MotionProject) => { upsertProject(project); pushRoute({ name: 'editor', projectId: project.id }) }} />
+  }
 
-        <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-
-        {/* Undo / Redo */}
-        <button
-          onClick={undo}
-          disabled={_past.length === 0}
-          title="Undo (Ctrl+Z)"
-          className="w-7 h-7 flex items-center justify-center rounded text-xs transition-colors disabled:opacity-30"
-          style={{ color: 'var(--text2)', background: 'transparent' }}
-        >
-          ↩
-        </button>
-        <button
-          onClick={redo}
-          disabled={_future.length === 0}
-          title="Redo (Ctrl+Shift+Z)"
-          className="w-7 h-7 flex items-center justify-center rounded text-xs transition-colors disabled:opacity-30"
-          style={{ color: 'var(--text2)', background: 'transparent' }}
-        >
-          ↪
-        </button>
-
-        <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-
-        {/* Tools */}
-        {TOOLS.map((tool) => (
-          <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />
-        ))}
-
-        <div className="flex-1" />
-
-        {/* Auto-keyframe toggle */}
-        <button
-          onClick={() => setAutoKeyframe(!autoKeyframe)}
-          title={`Auto-keyframe ${autoKeyframe ? 'ON — changes create keyframes at playhead' : 'OFF — changes update base keyframe'}`}
-          className="w-7 h-7 flex items-center justify-center rounded text-xs transition-colors"
-          style={{
-            background: autoKeyframe ? 'rgba(239,68,68,0.2)' : 'var(--input)',
-            color: autoKeyframe ? '#ef4444' : 'var(--text3)',
-            border: `1px solid ${autoKeyframe ? '#ef4444' : 'var(--border)'}`,
-          }}
-        >
-          ⏺
-        </button>
-
-        {/* Theme toggle */}
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="w-7 h-7 flex items-center justify-center rounded text-sm transition-colors"
-          style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-          title="Toggle dark/light mode"
-        >
-          {theme === 'dark' ? '☀️' : '🌙'}
-        </button>
-
-        {/* Export */}
-        <button
-          onClick={() => setShowExport(true)}
-          className="text-xs rounded px-3 py-1.5 transition-colors flex items-center gap-1.5 ml-1"
-          style={{ background: '#6366f1', color: '#fff', border: 'none' }}
-        >
-          ↓ Export MP4
-        </button>
-      </header>
-
-      {/* Main area */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <LayersPanel />
-        <PreviewCanvas />
-        <PropertiesPanel />
-      </div>
-
-      {/* Timeline */}
-      <Timeline />
-
-      {showExport && <ExportModal onClose={() => setShowExport(false)} />}
-    </div>
-  )
+  return <EditorScreen projectId={route.projectId} />
 }
 
 export default App

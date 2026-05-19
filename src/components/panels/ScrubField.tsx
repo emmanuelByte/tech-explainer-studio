@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useStore } from '../../store'
 
 interface ScrubFieldProps {
   label: string
@@ -11,16 +12,21 @@ interface ScrubFieldProps {
   precision?: number
   /** Units to change per pixel dragged at 1× speed */
   sensitivity?: number
+  compact?: boolean
 }
 
 export function ScrubField({
   label, value, onChange,
   step = 1, min, max, unit,
-  precision = 2, sensitivity = 1,
+  precision = 2, sensitivity = 1, compact = false,
 }: ScrubFieldProps) {
+  const autoKeyframe = useStore((s) => s.autoKeyframe)
+  const beginInteraction = useStore((s) => s.beginInteraction)
+  const endInteraction = useStore((s) => s.endInteraction)
   const [editing, setEditing] = useState(false)
   const [editVal, setEditVal] = useState('')
   const [scrubbing, setScrubbing] = useState(false)
+  const [scrubInfo, setScrubInfo] = useState({ x: 0, y: 0, delta: 0, mult: 1, value })
 
   const startX = useRef(0)
   const startV = useRef(0)
@@ -51,6 +57,7 @@ export function ScrubField({
     e.preventDefault()
     startX.current = e.clientX
     startV.current = value
+    beginInteraction(true)
     setScrubbing(true)
   }
 
@@ -62,9 +69,13 @@ export function ScrubField({
       const mult = e.shiftKey ? 10 : e.altKey ? 0.1 : 1
       const raw = startV.current + dx * sensitivityRef.current * mult
       const clamped = clamp(parseFloat(raw.toFixed(precision)))
+      setScrubInfo({ x: e.clientX, y: e.clientY, delta: clamped - startV.current, mult, value: clamped })
       onChangeRef.current(clamped)
     }
-    function onUp() { setScrubbing(false) }
+    function onUp() {
+      setScrubbing(false)
+      endInteraction()
+    }
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -76,8 +87,8 @@ export function ScrubField({
 
   if (editing) {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5">
-        <span className="text-xs w-20 flex-shrink-0" style={{ color: 'var(--text2)' }}>{label}</span>
+      <div className={compact ? 'flex items-center gap-1 flex-1 min-w-0' : 'flex items-center gap-2 px-3 py-1.5'}>
+        {label && <span className="text-xs w-20 flex-shrink-0" style={{ color: 'var(--text2)' }}>{label}</span>}
         <input
           autoFocus
           type="number"
@@ -97,16 +108,28 @@ export function ScrubField({
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 group/scrub">
+    <div className={compact ? 'flex items-center gap-1 flex-1 min-w-0 group/scrub' : 'flex items-center gap-2 px-3 py-1.5 group/scrub'} style={{ position: 'relative' }}>
+      {scrubbing && (
+        <div style={{
+          position: 'absolute',
+          left: compact ? 0 : 12,
+          right: compact ? 0 : 12,
+          top: '50%',
+          height: 1,
+          background: 'rgba(99,102,241,0.35)',
+          pointerEvents: 'none',
+        }} />
+      )}
       {/* Scrubable label */}
-      <span
+      {label && <span
         className="text-xs w-20 flex-shrink-0 select-none"
-        style={{ color: 'var(--text2)', cursor: 'ew-resize' }}
+        style={{ color: autoKeyframe ? '#ef9a9a' : 'var(--text2)', cursor: 'ew-resize' }}
         onMouseDown={onLabelMouseDown}
+        onDoubleClick={startEditing}
         title={`Drag to scrub · Shift=×10 · Alt=×0.1 · Click value to type`}
       >
         {label}
-      </span>
+      </span>}
 
       {/* Value display — click to type */}
       <div
@@ -126,6 +149,26 @@ export function ScrubField({
         <span>{displayVal}</span>
         {unit && <span style={{ color: 'var(--text3)', fontSize: 9, marginLeft: 1 }}>{unit}</span>}
       </div>
+      {scrubbing && (
+        <div
+          style={{
+            position: 'fixed',
+            left: scrubInfo.x + 12,
+            top: scrubInfo.y + 12,
+            zIndex: 4000,
+            pointerEvents: 'none',
+            background: 'rgba(15,15,15,0.92)',
+            border: '1px solid #6366f1',
+            color: '#fff',
+            borderRadius: 4,
+            padding: '3px 6px',
+            fontSize: 11,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {label || 'Value'}: {parseFloat(scrubInfo.value.toFixed(precision))}{unit ?? ''} ({scrubInfo.delta >= 0 ? '+' : ''}{parseFloat(scrubInfo.delta.toFixed(precision))}) · ×{scrubInfo.mult}
+        </div>
+      )}
     </div>
   )
 }

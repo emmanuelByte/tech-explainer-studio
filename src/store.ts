@@ -3,14 +3,29 @@ import { persist } from 'zustand/middleware'
 import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
-  GradientStop, FillType, TimelineMarker, GOOGLE_FONTS,
+  TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
 } from './types'
+import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
+import { interpolateProps } from './remotion/interpolateProps'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
+
+function collectDescendants(layers: Layer[], parentId: string): Layer[] {
+  const result: Layer[] = []
+  const visit = (id: string) => {
+    layers.filter((l) => l.parentId === id).forEach((child) => {
+      result.push(child)
+      visit(child.id)
+    })
+  }
+  visit(parentId)
+  return result
+}
 
 const TYPE_NAMES: Record<LayerType, string> = {
   rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line',
   triangle: 'Triangle', text: 'Text', image: 'Image',
+  group: 'Group',
 }
 
 function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}): Layer {
@@ -20,10 +35,14 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     type,
     visible: true,
     locked: false,
+    parentId: null,
+    collapsed: false,
+    isGroup: type === 'group',
     width: type === 'text' ? 400 : type === 'line' ? 200 : 200,
     height: type === 'text' ? 80 : type === 'line' ? 4 : 140,
+    sizeMode: 'fixed',
     fillType: 'solid',
-    fillColor: `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
+    fillColor: type === 'group' ? 'transparent' : `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
     gradientStops: [{ color: '#6366f1', position: 0 }, { color: '#a855f7', position: 100 }],
     gradientAngle: 135,
     strokeEnabled: type === 'line',
@@ -40,6 +59,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     letterSpacing: 0,
     lineHeight: 1.2,
     textColor: '#ffffff',
+    textSpans: [],
     startFrame: 0,
     endFrame: 150,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
@@ -48,6 +68,9 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
 }
 
 interface Actions {
+  loadProject: (project: MotionProject) => void
+  renameProject: (name: string) => void
+  createEmptyProjectState: (project: MotionProject) => void
   // Layers
   addLayer: (type: LayerType) => void
   addImage: (src: string, name: string) => void
@@ -57,19 +80,38 @@ interface Actions {
   toggleLock: (id: string) => void
   selectLayer: (id: string | null, multi?: boolean) => void
   selectLayers: (ids: string[]) => void
+  selectKeyframe: (selection: KeyframeSelection, multi?: boolean) => void
+  clearSelectedKeyframes: () => void
+  deleteSelectedKeyframes: () => void
   renameLayer: (id: string, name: string) => void
   updateLayerProp: <K extends keyof Layer>(id: string, key: K, value: Layer[K]) => void
+  setLayerAnimatedProperty: (id: string, key: AnimatableProperty, value: number | string) => void
+  addPropertyKeyframe: (layerId: string, key: AnimatableProperty, frame?: number, value?: number | string) => void
+  removePropertyKeyframe: (layerId: string, key: AnimatableProperty, frame: number) => void
+  movePropertyKeyframe: (layerId: string, key: AnimatableProperty, fromFrame: number, toFrame: number) => void
+  updatePropertyKeyframeEasing: (layerId: string, key: AnimatableProperty, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
   reorderLayers: (from: number, to: number) => void
   // Keyframes
   addKeyframe: (layerId: string, frame: number, props: TransformProps, easing?: string) => void
   removeKeyframe: (layerId: string, frame: number) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
-  updateKeyframeEasing: (layerId: string, frame: number, easing: string) => void
+  updateKeyframeEasing: (layerId: string, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
   // Time range
   updateLayerTimeRange: (layerId: string, startFrame: number, endFrame: number) => void
   setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames: number[]) => void
   // Reorder
   reorderLayersById: (orderedIds: string[]) => void
+  moveLayerToParent: (layerIds: string[], parentId: string | null, insertAfterId?: string | null) => void
+  toggleLayerCollapsed: (id: string) => void
+  groupSelected: () => void
+  ungroupLayer: (id: string) => void
+  moveSelectedUpLevel: () => void
+  moveSelectedIntoPreviousGroup: () => void
+  moveSelectedWithinParent: (direction: -1 | 1) => void
+  selectChildren: (id: string) => void
+  selectSiblings: (id: string) => void
+  collapseAllGroups: () => void
+  expandAllGroups: () => void
   // Playback
   setCurrentFrame: (frame: number) => void
   setTotalFrames: (frames: number) => void
@@ -77,10 +119,21 @@ interface Actions {
   // Canvas
   setCanvasPreset: (name: string) => void
   setCustomDimension: (key: 'customWidth' | 'customHeight', value: number) => void
+  setCanvasBackgroundColor: (color: string) => void
   // UI
   setTheme: (theme: 'dark' | 'light') => void
   setTool: (tool: Tool) => void
   setTimelineZoom: (zoom: number) => void
+  setTimelineScrollX: (scrollX: number) => void
+  setTimelinePanelHeight: (height: number) => void
+  setShowAllSubtracks: (show: boolean) => void
+  setShowValueGraph: (show: boolean) => void
+  setEditorViewport: (zoom: number, panX: number, panY: number) => void
+  setEditingTextLayerId: (id: string | null) => void
+  setTextSelection: (selection: { layerId: string; start: number; end: number } | null) => void
+  updateTextSelectionStyle: (layerId: string, style: Partial<Pick<Layer, 'fontFamily' | 'fontSize' | 'fontWeight' | 'textColor' | 'letterSpacing'>>) => void
+  beginInteraction: (snapshot?: boolean) => void
+  endInteraction: () => void
   setAutoKeyframe: (v: boolean) => void
   // Markers
   addMarker: (frame: number) => void
@@ -110,8 +163,14 @@ export const useStore = create<Store>()(
   persist(
     (set, get) => ({
       // EditorState
+      projectId: null,
+      projectName: 'Untitled Project',
+      projectCreatedAt: null,
+      projectUpdatedAt: null,
       layers: initialLayers,
+      guides: [],
       selectedLayerIds: [],
+      selectedKeyframes: [],
       currentFrame: 0,
       totalFrames: 150,
       fps: 30,
@@ -119,9 +178,20 @@ export const useStore = create<Store>()(
       canvasPreset: CANVAS_PRESETS[0],
       customWidth: 1280,
       customHeight: 720,
+      canvasBackgroundColor: '#1a1a2e',
       theme: 'dark',
       currentTool: 'select',
       timelineZoom: 1,
+      timelineScrollX: 0,
+      timelinePanelHeight: 200,
+      showAllSubtracks: false,
+      showValueGraph: false,
+      editorZoom: 1,
+      editorPanX: 0,
+      editorPanY: 0,
+      editingTextLayerId: null,
+      textSelection: null,
+      activeInteractionCount: 0,
       markers: [],
       loopIn: null,
       loopOut: null,
@@ -130,6 +200,43 @@ export const useStore = create<Store>()(
       // History
       _past: [],
       _future: [],
+
+      loadProject: (project) => {
+        const preset = CANVAS_PRESETS.find((p) => p.name === project.canvas.presetName)
+          ?? CANVAS_PRESETS.find((p) => p.width === project.canvas.width && p.height === project.canvas.height)
+          ?? CANVAS_PRESETS[CANVAS_PRESETS.length - 1]
+        set({
+          projectId: project.id,
+          projectName: project.name,
+          projectCreatedAt: project.createdAt,
+          projectUpdatedAt: project.updatedAt,
+          layers: project.layers,
+          guides: project.guides ?? [],
+          totalFrames: project.canvas.durationFrames,
+          fps: project.canvas.fps,
+          canvasPreset: preset.name === 'Custom' ? CANVAS_PRESETS[CANVAS_PRESETS.length - 1] : preset,
+          customWidth: project.canvas.width,
+          customHeight: project.canvas.height,
+          canvasBackgroundColor: project.canvas.backgroundColor ?? '#1a1a2e',
+          selectedLayerIds: project.editor.selectedLayerIds ?? [],
+          selectedKeyframes: [],
+          currentFrame: project.editor.playheadFrame ?? 0,
+          timelineZoom: project.timeline.zoom ?? 1,
+          timelineScrollX: project.timeline.scrollX ?? 0,
+          editorZoom: project.editor.zoom ?? 1,
+          editorPanX: project.editor.panX ?? 0,
+          editorPanY: project.editor.panY ?? 0,
+          editingTextLayerId: null,
+          textSelection: null,
+          activeInteractionCount: 0,
+          _past: [],
+          _future: [],
+        })
+      },
+
+      createEmptyProjectState: (project) => get().loadProject(project),
+
+      renameProject: (name) => set({ projectName: name, projectUpdatedAt: new Date().toISOString() }),
 
       _snapshot: () => {
         const { layers, _past } = get()
@@ -174,9 +281,21 @@ export const useStore = create<Store>()(
 
       deleteLayer: (id) => {
         get()._snapshot()
+        const ids = new Set<string>([id])
+        let changed = true
+        while (changed) {
+          changed = false
+          get().layers.forEach((layer) => {
+            if (layer.parentId && ids.has(layer.parentId) && !ids.has(layer.id)) {
+              ids.add(layer.id)
+              changed = true
+            }
+          })
+        }
         set((s) => ({
-          layers: s.layers.filter((l) => l.id !== id),
-          selectedLayerIds: s.selectedLayerIds.filter((sid) => sid !== id),
+          layers: s.layers.filter((l) => !ids.has(l.id)),
+          selectedLayerIds: s.selectedLayerIds.filter((sid) => !ids.has(sid)),
+          selectedKeyframes: s.selectedKeyframes.filter((kf) => !ids.has(kf.layerId)),
         }))
       },
 
@@ -185,11 +304,19 @@ export const useStore = create<Store>()(
         const { layers } = get()
         const src = layers.find((l) => l.id === id)
         if (!src) return
-        const dup: Layer = { ...src, id: uid(), name: `${src.name} Copy` }
+        const descendants = collectDescendants(layers, id)
+        const idMap = new Map<string, string>([[id, uid()]])
+        descendants.forEach((l) => idMap.set(l.id, uid()))
+        const copies = [src, ...descendants].map((l, idx) => ({
+          ...l,
+          id: idMap.get(l.id)!,
+          name: idx === 0 ? `${l.name} Copy` : l.name,
+          parentId: l.id === id ? src.parentId ?? null : idMap.get(l.parentId ?? '') ?? l.parentId ?? null,
+        }))
         const idx = layers.findIndex((l) => l.id === id)
         const next = [...layers]
-        next.splice(idx + 1, 0, dup)
-        set({ layers: next, selectedLayerIds: [dup.id] })
+        next.splice(idx + 1, 0, ...copies)
+        set({ layers: next, selectedLayerIds: [copies[0].id] })
       },
 
       toggleVisibility: (id) =>
@@ -199,25 +326,168 @@ export const useStore = create<Store>()(
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, locked: !l.locked } : l) })),
 
       selectLayer: (id, multi = false) => {
-        if (!id) { set({ selectedLayerIds: [] }); return }
+        if (!id) { set({ selectedLayerIds: [], selectedKeyframes: [] }); return }
         if (multi) {
           const { selectedLayerIds } = get()
           const next = selectedLayerIds.includes(id)
             ? selectedLayerIds.filter((x) => x !== id)
             : [...selectedLayerIds, id]
-          set({ selectedLayerIds: next })
+          set({ selectedLayerIds: next, selectedKeyframes: [] })
         } else {
-          set({ selectedLayerIds: [id] })
+          set({ selectedLayerIds: [id], selectedKeyframes: [] })
         }
       },
 
-      selectLayers: (ids) => set({ selectedLayerIds: ids }),
+      selectLayers: (ids) => set({ selectedLayerIds: ids, selectedKeyframes: [] }),
+
+      selectKeyframe: (selection, multi = false) => {
+        set((s) => {
+          const exists = s.selectedKeyframes.some((kf) =>
+            kf.layerId === selection.layerId && kf.frame === selection.frame && kf.propKey === selection.propKey
+          )
+          const selectedKeyframes = multi
+            ? exists
+              ? s.selectedKeyframes.filter((kf) => !(kf.layerId === selection.layerId && kf.frame === selection.frame && kf.propKey === selection.propKey))
+              : [...s.selectedKeyframes, selection]
+            : [selection]
+          return { selectedKeyframes, selectedLayerIds: [selection.layerId] }
+        })
+      },
+
+      clearSelectedKeyframes: () => set({ selectedKeyframes: [] }),
+
+      deleteSelectedKeyframes: () => {
+        const selected = get().selectedKeyframes
+        if (!selected.length) return
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            const selections = selected.filter((kf) => kf.layerId === layer.id)
+            if (!selections.length) return layer
+            let nextLayer = { ...layer }
+            const fullFrames = new Set(selections.filter((kf) => !kf.propKey).map((kf) => kf.frame))
+            if (fullFrames.size) nextLayer.keyframes = nextLayer.keyframes.filter((kf) => !fullFrames.has(kf.frame))
+            const byProp = new Map<AnimatableProperty, Set<number>>()
+            selections.filter((kf) => kf.propKey).forEach((kf) => {
+              const key = kf.propKey!
+              byProp.set(key, new Set([...(byProp.get(key) ?? []), kf.frame]))
+            })
+            if (byProp.size) {
+              nextLayer = { ...nextLayer, propertyKeyframes: { ...(nextLayer.propertyKeyframes ?? {}) } }
+              byProp.forEach((frames, key) => {
+                nextLayer.propertyKeyframes![key] = (nextLayer.propertyKeyframes?.[key] ?? []).filter((kf) => !frames.has(kf.frame))
+              })
+            }
+            return nextLayer
+          }),
+          selectedKeyframes: [],
+        }))
+      },
 
       renameLayer: (id, name) =>
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, name } : l) })),
 
       updateLayerProp: (id, key, value) => {
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, [key]: value } : l) }))
+      },
+
+      setLayerAnimatedProperty: (id, key, value) => {
+        const { autoKeyframe, currentFrame } = get()
+        if (autoKeyframe) {
+          get().addPropertyKeyframe(id, key, currentFrame, value)
+          return
+        }
+        set((s) => ({
+          layers: s.layers.map((l) => {
+            if (l.id !== id) return l
+            if (key in DEFAULT_TRANSFORM) {
+              const frame = l.keyframes[0]?.frame ?? 0
+              const base = interpolateProps(frame, l.keyframes)
+              const kf: Keyframe = { frame, easing: l.keyframes[0]?.easing ?? 'linear', props: { ...base, [key]: value } as TransformProps }
+              return { ...l, keyframes: l.keyframes.length ? l.keyframes.map((item, idx) => idx === 0 ? kf : item) : [kf] }
+            }
+            return { ...l, [key]: value }
+          }),
+        }))
+      },
+
+      addPropertyKeyframe: (layerId, key, frame = get().currentFrame, value) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            const transform = interpolateProps(frame, layer.keyframes)
+            const resolvedValue = value ?? getAnimatedPropertyValue(layer, key, frame, transform) ?? getStaticPropertyValue(layer, transform, key)
+            const existing = layer.propertyKeyframes?.[key] ?? []
+            const nextFrame = {
+              id: existing.find((kf) => kf.frame === frame)?.id ?? uid(),
+              frame,
+              value: resolvedValue,
+              easing: existing.find((kf) => kf.frame === frame)?.easing ?? 'ease-out',
+              bezier: existing.find((kf) => kf.frame === frame)?.bezier,
+            }
+            return {
+              ...layer,
+              propertyKeyframes: {
+                ...(layer.propertyKeyframes ?? {}),
+                [key]: [...existing.filter((kf) => kf.frame !== frame), nextFrame].sort((a, b) => a.frame - b.frame),
+              },
+            }
+          }),
+        }))
+      },
+
+      removePropertyKeyframe: (layerId, key, frame) => {
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            return {
+              ...layer,
+              propertyKeyframes: {
+                ...(layer.propertyKeyframes ?? {}),
+                [key]: (layer.propertyKeyframes?.[key] ?? []).filter((kf) => kf.frame !== frame),
+              },
+            }
+          }),
+        }))
+      },
+
+      movePropertyKeyframe: (layerId, key, fromFrame, toFrame) => {
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            return {
+              ...layer,
+              propertyKeyframes: {
+                ...(layer.propertyKeyframes ?? {}),
+                [key]: (layer.propertyKeyframes?.[key] ?? [])
+                  .map((kf) => kf.frame === fromFrame ? { ...kf, frame: toFrame } : kf)
+                  .sort((a, b) => a.frame - b.frame),
+              },
+            }
+          }),
+          selectedKeyframes: s.selectedKeyframes.map((kf) =>
+            kf.layerId === layerId && kf.propKey === key && kf.frame === fromFrame ? { ...kf, frame: toFrame } : kf
+          ),
+        }))
+      },
+
+      updatePropertyKeyframeEasing: (layerId, key, frame, easing, bezier) => {
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            return {
+              ...layer,
+              propertyKeyframes: {
+                ...(layer.propertyKeyframes ?? {}),
+                [key]: (layer.propertyKeyframes?.[key] ?? []).map((kf) =>
+                  kf.frame === frame ? { ...kf, easing, bezier: bezier ?? kf.bezier } : kf
+                ),
+              },
+            }
+          }),
+        }))
       },
 
       reorderLayers: (from, to) => {
@@ -231,7 +501,7 @@ export const useStore = create<Store>()(
       },
 
       addKeyframe: (layerId, frame, props, easing = 'ease-out') => {
-        get()._snapshot()
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
@@ -268,10 +538,118 @@ export const useStore = create<Store>()(
         get()._snapshot()
         set((s) => {
           const map = new Map(s.layers.map((l) => [l.id, l]))
-          const layers = orderedIds.map((id) => map.get(id)).filter(Boolean) as typeof s.layers
+          const ordered = orderedIds.map((id) => map.get(id)).filter(Boolean) as typeof s.layers
+          const missing = s.layers.filter((l) => !orderedIds.includes(l.id))
+          const layers = [...ordered, ...missing]
           return { layers }
         })
       },
+
+      moveLayerToParent: (layerIds, parentId, insertAfterId = null) => {
+        const { layers } = get()
+        const moving = layers.filter((l) => layerIds.includes(l.id))
+        if (!moving.length) return
+        if (parentId && moving.some((l) => l.id === parentId || collectDescendants(layers, l.id).some((d) => d.id === parentId))) return
+        get()._snapshot()
+        set((s) => {
+          let next = s.layers.map((l) => {
+            if (parentId && l.id === parentId) return { ...l, isGroup: true, type: 'group' as LayerType, collapsed: false }
+            if (layerIds.includes(l.id)) return { ...l, parentId }
+            return l
+          })
+          if (insertAfterId) {
+            const movingSet = new Set(layerIds)
+            const pulled = next.filter((l) => movingSet.has(l.id))
+            next = next.filter((l) => !movingSet.has(l.id))
+            const idx = next.findIndex((l) => l.id === insertAfterId)
+            next.splice(idx + 1, 0, ...pulled)
+          }
+          return { layers: next }
+        })
+      },
+
+      toggleLayerCollapsed: (id) =>
+        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, collapsed: !l.collapsed } : l) })),
+
+      groupSelected: () => {
+        const { selectedLayerIds, layers, totalFrames } = get()
+        if (selectedLayerIds.length === 0) return
+        get()._snapshot()
+        const selected = layers.filter((l) => selectedLayerIds.includes(l.id))
+        const parentId = selected[0]?.parentId ?? null
+        const group = makeLayer('group', { name: 'Group', parentId, endFrame: totalFrames })
+        const firstIdx = Math.min(...selected.map((l) => layers.findIndex((x) => x.id === l.id)).filter((i) => i >= 0))
+        const next = [...layers]
+        next.splice(firstIdx, 0, group)
+        set({
+          layers: next.map((l) => selectedLayerIds.includes(l.id) ? { ...l, parentId: group.id } : l),
+          selectedLayerIds: [group.id],
+        })
+      },
+
+      ungroupLayer: (id) => {
+        get()._snapshot()
+        set((s) => {
+          const group = s.layers.find((l) => l.id === id)
+          if (!group) return {}
+          return {
+            layers: s.layers
+              .filter((l) => l.id !== id)
+              .map((l) => l.parentId === id ? { ...l, parentId: group.parentId ?? null } : l),
+            selectedLayerIds: s.selectedLayerIds.filter((sid) => sid !== id),
+          }
+        })
+      },
+
+      moveSelectedUpLevel: () => {
+        const { selectedLayerIds, layers } = get()
+        selectedLayerIds.forEach((id) => {
+          const layer = layers.find((l) => l.id === id)
+          const parent = layers.find((l) => l.id === layer?.parentId)
+          get().moveLayerToParent([id], parent?.parentId ?? null, parent?.id ?? null)
+        })
+      },
+
+      moveSelectedIntoPreviousGroup: () => {
+        const { selectedLayerIds, layers } = get()
+        if (!selectedLayerIds.length) return
+        const first = layers.find((l) => l.id === selectedLayerIds[0])
+        if (!first) return
+        const idx = layers.findIndex((l) => l.id === first.id)
+        const group = [...layers.slice(0, idx)].reverse().find((l) => (l.isGroup || l.type === 'group') && l.parentId === (first.parentId ?? null))
+        if (group) get().moveLayerToParent(selectedLayerIds, group.id)
+      },
+
+      moveSelectedWithinParent: (direction) => {
+        const { selectedLayerIds, layers } = get()
+        const id = selectedLayerIds[0]
+        const layer = layers.find((l) => l.id === id)
+        if (!layer) return
+        const siblings = layers.filter((l) => (l.parentId ?? null) === (layer.parentId ?? null))
+        const from = siblings.findIndex((l) => l.id === id)
+        const to = from + direction
+        if (to < 0 || to >= siblings.length) return
+        const ordered = [...siblings]
+        const [item] = ordered.splice(from, 1)
+        ordered.splice(to, 0, item)
+        const byParentOrder = new Map(ordered.map((l, i) => [l.id, i]))
+        get()._snapshot()
+        set({ layers: [...layers].sort((a, b) => {
+          const ap = a.parentId ?? null
+          const bp = b.parentId ?? null
+          if (ap === (layer.parentId ?? null) && bp === ap) return (byParentOrder.get(a.id) ?? 0) - (byParentOrder.get(b.id) ?? 0)
+          return layers.indexOf(a) - layers.indexOf(b)
+        }) })
+      },
+
+      selectChildren: (id) => set({ selectedLayerIds: collectDescendants(get().layers, id).map((l) => l.id) }),
+      selectSiblings: (id) => {
+        const layer = get().layers.find((l) => l.id === id)
+        if (!layer) return
+        set({ selectedLayerIds: get().layers.filter((l) => (l.parentId ?? null) === (layer.parentId ?? null)).map((l) => l.id) })
+      },
+      collapseAllGroups: () => set((s) => ({ layers: s.layers.map((l) => (l.isGroup || l.type === 'group') ? { ...l, collapsed: true } : l) })),
+      expandAllGroups: () => set((s) => ({ layers: s.layers.map((l) => (l.isGroup || l.type === 'group') ? { ...l, collapsed: false } : l) })),
 
       removeKeyframe: (layerId, frame) => {
         get()._snapshot()
@@ -291,17 +669,20 @@ export const useStore = create<Store>()(
               .sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
           }),
+          selectedKeyframes: s.selectedKeyframes.map((kf) =>
+            kf.layerId === layerId && !kf.propKey && kf.frame === fromFrame ? { ...kf, frame: toFrame } : kf
+          ),
         }))
       },
 
-      updateKeyframeEasing: (layerId, frame, easing) => {
+      updateKeyframeEasing: (layerId, frame, easing, bezier) => {
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
             return {
               ...l,
               keyframes: l.keyframes.map((k) =>
-                k.frame === frame ? { ...k, easing: easing as Keyframe['easing'] } : k
+                k.frame === frame ? { ...k, easing, bezier: easing === 'custom' ? (bezier ?? k.bezier ?? [0.25, 0.1, 0.25, 1]) : undefined } : k
               ),
             }
           }),
@@ -318,9 +699,38 @@ export const useStore = create<Store>()(
       },
 
       setCustomDimension: (key, value) => set({ [key]: value }),
+      setCanvasBackgroundColor: (color) => set({ canvasBackgroundColor: color }),
       setTheme: (theme) => set({ theme }),
       setTool: (tool) => set({ currentTool: tool }),
       setTimelineZoom: (zoom) => set({ timelineZoom: zoom }),
+      setTimelineScrollX: (scrollX) => set({ timelineScrollX: scrollX }),
+      setTimelinePanelHeight: (height) => set({ timelinePanelHeight: height }),
+      setShowAllSubtracks: (show) => set({ showAllSubtracks: show }),
+      setShowValueGraph: (show) => set({ showValueGraph: show }),
+      setEditorViewport: (zoom, panX, panY) => set({ editorZoom: zoom, editorPanX: panX, editorPanY: panY }),
+      setEditingTextLayerId: (id) => set({ editingTextLayerId: id }),
+      setTextSelection: (selection) => set({ textSelection: selection }),
+      updateTextSelectionStyle: (layerId, style) => {
+        const selection = get().textSelection
+        if (!selection || selection.layerId !== layerId || selection.start === selection.end) {
+          set((s) => ({ layers: s.layers.map((l) => l.id === layerId ? { ...l, ...style } : l) }))
+          return
+        }
+        const start = Math.min(selection.start, selection.end)
+        const end = Math.max(selection.start, selection.end)
+        set((s) => ({
+          layers: s.layers.map((l) => {
+            if (l.id !== layerId) return l
+            const span = { id: uid(), start, end, ...style }
+            return { ...l, textSpans: [...(l.textSpans ?? []).filter((item) => item.end <= start || item.start >= end), span] }
+          }),
+        }))
+      },
+      beginInteraction: (snapshot = true) => {
+        if (snapshot && get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({ activeInteractionCount: s.activeInteractionCount + 1 }))
+      },
+      endInteraction: () => set((s) => ({ activeInteractionCount: Math.max(0, s.activeInteractionCount - 1) })),
       setAutoKeyframe: (v) => set({ autoKeyframe: v }),
 
       addMarker: (frame) => {
@@ -343,14 +753,27 @@ export const useStore = create<Store>()(
       name: 'motion-editor-v1',
       partialize: (s) => ({
         layers: s.layers,
+        guides: s.guides,
+        projectId: s.projectId,
+        projectName: s.projectName,
+        projectCreatedAt: s.projectCreatedAt,
+        projectUpdatedAt: s.projectUpdatedAt,
         totalFrames: s.totalFrames,
         fps: s.fps,
         canvasPreset: s.canvasPreset,
         customWidth: s.customWidth,
         customHeight: s.customHeight,
+        canvasBackgroundColor: s.canvasBackgroundColor,
         theme: s.theme,
         markers: s.markers,
         timelineZoom: s.timelineZoom,
+        timelineScrollX: s.timelineScrollX,
+        timelinePanelHeight: s.timelinePanelHeight,
+        showAllSubtracks: s.showAllSubtracks,
+        showValueGraph: s.showValueGraph,
+        editorZoom: s.editorZoom,
+        editorPanX: s.editorPanX,
+        editorPanY: s.editorPanY,
       }),
     }
   )

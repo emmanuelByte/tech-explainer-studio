@@ -19,6 +19,29 @@ export function useKeyboardShortcuts() {
         e.preventDefault(); store.undo(); return
       }
 
+      // Parenting / ordering
+      if ((e.ctrlKey || e.metaKey) && e.key === ']') {
+        e.preventDefault(); store.moveSelectedUpLevel(); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === '[') {
+        e.preventDefault(); store.moveSelectedIntoPreviousGroup(); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault(); store.groupSelected(); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'g') {
+        e.preventDefault(); store.selectedLayerIds.forEach((id) => store.ungroupLayer(id)); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+        e.preventDefault(); store.groupSelected(); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowUp') {
+        e.preventDefault(); store.moveSelectedWithinParent(-1); return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'ArrowDown') {
+        e.preventDefault(); store.moveSelectedWithinParent(1); return
+      }
+
       // Tool shortcuts
       if (!e.ctrlKey && !e.metaKey && !e.altKey) {
         if (e.key === 'v' || e.key === 'V') { store.setTool('select'); return }
@@ -39,6 +62,10 @@ export function useKeyboardShortcuts() {
       // Delete selected layers
       if (e.key === 'Delete' || e.key === 'Backspace') {
         e.preventDefault()
+        if (store.selectedKeyframes.length) {
+          store.deleteSelectedKeyframes()
+          return
+        }
         store.selectedLayerIds.forEach((id) => store.deleteLayer(id))
         return
       }

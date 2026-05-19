@@ -1,7 +1,29 @@
-export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'text' | 'image'
+export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'text' | 'image' | 'group'
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
+export type PairEasingType = EasingType | 'custom'
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
+export type SizeMode = 'fixed' | 'fit-content' | 'fill-canvas'
 export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle'
+
+export interface TextRangeStyle {
+  id: string
+  start: number
+  end: number
+  fontFamily?: string
+  fontSize?: number
+  fontWeight?: string
+  textColor?: string
+  letterSpacing?: number
+}
+
+export type AnimatableProperty =
+  | 'x' | 'y' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
+  | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
+  | 'perspective' | 'originX' | 'originY' | 'opacity'
+  | 'fillColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
+  | 'fontSize' | 'letterSpacing' | 'lineHeight'
+  | 'blur' | 'brightness' | 'contrast' | 'grayscale'
+  | 'shadowX' | 'shadowY' | 'shadowBlur' | 'shadowSpread' | 'backdropBlur'
 
 export interface GradientStop {
   color: string
@@ -12,6 +34,8 @@ export interface TransformProps {
   x: number
   y: number
   scale: number
+  scaleX: number
+  scaleY: number
   opacity: number
   rotateX: number
   rotateY: number
@@ -38,6 +62,8 @@ export interface TransformProps {
 export const DEFAULT_TRANSFORM: TransformProps = {
   x: 0, y: 0,
   scale: 1,
+  scaleX: 1,
+  scaleY: 1,
   opacity: 1,
   rotateX: 0, rotateY: 0, rotateZ: 0,
   skewX: 0, skewY: 0,
@@ -54,18 +80,31 @@ export const DEFAULT_TRANSFORM: TransformProps = {
 
 export interface Keyframe {
   frame: number
-  easing: EasingType
+  easing: PairEasingType
+  bezier?: [number, number, number, number]
   props: TransformProps
+}
+
+export interface PropertyKeyframe {
+  id: string
+  frame: number
+  value: number | string
+  easing: PairEasingType
+  bezier?: [number, number, number, number]
 }
 
 export interface Layer {
   id: string
   name: string
   type: LayerType
+  parentId?: string | null
+  collapsed?: boolean
+  isGroup?: boolean
   visible: boolean
   locked: boolean
   width: number
   height: number
+  sizeMode?: SizeMode
   // Fill
   fillType: FillType
   fillColor: string
@@ -89,18 +128,79 @@ export interface Layer {
   letterSpacing: number
   lineHeight: number
   textColor: string
+  textSpans?: TextRangeStyle[]
   // Image
   src?: string
   // Time range
   startFrame: number
   endFrame: number
   keyframes: Keyframe[]
+  propertyKeyframes?: Partial<Record<AnimatableProperty, PropertyKeyframe[]>>
 }
 
 export interface CanvasPreset {
   name: string
   width: number
   height: number
+}
+
+export interface GuideLine {
+  id: string
+  axis: 'x' | 'y'
+  position: number
+}
+
+export interface ProjectIndexItem {
+  id: string
+  name: string
+  thumbnail: string
+  updatedAt: string
+  createdAt: string
+  canvasWidth: number
+  canvasHeight: number
+  presetName: string
+  fps: number
+  duration: number
+  layerCount: number
+}
+
+export interface MotionProject {
+  id: string
+  name: string
+  thumbnail?: string
+  createdAt: string
+  updatedAt: string
+  canvas: {
+    width: number
+    height: number
+    fps: number
+    durationFrames: number
+    backgroundColor: string
+    presetName: string
+  }
+  layers: Layer[]
+  guides: GuideLine[]
+  timeline: { zoom: number; scrollX: number }
+  editor: {
+    zoom: number
+    panX: number
+    panY: number
+    selectedLayerIds: string[]
+    playheadFrame: number
+  }
+}
+
+export interface ProjectHistorySnapshot {
+  id: string
+  timestamp: string
+  label: string
+  project: MotionProject
+}
+
+export interface KeyframeSelection {
+  layerId: string
+  frame: number
+  propKey?: AnimatableProperty
 }
 
 export const CANVAS_PRESETS: CanvasPreset[] = [
@@ -121,6 +221,7 @@ export const LAYER_TYPE_COLOR: Record<LayerType, string> = {
   triangle: '#f97316',
   text: '#f59e0b',
   image: '#a855f7',
+  group: '#60a5fa',
 }
 
 export const GOOGLE_FONTS = [
@@ -136,8 +237,14 @@ export interface TimelineMarker {
 }
 
 export interface EditorState {
+  projectId: string | null
+  projectName: string
+  projectCreatedAt: string | null
+  projectUpdatedAt: string | null
   layers: Layer[]
+  guides: GuideLine[]
   selectedLayerIds: string[]
+  selectedKeyframes: KeyframeSelection[]
   currentFrame: number
   totalFrames: number
   fps: number
@@ -145,9 +252,20 @@ export interface EditorState {
   canvasPreset: CanvasPreset
   customWidth: number
   customHeight: number
+  canvasBackgroundColor: string
   theme: 'dark' | 'light'
   currentTool: Tool
   timelineZoom: number
+  timelineScrollX: number
+  timelinePanelHeight: number
+  showAllSubtracks: boolean
+  showValueGraph: boolean
+  editorZoom: number
+  editorPanX: number
+  editorPanY: number
+  editingTextLayerId: string | null
+  textSelection: { layerId: string; start: number; end: number } | null
+  activeInteractionCount: number
   markers: TimelineMarker[]
   loopIn: number | null
   loopOut: number | null

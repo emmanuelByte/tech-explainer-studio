@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Player, PlayerRef } from '@remotion/player'
+import { Clapperboard, Maximize2, Minus, Plus, Scan } from 'lucide-react'
 import { useStore } from '../store'
 import { EditorComposition } from '../remotion/Composition'
 import { Layer, CANVAS_PRESETS } from '../types'
 import { CanvasOverlay } from './CanvasOverlay'
 
-function ZoomButton({ label, onClick }: { label: string; onClick: () => void }) {
+function ZoomButton({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
   return (
     <button
       onClick={onClick}
-      className="w-6 h-6 flex items-center justify-center rounded text-xs transition-colors"
-      style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--border)' }}
+      title={title}
+      className="icon-btn"
     >
-      {label}
+      {children}
     </button>
   )
 }
@@ -20,16 +21,18 @@ function ZoomButton({ label, onClick }: { label: string; onClick: () => void }) 
 export function PreviewCanvas() {
   const {
     layers, currentFrame, totalFrames, fps,
-    canvasPreset, customWidth, customHeight,
-    setCanvasPreset, setCustomDimension, currentTool, addLayer,
+    canvasPreset, customWidth, customHeight, canvasBackgroundColor,
+    setCanvasPreset, setCustomDimension, currentTool,
+    editorZoom, editorPanX, editorPanY, setEditorViewport,
   } = useStore()
 
   const playerRef = useRef<PlayerRef>(null)
   const outerRef = useRef<HTMLDivElement>(null)
+  const transformRef = useRef<HTMLDivElement>(null)
   const playerWrapperRef = useRef<HTMLDivElement>(null)
 
-  const [zoom, setZoom] = useState(1)
-  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const zoom = editorZoom
+  const pan = { x: editorPanX, y: editorPanY }
   const isPanning = useRef(false)
   const panStart = useRef({ mx: 0, my: 0, px: 0, py: 0 })
   const spaceHeld = useRef(false)
@@ -45,23 +48,70 @@ export function PreviewCanvas() {
     if (player.getCurrentFrame() !== currentFrame) player.seekTo(currentFrame)
   }, [currentFrame])
 
+  function setZoomPan(nextZoom: number, nextPan = pan) {
+    setEditorViewport(Math.max(0.1, Math.min(5, nextZoom)), nextPan.x, nextPan.y)
+  }
+
+  function zoomAtPoint(nextZoom: number, clientX: number, clientY: number) {
+    const stage = playerWrapperRef.current
+    if (!stage) {
+      setZoomPan(nextZoom)
+      return
+    }
+    const rect = stage.getBoundingClientRect()
+    const currentCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    const baseCenter = { x: currentCenter.x - pan.x, y: currentCenter.y - pan.y }
+    const localOffset = {
+      x: (clientX - currentCenter.x) / zoom,
+      y: (clientY - currentCenter.y) / zoom,
+    }
+    const desiredCenter = {
+      x: clientX - localOffset.x * nextZoom,
+      y: clientY - localOffset.y * nextZoom,
+    }
+    setZoomPan(nextZoom, { x: desiredCenter.x - baseCenter.x, y: desiredCenter.y - baseCenter.y })
+  }
+
+  function zoomAtCanvasCenter(nextZoom: number) {
+    const outer = outerRef.current
+    if (!outer) {
+      setZoomPan(nextZoom)
+      return
+    }
+    const rect = outer.getBoundingClientRect()
+    zoomAtPoint(nextZoom, rect.left + rect.width / 2, rect.top + rect.height / 2)
+  }
+
   // Zoom to cursor on Ctrl+Wheel or Shift+Wheel
   const handleWheel = useCallback((e: WheelEvent) => {
     if (!e.ctrlKey && !e.shiftKey) return
     e.preventDefault()
-    const step = e.shiftKey ? 0.1 : (e.deltaY > 0 ? -0.1 : 0.1)
-    setZoom((z) => {
-      const newZ = Math.max(0.1, Math.min(5, e.shiftKey ? (e.deltaY > 0 ? z - step : z + step) : z * (e.deltaY > 0 ? 0.9 : 1.1)))
-      const rect = outerRef.current!.getBoundingClientRect()
-      const cx = e.clientX - rect.left
-      const cy = e.clientY - rect.top
-      setPan((p) => ({
-        x: cx - (cx - p.x) * (newZ / z),
-        y: cy - (cy - p.y) * (newZ / z),
-      }))
-      return newZ
-    })
-  }, [])
+    const z = useStore.getState().editorZoom
+    const currentPan = { x: useStore.getState().editorPanX, y: useStore.getState().editorPanY }
+    const dominantDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    const fallbackDelta = 'wheelDelta' in e ? -(e as WheelEvent & { wheelDelta: number }).wheelDelta : 0
+    const wheelDelta = dominantDelta || fallbackDelta
+    const direction = wheelDelta < 0 ? 1 : -1
+    const factor = direction > 0 ? 1.1 : 0.9
+    const newZ = Math.max(0.1, Math.min(5, z * factor))
+    const stage = playerWrapperRef.current
+    if (!stage) {
+      setEditorViewport(newZ, currentPan.x, currentPan.y)
+      return
+    }
+    const rect = stage.getBoundingClientRect()
+    const currentCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+    const baseCenter = { x: currentCenter.x - currentPan.x, y: currentCenter.y - currentPan.y }
+    const localOffset = {
+      x: (e.clientX - currentCenter.x) / z,
+      y: (e.clientY - currentCenter.y) / z,
+    }
+    const desiredCenter = {
+      x: e.clientX - localOffset.x * newZ,
+      y: e.clientY - localOffset.y * newZ,
+    }
+    setEditorViewport(newZ, desiredCenter.x - baseCenter.x, desiredCenter.y - baseCenter.y)
+  }, [setEditorViewport])
 
   useEffect(() => {
     const el = outerRef.current
@@ -90,10 +140,7 @@ export function PreviewCanvas() {
 
   function onMouseMove(e: React.MouseEvent) {
     if (!isPanning.current) return
-    setPan({
-      x: panStart.current.px + (e.clientX - panStart.current.mx),
-      y: panStart.current.py + (e.clientY - panStart.current.my),
-    })
+      setEditorViewport(zoom, panStart.current.px + (e.clientX - panStart.current.mx), panStart.current.py + (e.clientY - panStart.current.my))
   }
 
   function onMouseUp() { isPanning.current = false }
@@ -102,15 +149,11 @@ export function PreviewCanvas() {
     const outer = outerRef.current
     if (!outer) return
     const { width, height } = outer.getBoundingClientRect()
-    const wrapper = playerWrapperRef.current
-    if (!wrapper) return
-    const { width: pw, height: ph } = wrapper.getBoundingClientRect()
-    const fz = Math.min((width - 48) / pw, (height - 48) / ph)
-    setZoom(fz)
-    setPan({ x: 0, y: 0 })
+    const fz = Math.min((width - 48) / canvasW, (height - 48) / canvasH)
+    setZoomPan(fz, { x: 0, y: 0 })
   }
 
-  function resetZoom() { setZoom(1); setPan({ x: 0, y: 0 }) }
+  function resetZoom() { setZoomPan(1, { x: 0, y: 0 }) }
 
   // Ctrl+0 = fit, Ctrl+1 = 100%, Ctrl+2 = 200%
   useEffect(() => {
@@ -118,7 +161,7 @@ export function PreviewCanvas() {
       if (!e.ctrlKey && !e.metaKey) return
       if (e.key === '0') { e.preventDefault(); fitToScreen() }
       if (e.key === '1') { e.preventDefault(); resetZoom() }
-      if (e.key === '2') { e.preventDefault(); setZoom(2); setPan({ x: 0, y: 0 }) }
+      if (e.key === '2') { e.preventDefault(); zoomAtCanvasCenter(2) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -134,7 +177,7 @@ export function PreviewCanvas() {
       {/* Toolbar strip */}
       <div
         className="flex items-center gap-2 px-3 py-1.5 flex-wrap flex-shrink-0"
-        style={{ background: 'var(--panel)', borderBottom: '1px solid var(--border)' }}
+        style={{ background: 'var(--toolbar)', borderBottom: '1px solid var(--border)' }}
       >
         {/* Preset selector */}
         <select
@@ -161,37 +204,35 @@ export function PreviewCanvas() {
             />
           </div>
         ) : (
-          <span style={{ color: 'var(--text3)', fontSize: 11 }}>{canvasW} × {canvasH}</span>
+          <span className="flex items-center gap-1" style={{ color: 'var(--text3)', fontSize: 11 }}><Clapperboard size={13} />{canvasW} × {canvasH}</span>
         )}
 
         <div className="flex-1" />
 
         {/* Zoom controls */}
-        <ZoomButton label="−" onClick={() => setZoom((z) => Math.max(0.1, z / 1.25))} />
+        <ZoomButton title="Zoom out" onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={14} /></ZoomButton>
         <button
           onClick={resetZoom}
-          className="text-xs px-2 py-0.5 rounded transition-colors"
-          style={{ background: 'var(--input)', color: 'var(--text)', border: '1px solid var(--border)', minWidth: 48 }}
+          className="pill-btn"
+          style={{ minWidth: 54 }}
           title="Click to reset to 100%"
         >
           {Math.round(zoom * 100)}%
         </button>
-        <ZoomButton label="+" onClick={() => setZoom((z) => Math.min(8, z * 1.25))} />
+        <ZoomButton title="Zoom in" onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={14} /></ZoomButton>
         <button
           onClick={fitToScreen}
-          className="text-xs px-2 py-0.5 rounded transition-colors"
-          style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          className="pill-btn"
           title="Fit to screen"
         >
-          Fit
+          <Maximize2 size={13} />Fit
         </button>
         <button
           onClick={resetZoom}
-          className="text-xs px-2 py-0.5 rounded transition-colors"
-          style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          className="pill-btn"
           title="Actual pixel size"
         >
-          1:1
+          <Scan size={13} />1:1
         </button>
       </div>
 
@@ -199,7 +240,7 @@ export function PreviewCanvas() {
       <div
         ref={outerRef}
         className={`flex-1 flex items-center justify-center overflow-hidden select-none ${cursorStyle}`}
-        style={{ background: 'var(--bg2)' }}
+        style={{ background: 'var(--canvas-bg)' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
@@ -207,29 +248,21 @@ export function PreviewCanvas() {
       >
         {/* Zoom/pan transform wrapper */}
         <div
+          ref={transformRef}
           style={{
             transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`,
-            transformOrigin: '0 0',
+            transformOrigin: 'center center',
             transition: 'transform 0.08s ease',
-            width: '100%',
-            height: '100%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            pointerEvents: zoom !== 1 || pan.x !== 0 || pan.y !== 0 ? 'none' : undefined,
           }}
         >
           <div
             ref={playerWrapperRef}
             style={{
               position: 'relative',
-              aspectRatio: `${canvasW} / ${canvasH}`,
-              maxWidth: '100%',
-              maxHeight: '100%',
-              width: canvasW > canvasH ? '100%' : 'auto',
-              height: canvasW <= canvasH ? '100%' : 'auto',
-              boxShadow: '0 0 0 1px #2a2a2a, 0 8px 40px rgba(0,0,0,0.5)',
-              borderRadius: 4,
+              width: canvasW,
+              height: canvasH,
+              boxShadow: 'var(--preview-shadow)',
+              borderRadius: 6,
               overflow: 'hidden',
               flexShrink: 0,
               pointerEvents: 'all',
@@ -238,7 +271,7 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH }}
+              inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}
