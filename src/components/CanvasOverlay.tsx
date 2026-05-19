@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
+import { buildTransform } from '../remotion/interpolateProps'
 
 interface Props {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -30,6 +31,7 @@ interface DragState {
   startPropsById: Record<string, TransformProps>
   movingLayerIds: string[]
   shiftLock: null | 'x' | 'y'
+  pendingMoveUpdates?: Array<{ layerId: string; props: TransformProps }>
 }
 
 interface LayerBox {
@@ -42,6 +44,36 @@ interface LayerBox {
   height: number
   centerCx: number
   centerCy: number
+}
+
+interface BoxRect {
+  id: string
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
+interface SpacingGuide {
+  axis: 'x' | 'y'
+  start: number
+  end: number
+  cross: number
+  label: string
+  matched: boolean
+}
+
+interface AlignmentGuide {
+  axis: 'x' | 'y'
+  position: number
+  start: number
+  end: number
+  distance: number
+}
+
+interface MovePreview {
+  dx: number
+  dy: number
 }
 
 interface MarqueeState {
@@ -74,6 +106,7 @@ interface PathDragState {
 }
 
 const SNAP_DISTANCE = 6
+const ALIGNMENT_GUIDE_DISTANCE = 12
 
 function pathFromPoints(points: PenPoint[], closed: boolean) {
   if (!points.length) return ''
@@ -374,6 +407,233 @@ function pointInBox(x: number, y: number, box: LayerBox) {
   return x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height
 }
 
+function boxToRect(box: LayerBox): BoxRect {
+  return {
+    id: box.layer.id,
+    left: box.left,
+    top: box.top,
+    right: box.left + box.width,
+    bottom: box.top + box.height,
+  }
+}
+
+function boxesToRect(boxes: LayerBox[], id: string): BoxRect | null {
+  if (!boxes.length) return null
+  const left = Math.min(...boxes.map((box) => box.left))
+  const top = Math.min(...boxes.map((box) => box.top))
+  const right = Math.max(...boxes.map((box) => box.left + box.width))
+  const bottom = Math.max(...boxes.map((box) => box.top + box.height))
+  return { id, left, top, right, bottom }
+}
+
+function overlapAmount(a1: number, a2: number, b1: number, b2: number) {
+  return Math.min(a2, b2) - Math.max(a1, b1)
+}
+
+function overlapCenter(a1: number, a2: number, b1: number, b2: number) {
+  return (Math.max(a1, b1) + Math.min(a2, b2)) / 2
+}
+
+function gapMatches(a: number, b: number) {
+  return Math.abs(Math.round(a) - Math.round(b)) <= 1
+}
+
+function sameStringSet(a: string[], b: string[]) {
+  if (a.length !== b.length) return false
+  const values = new Set(a)
+  return b.every((value) => values.has(value))
+}
+
+function sameGuide(a: SpacingGuide, b: SpacingGuide) {
+  return a.axis === b.axis
+    && Math.abs(a.start - b.start) < 0.5
+    && Math.abs(a.end - b.end) < 0.5
+    && Math.abs(a.cross - b.cross) < 0.5
+}
+
+function sameSpacingGuides(a: SpacingGuide[], b: SpacingGuide[]) {
+  if (a.length !== b.length) return false
+  return a.every((guide, index) => {
+    const other = b[index]
+    return Boolean(other)
+      && guide.axis === other.axis
+      && Math.abs(guide.start - other.start) < 0.5
+      && Math.abs(guide.end - other.end) < 0.5
+      && Math.abs(guide.cross - other.cross) < 0.5
+      && guide.label === other.label
+      && guide.matched === other.matched
+  })
+}
+
+function sameAlignmentGuides(a: AlignmentGuide[], b: AlignmentGuide[]) {
+  if (a.length !== b.length) return false
+  return a.every((guide, index) => {
+    const other = b[index]
+    return Boolean(other)
+      && guide.axis === other.axis
+      && Math.abs(guide.position - other.position) < 0.5
+      && Math.abs(guide.start - other.start) < 0.5
+      && Math.abs(guide.end - other.end) < 0.5
+  })
+}
+
+function repeatedSpacingGuides(boxes: BoxRect[], axis: 'x' | 'y', targetGap: number) {
+  const sorted = [...boxes].sort((a, b) => axis === 'x' ? a.left - b.left : a.top - b.top)
+  const guides: SpacingGuide[] = []
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const a = sorted[index]
+    const b = sorted[index + 1]
+    const overlap = axis === 'x'
+      ? overlapAmount(a.top, a.bottom, b.top, b.bottom)
+      : overlapAmount(a.left, a.right, b.left, b.right)
+    if (overlap <= 0) continue
+    const gap = axis === 'x' ? b.left - a.right : b.top - a.bottom
+    if (gap < 0 || !gapMatches(gap, targetGap)) continue
+    guides.push({
+      axis,
+      start: axis === 'x' ? a.right : a.bottom,
+      end: axis === 'x' ? b.left : b.top,
+      cross: axis === 'x'
+        ? overlapCenter(a.top, a.bottom, b.top, b.bottom)
+        : overlapCenter(a.left, a.right, b.left, b.right),
+      label: `${Math.round(gap)}px`,
+      matched: true,
+    })
+  }
+  return guides
+}
+
+function buildSpacingGuides(moving: BoxRect, otherBoxes: BoxRect[]) {
+  const guides: SpacingGuide[] = []
+  const primary: SpacingGuide[] = []
+
+  const horizontalCandidates = otherBoxes.flatMap((box) => {
+    if (overlapAmount(moving.top, moving.bottom, box.top, box.bottom) <= 0) return []
+    const cross = overlapCenter(moving.top, moving.bottom, box.top, box.bottom)
+    if (box.right <= moving.left) {
+      const gap = moving.left - box.right
+      return [{ axis: 'x' as const, start: box.right, end: moving.left, cross, gap }]
+    }
+    if (box.left >= moving.right) {
+      const gap = box.left - moving.right
+      return [{ axis: 'x' as const, start: moving.right, end: box.left, cross, gap }]
+    }
+    return []
+  }).sort((a, b) => a.gap - b.gap)
+
+  const verticalCandidates = otherBoxes.flatMap((box) => {
+    if (overlapAmount(moving.left, moving.right, box.left, box.right) <= 0) return []
+    const cross = overlapCenter(moving.left, moving.right, box.left, box.right)
+    if (box.bottom <= moving.top) {
+      const gap = moving.top - box.bottom
+      return [{ axis: 'y' as const, start: box.bottom, end: moving.top, cross, gap }]
+    }
+    if (box.top >= moving.bottom) {
+      const gap = box.top - moving.bottom
+      return [{ axis: 'y' as const, start: moving.bottom, end: box.top, cross, gap }]
+    }
+    return []
+  }).sort((a, b) => a.gap - b.gap)
+
+  ;[horizontalCandidates[0], verticalCandidates[0]].forEach((candidate) => {
+    if (!candidate) return
+    primary.push({
+      axis: candidate.axis,
+      start: candidate.start,
+      end: candidate.end,
+      cross: candidate.cross,
+      label: `${Math.round(candidate.gap)}px`,
+      matched: false,
+    })
+  })
+
+  primary.forEach((guide) => {
+    const gap = Math.abs(guide.end - guide.start)
+    const repeated = repeatedSpacingGuides([...otherBoxes, moving], guide.axis, gap)
+      .filter((item) => !sameGuide(item, guide))
+      .slice(0, 8)
+    guides.push({ ...guide, matched: repeated.length > 0 }, ...repeated)
+  })
+
+  return guides
+}
+
+function rectAnchors(rect: BoxRect, axis: 'x' | 'y') {
+  if (axis === 'x') {
+    return [
+      { key: 'left', value: rect.left },
+      { key: 'center', value: (rect.left + rect.right) / 2 },
+      { key: 'right', value: rect.right },
+    ]
+  }
+  return [
+    { key: 'top', value: rect.top },
+    { key: 'center', value: (rect.top + rect.bottom) / 2 },
+    { key: 'bottom', value: rect.bottom },
+  ]
+}
+
+function sameAlignmentGuide(a: AlignmentGuide, b: AlignmentGuide) {
+  return a.axis === b.axis && Math.abs(a.position - b.position) < 0.5
+}
+
+function buildAlignmentGuides(moving: BoxRect, otherBoxes: BoxRect[]) {
+  const candidates: AlignmentGuide[] = []
+
+  otherBoxes.forEach((box) => {
+    rectAnchors(moving, 'x').forEach((movingAnchor) => {
+      rectAnchors(box, 'x').forEach((boxAnchor) => {
+        const distance = Math.abs(movingAnchor.value - boxAnchor.value)
+        if (distance > ALIGNMENT_GUIDE_DISTANCE) return
+        candidates.push({
+          axis: 'x',
+          position: boxAnchor.value,
+          start: Math.min(moving.top, box.top) - 12,
+          end: Math.max(moving.bottom, box.bottom) + 12,
+          distance,
+        })
+      })
+    })
+
+    rectAnchors(moving, 'y').forEach((movingAnchor) => {
+      rectAnchors(box, 'y').forEach((boxAnchor) => {
+        const distance = Math.abs(movingAnchor.value - boxAnchor.value)
+        if (distance > ALIGNMENT_GUIDE_DISTANCE) return
+        candidates.push({
+          axis: 'y',
+          position: boxAnchor.value,
+          start: Math.min(moving.left, box.left) - 12,
+          end: Math.max(moving.right, box.right) + 12,
+          distance,
+        })
+      })
+    })
+  })
+
+  const selected: AlignmentGuide[] = []
+  candidates
+    .sort((a, b) => a.distance - b.distance || (b.end - b.start) - (a.end - a.start))
+    .forEach((candidate) => {
+      if (selected.some((guide) => sameAlignmentGuide(guide, candidate))) return
+      const axisCount = selected.filter((guide) => guide.axis === candidate.axis).length
+      if (axisCount >= 2) return
+      selected.push(candidate)
+    })
+
+  return selected
+}
+
+function applyLayerTransformPreviews(container: HTMLElement | null, updates: Array<{ layerId: string; props: TransformProps }>) {
+  if (!container) return
+  const layerElements = Array.from(container.querySelectorAll<HTMLElement>('[data-layer-id]'))
+  updates.forEach((update) => {
+    const element = layerElements.find((item) => item.dataset.layerId === update.layerId)
+    if (!element) return
+    element.style.transform = buildTransform(update.props)
+    element.dataset.dragPreview = 'true'
+  })
+}
+
 function textRuns(layer: Layer) {
   const spans = (layer.textSpans ?? [])
     .filter((span) => span.end > 0 && span.start < layer.text.length)
@@ -393,20 +653,55 @@ function textRuns(layer: Layer) {
 
 export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
-    layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty,
+    layers, selectedLayerIds, currentFrame, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
-    selectLayer, selectLayers, currentTool, addGeneratedLayer,
+    selectLayer, selectLayers, currentTool, addGeneratedLayer, resizeLayerBox,
   } = useStore()
 
   const [displayScale, setDisplayScale] = useState(0)
   const [marquee, setMarquee] = useState<MarqueeState | null>(null)
+  const [spacingGuides, setSpacingGuides] = useState<SpacingGuide[]>([])
+  const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([])
+  const [movePreview, setMovePreview] = useState<MovePreview | null>(null)
   const [penPoints, setPenPoints] = useState<PenPoint[]>([])
   const [penPreviewPoint, setPenPreviewPoint] = useState<PenPoint | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const pathDragRef = useRef<PathDragState | null>(null)
   const marqueeRef = useRef<MarqueeState | null>(null)
+  const keyboardSpacingTimer = useRef<number | null>(null)
+  const guideFrameRef = useRef<number | null>(null)
+  const pendingGuideUpdateRef = useRef<{ spacing: SpacingGuide[]; alignment: AlignmentGuide[]; movePreview: MovePreview | null } | null>(null)
   const perspectiveHeld = useRef(false)
   const spaceHeld = useRef(false)
+
+  const scheduleGuideUpdate = useCallback((spacing: SpacingGuide[], alignment: AlignmentGuide[], preview: MovePreview | null = null) => {
+    pendingGuideUpdateRef.current = { spacing, alignment, movePreview: preview }
+    if (guideFrameRef.current !== null) return
+    guideFrameRef.current = window.requestAnimationFrame(() => {
+      guideFrameRef.current = null
+      const pending = pendingGuideUpdateRef.current
+      pendingGuideUpdateRef.current = null
+      if (!pending) return
+      setSpacingGuides((current) => sameSpacingGuides(current, pending.spacing) ? current : pending.spacing)
+      setAlignmentGuides((current) => sameAlignmentGuides(current, pending.alignment) ? current : pending.alignment)
+      setMovePreview((current) => (
+        current?.dx === pending.movePreview?.dx && current?.dy === pending.movePreview?.dy
+          ? current
+          : pending.movePreview
+      ))
+    })
+  }, [])
+
+  const clearGuideUpdate = useCallback(() => {
+    pendingGuideUpdateRef.current = null
+    if (guideFrameRef.current !== null) {
+      window.cancelAnimationFrame(guideFrameRef.current)
+      guideFrameRef.current = null
+    }
+    setSpacingGuides((current) => current.length ? [] : current)
+    setAlignmentGuides((current) => current.length ? [] : current)
+    setMovePreview((current) => current ? null : current)
+  }, [])
 
   function finishPenPath(closed: boolean) {
     if (penPoints.length < 2) {
@@ -461,6 +756,11 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     obs.observe(el)
     return () => obs.disconnect()
   }, [containerRef, canvasW])
+
+  useEffect(() => () => {
+    pendingGuideUpdateRef.current = null
+    if (guideFrameRef.current !== null) window.cancelAnimationFrame(guideFrameRef.current)
+  }, [])
 
   const onMouseMove = useCallback((e: MouseEvent) => {
     const pathDrag = pathDragRef.current
@@ -543,11 +843,39 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       )
       const snappedDx = snapped.cx - d.centerCx
       const snappedDy = snapped.cy - d.centerCy
-      movingLayers.forEach((movingLayer) => {
+      const movingRect: BoxRect = {
+        id: 'moving-selection',
+        left: snapped.cx - d.startBoxW / 2,
+        top: snapped.cy - d.startBoxH / 2,
+        right: snapped.cx + d.startBoxW / 2,
+        bottom: snapped.cy + d.startBoxH / 2,
+      }
+      const movingSet = new Set(moveLayerIds)
+      const measurementBoxes = layers
+        .filter((item) => (
+          !movingSet.has(item.id)
+          && item.visible
+          && item.type !== 'group'
+          && !item.isGroup
+          && currentFrame >= (item.startFrame ?? 0)
+          && currentFrame <= (item.endFrame ?? Infinity)
+        ))
+        .map((item) => boxToRect(getLayerBox(item, currentFrame, canvasW, canvasH)))
+      scheduleGuideUpdate(
+        buildSpacingGuides(movingRect, measurementBoxes),
+        buildAlignmentGuides(movingRect, measurementBoxes),
+        { dx: snappedDx, dy: snappedDy },
+      )
+      const moveUpdates = movingLayers.flatMap((movingLayer) => {
         const startProps = d.startPropsById[movingLayer.id]
-        if (!startProps) return
-        addKeyframe(movingLayer.id, currentFrame, { ...startProps, x: startProps.x + snappedDx, y: startProps.y + snappedDy })
+        if (!startProps) return []
+        return [{
+          layerId: movingLayer.id,
+          props: { ...startProps, x: startProps.x + snappedDx, y: startProps.y + snappedDy },
+        }]
       })
+      d.pendingMoveUpdates = moveUpdates
+      applyLayerTransformPreviews(containerRef.current, moveUpdates)
 
     } else if (d.type === 'rotate') {
       const rect = containerRef.current?.getBoundingClientRect()
@@ -619,20 +947,31 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const sx = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleX))
       const sy = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleY))
 
-      if (pullsLeft || pullsRight) setLayerAnimatedProperty(layer.id, 'width', Math.round(nextBoxW / sx))
-      if (pullsTop || pullsBottom) setLayerAnimatedProperty(layer.id, 'height', Math.round(nextBoxH / sy))
-      addKeyframe(layer.id, currentFrame, {
-        ...d.props,
-        x: nextCx - canvasW / 2,
-        y: nextCy - canvasH / 2,
-      })
+      resizeLayerBox(
+        layer.id,
+        currentFrame,
+        {
+          ...d.props,
+          x: nextCx - canvasW / 2,
+          y: nextCy - canvasH / 2,
+        },
+        {
+          width: pullsLeft || pullsRight ? nextBoxW / sx : undefined,
+          height: pullsTop || pullsBottom ? nextBoxH / sy : undefined,
+        },
+      )
     }
-  }, [layers, selectedLayerIds, currentFrame, addKeyframe, setLayerAnimatedProperty, updateLayerProp, containerRef, canvasW, canvasH])
+  }, [layers, selectedLayerIds, currentFrame, addKeyframe, addKeyframes, setLayerAnimatedProperty, updateLayerProp, resizeLayerBox, scheduleGuideUpdate, containerRef, canvasW, canvasH])
 
   const onMouseUp = useCallback(() => {
     pathDragRef.current = null
-    if (dragRef.current) endInteraction()
+    const drag = dragRef.current
+    if (drag?.type === 'move' && drag.pendingMoveUpdates?.length) {
+      addKeyframes(drag.pendingMoveUpdates, currentFrame)
+    }
+    if (drag) endInteraction()
     dragRef.current = null
+    clearGuideUpdate()
     if (marqueeRef.current) {
       const state = marqueeRef.current
       const moved = Math.abs(state.currentX - state.startX) > 3 || Math.abs(state.currentY - state.startY) > 3
@@ -646,7 +985,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       marqueeRef.current = null
       setMarquee(null)
     }
-  }, [layers, currentFrame, canvasW, canvasH, selectLayer, endInteraction])
+  }, [layers, currentFrame, canvasW, canvasH, selectLayer, addKeyframes, endInteraction, clearGuideUpdate])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -683,6 +1022,60 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       window.removeEventListener('keyup', onKey)
     }
   }, [currentTool, penPoints])
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const target = e.target as HTMLElement
+      const tag = target.tagName.toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || target.isContentEditable) return
+
+      if (keyboardSpacingTimer.current) window.clearTimeout(keyboardSpacingTimer.current)
+      window.setTimeout(() => {
+        const state = useStore.getState()
+        const selectedIds = state.selectedLayerIds
+        if (!selectedIds.length) {
+          clearGuideUpdate()
+          return
+        }
+        const movingIds = getMovementLayerIds(state.layers, selectedIds)
+        const movingSet = new Set(movingIds)
+        const activeBoxes = movingIds
+          .map((id) => state.layers.find((item) => item.id === id))
+          .filter((item): item is Layer => Boolean(item))
+          .map((item) => getLayerBox(item, state.currentFrame, canvasW, canvasH))
+        const movingRect = boxesToRect(activeBoxes, 'keyboard-selection')
+        if (!movingRect) {
+          clearGuideUpdate()
+          return
+        }
+        const measurementBoxes = state.layers
+          .filter((item) => (
+            !movingSet.has(item.id)
+            && item.visible
+            && item.type !== 'group'
+            && !item.isGroup
+            && state.currentFrame >= (item.startFrame ?? 0)
+            && state.currentFrame <= (item.endFrame ?? Infinity)
+          ))
+          .map((item) => boxToRect(getLayerBox(item, state.currentFrame, canvasW, canvasH)))
+        scheduleGuideUpdate(
+          buildSpacingGuides(movingRect, measurementBoxes),
+          buildAlignmentGuides(movingRect, measurementBoxes),
+        )
+        keyboardSpacingTimer.current = window.setTimeout(() => {
+          clearGuideUpdate()
+        }, 900)
+      }, 0)
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      if (keyboardSpacingTimer.current) window.clearTimeout(keyboardSpacingTimer.current)
+    }
+  }, [canvasW, canvasH, scheduleGuideUpdate, clearGuideUpdate])
 
   useEffect(() => {
     if (currentTool !== 'pen') {
@@ -739,7 +1132,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
       .filter((box) => rectsIntersect({ left, top, right, bottom }, { left: box.left, top: box.top, right: box.left + box.width, bottom: box.top + box.height }))
       .map((box) => box.layer.id)
-    selectLayers(state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected)
+    const nextSelection = state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected
+    if (!sameStringSet(useStore.getState().selectedLayerIds, nextSelection)) selectLayers(nextSelection)
   }
 
   function onBackgroundMouseDown(e: React.MouseEvent) {
@@ -771,12 +1165,16 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
   function onBackgroundMouseMove(e: React.MouseEvent) {
     if (currentTool === 'pen') {
-      setPenPreviewPoint(getCanvasPoint(e.clientX, e.clientY))
+      const point = getCanvasPoint(e.clientX, e.clientY)
+      if (!penPreviewPoint || Math.abs(point.x - penPreviewPoint.x) > 0.1 || Math.abs(point.y - penPreviewPoint.y) > 0.1) {
+        setPenPreviewPoint(point)
+      }
       return
     }
     const state = marqueeRef.current
     if (!state) return
     const point = getCanvasPoint(e.clientX, e.clientY)
+    if (Math.abs(point.x - state.currentX) <= 0.1 && Math.abs(point.y - state.currentY) <= 0.1) return
     const next = { ...state, currentX: point.x, currentY: point.y, started: state.started || Math.abs(point.x - state.startX) > 3 || Math.abs(point.y - state.startY) > 3 }
     marqueeRef.current = next
     setMarquee(next)
@@ -827,6 +1225,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (!layer || !animatedLayer || !p || layer.locked) return
     e.preventDefault()
     e.stopPropagation()
+    clearGuideUpdate()
     if (type === 'move' && !isMultiSelection && (layer.type === 'group' || layer.isGroup)) {
       const point = getCanvasPoint(e.clientX, e.clientY)
       const childIds = new Set(descendantsOf(layers, layer.id).map((child) => child.id))
@@ -1054,13 +1453,86 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             ))}
           </svg>
         )}
+        {alignmentGuides.length > 0 && (
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 27 }}>
+            {alignmentGuides.map((guide, index) => {
+              const color = '#f59e0b'
+              return (
+                <div
+                  key={`${guide.axis}-${guide.position}-${guide.start}-${guide.end}-${index}`}
+                  style={{
+                    position: 'absolute',
+                    left: guide.axis === 'x' ? guide.position : guide.start,
+                    top: guide.axis === 'x' ? guide.start : guide.position,
+                    width: guide.axis === 'x' ? 0 : Math.max(1, guide.end - guide.start),
+                    height: guide.axis === 'x' ? Math.max(1, guide.end - guide.start) : 0,
+                    borderLeft: guide.axis === 'x' ? `${1.2 / displayScale}px dashed ${color}` : undefined,
+                    borderTop: guide.axis === 'y' ? `${1.2 / displayScale}px dashed ${color}` : undefined,
+                    boxShadow: guide.axis === 'x'
+                      ? `${0.5 / displayScale}px 0 0 rgba(6,17,31,0.45)`
+                      : `0 ${0.5 / displayScale}px 0 rgba(6,17,31,0.45)`,
+                  }}
+                />
+              )
+            })}
+          </div>
+        )}
+        {spacingGuides.length > 0 && (
+          <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 28 }}>
+            {spacingGuides.map((guide, index) => {
+              const color = guide.matched ? '#22c55e' : '#20d5f8'
+              const labelStyle: React.CSSProperties = {
+                position: 'absolute',
+                left: guide.axis === 'x' ? (guide.start + guide.end) / 2 : guide.cross,
+                top: guide.axis === 'x' ? guide.cross : (guide.start + guide.end) / 2,
+                transform: 'translate(-50%, -50%)',
+                padding: `${1 / displayScale}px ${4 / displayScale}px`,
+                borderRadius: 999,
+                background: color,
+                color: '#06111f',
+                fontSize: 10 / displayScale,
+                fontWeight: 700,
+                lineHeight: 1.35,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+              }
+              return (
+                <div key={`${guide.axis}-${guide.start}-${guide.end}-${guide.cross}-${index}`}>
+                  <div
+                    style={{
+                      position: 'absolute',
+                      left: guide.axis === 'x' ? guide.start : guide.cross,
+                      top: guide.axis === 'x' ? guide.cross : guide.start,
+                      width: guide.axis === 'x' ? Math.max(1, guide.end - guide.start) : 0,
+                      height: guide.axis === 'y' ? Math.max(1, guide.end - guide.start) : 0,
+                      borderTop: guide.axis === 'x' ? `${1.4 / displayScale}px solid ${color}` : undefined,
+                      borderLeft: guide.axis === 'y' ? `${1.4 / displayScale}px solid ${color}` : undefined,
+                    }}
+                  />
+                  {guide.axis === 'x' ? (
+                    <>
+                      <div style={{ position: 'absolute', left: guide.start, top: guide.cross - 4 / displayScale, width: 0, height: 8 / displayScale, borderLeft: `${1.4 / displayScale}px solid ${color}` }} />
+                      <div style={{ position: 'absolute', left: guide.end, top: guide.cross - 4 / displayScale, width: 0, height: 8 / displayScale, borderLeft: `${1.4 / displayScale}px solid ${color}` }} />
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ position: 'absolute', left: guide.cross - 4 / displayScale, top: guide.start, width: 8 / displayScale, height: 0, borderTop: `${1.4 / displayScale}px solid ${color}` }} />
+                      <div style={{ position: 'absolute', left: guide.cross - 4 / displayScale, top: guide.end, width: 8 / displayScale, height: 0, borderTop: `${1.4 / displayScale}px solid ${color}` }} />
+                    </>
+                  )}
+                  <div style={labelStyle}>{guide.label}</div>
+                </div>
+              )
+            })}
+          </div>
+        )}
         {/* Selection box */}
         {primaryBox && layer && animatedLayer && p && (
         <div
           style={{
             position: 'absolute',
-            left: boxLeft,
-            top: boxTop,
+            left: boxLeft + (movePreview?.dx ?? 0),
+            top: boxTop + (movePreview?.dy ?? 0),
             width: boxW,
             height: boxH,
             transform: isMultiSelection ? undefined : `rotate(${p.rotateZ}deg)`,

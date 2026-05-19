@@ -36,8 +36,11 @@ export function PreviewCanvas() {
   const zoom = editorZoom
   const pan = { x: editorPanX, y: editorPanY }
   const isPanning = useRef(false)
-  const panStart = useRef({ mx: 0, my: 0, px: 0, py: 0 })
+  const panStart = useRef({ mx: 0, my: 0, px: 0, py: 0, zoom: 1 })
+  const panPreview = useRef<{ zoom: number; x: number; y: number } | null>(null)
+  const panFrame = useRef<number | null>(null)
   const spaceHeld = useRef(false)
+  const [isPanningUi, setIsPanningUi] = useState(false)
 
   const isCustom = canvasPreset.name === 'Custom'
   const canvasW = isCustom ? customWidth : canvasPreset.width
@@ -52,6 +55,33 @@ export function PreviewCanvas() {
 
   function setZoomPan(nextZoom: number, nextPan = pan) {
     setEditorViewport(Math.max(0.1, Math.min(5, nextZoom)), nextPan.x, nextPan.y)
+  }
+
+  function setPanTransition(enabled: boolean) {
+    if (!transformRef.current) return
+    transformRef.current.style.transition = enabled ? 'transform 0.08s ease' : 'none'
+  }
+
+  function applyPanTransform(nextZoom: number, nextX: number, nextY: number) {
+    if (!transformRef.current) return
+    transformRef.current.style.transform = `translate(${nextX}px,${nextY}px) scale(${nextZoom})`
+  }
+
+  function schedulePanPreview(nextZoom: number, nextX: number, nextY: number) {
+    panPreview.current = { zoom: nextZoom, x: nextX, y: nextY }
+    if (panFrame.current !== null) return
+    panFrame.current = requestAnimationFrame(() => {
+      panFrame.current = null
+      const preview = panPreview.current
+      if (!preview) return
+      applyPanTransform(preview.zoom, preview.x, preview.y)
+    })
+  }
+
+  function cancelPanPreviewFrame() {
+    if (panFrame.current === null) return
+    cancelAnimationFrame(panFrame.current)
+    panFrame.current = null
   }
 
   function zoomAtPoint(nextZoom: number, clientX: number, clientY: number) {
@@ -119,7 +149,10 @@ export function PreviewCanvas() {
     const el = outerRef.current
     if (!el) return
     el.addEventListener('wheel', handleWheel, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheel)
+    return () => {
+      el.removeEventListener('wheel', handleWheel)
+      cancelPanPreviewFrame()
+    }
   }, [handleWheel])
 
   // Space/middle mouse pan
@@ -135,17 +168,51 @@ export function PreviewCanvas() {
   function onMouseDown(e: React.MouseEvent) {
     if (e.button === 1 || (e.button === 0 && spaceHeld.current) || currentTool === 'hand') {
       e.preventDefault()
+      const state = useStore.getState()
       isPanning.current = true
-      panStart.current = { mx: e.clientX, my: e.clientY, px: pan.x, py: pan.y }
+      setIsPanningUi(true)
+      setPanTransition(false)
+      panPreview.current = {
+        zoom: state.editorZoom,
+        x: state.editorPanX,
+        y: state.editorPanY,
+      }
+      panStart.current = {
+        mx: e.clientX,
+        my: e.clientY,
+        px: state.editorPanX,
+        py: state.editorPanY,
+        zoom: state.editorZoom,
+      }
     }
   }
 
   function onMouseMove(e: React.MouseEvent) {
     if (!isPanning.current) return
-      setEditorViewport(zoom, panStart.current.px + (e.clientX - panStart.current.mx), panStart.current.py + (e.clientY - panStart.current.my))
+    schedulePanPreview(
+      panStart.current.zoom,
+      panStart.current.px + (e.clientX - panStart.current.mx),
+      panStart.current.py + (e.clientY - panStart.current.my),
+    )
   }
 
-  function onMouseUp() { isPanning.current = false }
+  function onMouseUp() {
+    if (!isPanning.current) return
+    const preview = panPreview.current ?? {
+      zoom: panStart.current.zoom,
+      x: panStart.current.px,
+      y: panStart.current.py,
+    }
+    cancelPanPreviewFrame()
+    applyPanTransform(preview.zoom, preview.x, preview.y)
+    isPanning.current = false
+    setIsPanningUi(false)
+    panPreview.current = null
+    setEditorViewport(preview.zoom, preview.x, preview.y)
+    requestAnimationFrame(() => {
+      if (!isPanning.current) setPanTransition(true)
+    })
+  }
 
   function fitToScreen() {
     const outer = outerRef.current
@@ -172,7 +239,7 @@ export function PreviewCanvas() {
   }, [])
 
   const cursorStyle =
-    currentTool === 'hand' || spaceHeld.current ? (isPanning.current ? 'cursor-grabbing' : 'cursor-grab') : ''
+    currentTool === 'hand' || spaceHeld.current ? (isPanningUi ? 'cursor-grabbing' : 'cursor-grab') : ''
 
   return (
     <div className="flex flex-col flex-1 min-w-0" style={{ background: 'var(--bg)', overflow: 'hidden' }}>

@@ -1,6 +1,18 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
 import { interpolateProps } from '../remotion/interpolateProps'
+import { descendantsOf } from '../layerTree'
+
+function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['layers'], selectedIds: string[]) {
+  const ids = new Set<string>()
+  selectedIds.forEach((id) => {
+    const layer = layers.find((item) => item.id === id)
+    if (!layer || layer.locked) return
+    ids.add(id)
+    descendantsOf(layers, id).forEach((child) => ids.add(child.id))
+  })
+  return [...ids]
+}
 
 export function useKeyboardShortcuts() {
   const store = useStore()
@@ -83,7 +95,7 @@ export function useKeyboardShortcuts() {
       if (e.key === 'ArrowDown') { e.preventDefault(); dy = step }
 
       if (dx !== 0 || dy !== 0) {
-        selectedLayerIds.forEach((id) => {
+        getKeyboardMoveLayerIds(layers, selectedLayerIds).forEach((id) => {
           const layer = layers.find((l) => l.id === id)
           if (!layer) return
           const props = interpolateProps(currentFrame, layer.keyframes)

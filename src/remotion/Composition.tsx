@@ -184,7 +184,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       ? styledSvgDataUrl(animatedLayer.src, animatedLayer)
       : animatedLayer.src
     return (
-      <div style={wrapperStyle} onClick={handleClick}>
+      <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
         <img
           src={imageSrc}
           style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
@@ -196,8 +196,9 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
 
   if (animatedLayer.type === 'text') {
     return (
-      <div
-        style={{
+        <div
+          data-layer-id={animatedLayer.id}
+          style={{
           ...wrapperStyle,
           background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
           display: 'flex',
@@ -229,6 +230,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   if (animatedLayer.type === 'ellipse') {
     return (
       <div
+        data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
           background: bg,
@@ -243,6 +245,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   if (animatedLayer.type === 'triangle') {
     return (
       <div
+        data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
           background: bg,
@@ -256,6 +259,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   if (animatedLayer.type === 'line') {
     return (
       <div
+        data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
           background: animatedLayer.strokeColor,
@@ -268,7 +272,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
 
   if (animatedLayer.type === 'path') {
     return (
-      <div style={wrapperStyle} onClick={handleClick}>
+      <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
         <svg
           width="100%"
           height="100%"
@@ -292,6 +296,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   // Rectangle (default)
   return (
     <div
+      data-layer-id={animatedLayer.id}
       style={{
         ...wrapperStyle,
         background: bg,
@@ -352,7 +357,7 @@ function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
   }
 
-  return <div style={wrapperStyle} onClick={handleClick} />
+  return <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick} />
 }
 
 interface CompositionProps {

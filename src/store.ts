@@ -434,6 +434,7 @@ interface Actions {
   reorderLayers: (from: number, to: number) => void
   // Keyframes
   addKeyframe: (layerId: string, frame: number, props: TransformProps, easing?: string) => void
+  addKeyframes: (updates: Array<{ layerId: string; props: TransformProps }>, frame: number, easing?: string) => void
   resizeLayerBox: (layerId: string, frame: number, props: TransformProps, size: { width?: number; height?: number }) => void
   removeKeyframe: (layerId: string, frame: number) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
@@ -876,6 +877,30 @@ export const useStore = create<Store>()(
             return { ...l, keyframes }
           })
           return { layers: normalizeLayerTree(s, layers, layerId, false) }
+        })
+      },
+
+      addKeyframes: (updates, frame, easing = 'ease-out') => {
+        if (!updates.length) return
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => {
+          const byId = new Map(updates.map((update) => [update.layerId, update.props]))
+          const layers = s.layers.map((layer) => {
+            const props = byId.get(layer.id)
+            if (!props) return layer
+            const existing = layer.keyframes.find((keyframe) => keyframe.frame === frame)
+            const kf: Keyframe = {
+              frame,
+              easing: (easing as Keyframe['easing']),
+              bezier: existing?.bezier,
+              props,
+            }
+            const keyframes = existing
+              ? layer.keyframes.map((keyframe) => keyframe.frame === frame ? kf : keyframe)
+              : [...layer.keyframes, kf].sort((a, b) => a.frame - b.frame)
+            return { ...layer, keyframes }
+          })
+          return { layers: withAutoFitGroups(s, layers) }
         })
       },
 
