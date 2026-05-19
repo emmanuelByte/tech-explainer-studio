@@ -1,59 +1,48 @@
+import { useState } from 'react'
 import { useStore } from '../store'
 
-interface Props {
-  onClose: () => void
-}
-
-export function ExportModal({ onClose }: Props) {
+export function ExportModal({ onClose }: { onClose: () => void }) {
   const { canvasPreset, customWidth, customHeight, totalFrames, fps } = useStore()
+  const [copied, setCopied] = useState(false)
   const isCustom = canvasPreset.name === 'Custom'
   const w = isCustom ? customWidth : canvasPreset.width
   const h = isCustom ? customHeight : canvasPreset.height
-
   const cmd = `npx remotion render src/remotion/index.ts EditorComposition out/video.mp4 --width=${w} --height=${h} --frames=0-${totalFrames - 1}`
 
   function copyCmd() {
     navigator.clipboard.writeText(cmd)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
   }
 
   return (
-    <div
-      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-[#1a1a1a] border border-[#333] rounded-lg p-6 max-w-xl w-full mx-4"
-        onClick={(e) => e.stopPropagation()}
+    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={onClose}>
+      <div className="rounded-xl p-6 max-w-xl w-full mx-4" onClick={(e) => e.stopPropagation()}
+        style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold text-white">Export MP4</h2>
-          <button onClick={onClose} className="text-[#666] hover:text-white text-lg leading-none">×</button>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Export MP4</h2>
+          <button onClick={onClose} className="text-lg leading-none" style={{ color: 'var(--text3)' }}>×</button>
         </div>
-
-        <p className="text-xs text-[#888] mb-3">
-          Browser-side MP4 encoding isn't supported yet. Run this command in your terminal to render via Remotion CLI:
+        <p className="text-xs mb-3" style={{ color: 'var(--text2)' }}>
+          Run this command in your terminal to render via Remotion CLI:
         </p>
-
-        <div className="bg-[#0d0d0d] border border-[#2a2a2a] rounded p-3 font-mono text-[11px] text-[#a5f3fc] break-all mb-4">
+        <div className="rounded-lg p-3 mb-4 font-mono text-xs break-all" style={{ background: 'var(--bg2)', color: '#a5f3fc', border: '1px solid var(--border)' }}>
           {cmd}
         </div>
-
-        <div className="flex gap-2 text-xs text-[#666] mb-4">
-          <span className="bg-[#222] rounded px-2 py-0.5">{w}×{h}</span>
-          <span className="bg-[#222] rounded px-2 py-0.5">{fps} fps</span>
-          <span className="bg-[#222] rounded px-2 py-0.5">{(totalFrames / fps).toFixed(1)}s</span>
+        <div className="flex gap-2 mb-4">
+          {[`${w}×${h}`, `${fps} fps`, `${(totalFrames / fps).toFixed(1)}s`].map((t) => (
+            <span key={t} className="text-xs rounded px-2 py-0.5" style={{ background: 'var(--input)', color: 'var(--text2)' }}>{t}</span>
+          ))}
         </div>
-
         <div className="flex gap-2">
-          <button
-            onClick={copyCmd}
-            className="flex-1 text-xs bg-[#6366f1] hover:bg-[#4f52c8] text-white rounded px-4 py-2 transition-colors"
+          <button onClick={copyCmd} className="flex-1 text-xs rounded px-4 py-2 font-semibold transition-colors"
+            style={{ background: copied ? '#22c55e' : '#6366f1', color: '#fff' }}
           >
-            Copy command
+            {copied ? '✓ Copied!' : 'Copy command'}
           </button>
-          <button
-            onClick={onClose}
-            className="text-xs bg-[#2a2a2a] hover:bg-[#333] text-[#ccc] rounded px-4 py-2 transition-colors"
+          <button onClick={onClose} className="text-xs rounded px-4 py-2 transition-colors"
+            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
           >
             Close
           </button>

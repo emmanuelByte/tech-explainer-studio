@@ -1,106 +1,160 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useStore } from '../store'
+import { Layer, LayerType, LAYER_TYPE_COLOR } from '../types'
 
-const EyeIcon = ({ open }: { open: boolean }) => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    {open ? (
-      <>
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-        <circle cx="12" cy="12" r="3" />
-      </>
-    ) : (
-      <>
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-        <line x1="1" y1="1" x2="23" y2="23" />
-      </>
-    )}
-  </svg>
-)
+const TYPE_ICONS: Record<LayerType, string> = {
+  rectangle: '▭', ellipse: '◯', line: '╱',
+  triangle: '△', text: 'T', image: '🖼',
+}
 
-const TrashIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    <polyline points="3 6 5 6 21 6" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
-  </svg>
-)
+function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex-1 text-xs rounded py-1 transition-colors"
+      style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+    >
+      {label}
+    </button>
+  )
+}
+
+function LayerRow({ layer, selected, onSelect }: { layer: Layer; selected: boolean; onSelect: () => void }) {
+  const { toggleVisibility, toggleLock, deleteLayer, renameLayer } = useStore()
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(layer.name)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function commitRename() {
+    setEditing(false)
+    if (name.trim()) renameLayer(layer.id, name.trim())
+    else setName(layer.name)
+  }
+
+  return (
+    <div
+      onClick={onSelect}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px',
+        height: 32, cursor: 'pointer', userSelect: 'none',
+        borderBottom: '1px solid var(--border2)',
+        background: selected ? 'rgba(99,102,241,0.1)' : 'transparent',
+        borderLeft: `2px solid ${selected ? LAYER_TYPE_COLOR[layer.type] : 'transparent'}`,
+        transition: 'background 0.1s',
+      }}
+      className="group"
+    >
+      {/* Type icon */}
+      <span style={{ fontSize: 12, width: 14, textAlign: 'center', color: LAYER_TYPE_COLOR[layer.type], flexShrink: 0 }}>
+        {TYPE_ICONS[layer.type]}
+      </span>
+
+      {/* Name */}
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={commitRename}
+          onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); if (e.key === 'Escape') { setEditing(false); setName(layer.name) } }}
+          onClick={(e) => e.stopPropagation()}
+          autoFocus
+          className="flex-1 input-base text-xs h-5"
+          style={{ minWidth: 0 }}
+        />
+      ) : (
+        <span
+          className="flex-1 text-xs truncate"
+          style={{ color: 'var(--text)', opacity: layer.visible ? 1 : 0.4 }}
+          onDoubleClick={(e) => { e.stopPropagation(); setEditing(true); setTimeout(() => inputRef.current?.select(), 10) }}
+        >
+          {layer.name}
+        </span>
+      )}
+
+      {/* Actions (show on hover) */}
+      <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}
+          style={{ color: 'var(--text3)', fontSize: 12, padding: '0 2px' }}
+          title="Toggle visibility"
+        >
+          {layer.visible ? '◎' : '○'}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleLock(layer.id) }}
+          style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', fontSize: 12, padding: '0 2px' }}
+          title="Toggle lock"
+        >
+          {layer.locked ? '⚿' : '⚿'}
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id) }}
+          style={{ color: 'var(--text3)', fontSize: 12, padding: '0 2px' }}
+          className="hover:!text-red-400 transition-colors"
+          title="Delete layer"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  )
+}
 
 export function LayersPanel() {
-  const { layers, selectedLayerId, selectLayer, toggleVisibility, deleteLayer, addRectangle, addImage } =
-    useStore()
+  const { layers, selectedLayerIds, selectLayer, addLayer, addImage } = useStore()
   const fileRef = useRef<HTMLInputElement>(null)
 
   function handleImageImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    const url = URL.createObjectURL(file)
-    addImage(url, file.name.replace(/\.[^.]+$/, ''))
+    addImage(URL.createObjectURL(file), file.name.replace(/\.[^.]+$/, ''))
     e.target.value = ''
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#161616] border-r border-[#2a2a2a]" style={{ width: 220 }}>
-      <div className="px-3 py-2 border-b border-[#2a2a2a] flex items-center justify-between">
-        <span className="text-xs font-semibold text-[#888] uppercase tracking-widest">Layers</span>
+    <div
+      className="flex flex-col h-full"
+      style={{ width: 210, background: 'var(--panel)', borderRight: '1px solid var(--border)', flexShrink: 0 }}
+    >
+      {/* Header */}
+      <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
+        <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text2)' }}>Layers</span>
       </div>
 
-      <div className="flex gap-1 px-2 py-2 border-b border-[#2a2a2a]">
-        <button
-          onClick={addRectangle}
-          className="flex-1 text-xs bg-[#6366f1] hover:bg-[#4f52c8] text-white rounded px-2 py-1.5 transition-colors"
-        >
-          + Rect
-        </button>
-        <button
-          onClick={() => fileRef.current?.click()}
-          className="flex-1 text-xs bg-[#2a2a2a] hover:bg-[#333] text-[#ccc] rounded px-2 py-1.5 transition-colors"
-        >
-          + Image
-        </button>
-        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageImport} />
+      {/* Shape buttons */}
+      <div className="px-2 py-2 flex-shrink-0 flex flex-col gap-1.5" style={{ borderBottom: '1px solid var(--border)' }}>
+        <div className="flex gap-1">
+          <AddButton label="▭ Rect" onClick={() => addLayer('rectangle')} />
+          <AddButton label="◯ Ellipse" onClick={() => addLayer('ellipse')} />
+          <AddButton label="△ Tri" onClick={() => addLayer('triangle')} />
+        </div>
+        <div className="flex gap-1">
+          <AddButton label="T Text" onClick={() => addLayer('text')} />
+          <AddButton label="╱ Line" onClick={() => addLayer('line')} />
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="flex-1 text-xs rounded py-1 transition-colors"
+            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          >
+            🖼 Image
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageImport} />
+        </div>
       </div>
 
+      {/* Layer list (reverse: topmost first) */}
       <div className="flex-1 overflow-y-auto">
         {layers.length === 0 && (
-          <div className="text-xs text-[#555] text-center mt-8">No layers yet</div>
+          <div className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>No layers yet</div>
         )}
-        {[...layers].map((layer, i) => (
-          <div
+        {[...layers].reverse().map((layer) => (
+          <LayerRow
             key={layer.id}
-            onClick={() => selectLayer(layer.id)}
-            className={`flex items-center gap-2 px-2 py-2 cursor-pointer group border-b border-[#1e1e1e] transition-colors ${
-              selectedLayerId === layer.id
-                ? 'bg-[#1e1e3a] border-l-2 border-l-[#6366f1]'
-                : 'hover:bg-[#1d1d1d]'
-            }`}
-          >
-            {/* Color swatch */}
-            <div
-              className="w-3 h-3 rounded-sm flex-shrink-0"
-              style={{ background: layer.color || '#555' }}
-            />
-
-            {/* Name */}
-            <span className="flex-1 text-xs text-[#ccc] truncate">{layer.name}</span>
-
-            {/* Visibility */}
-            <button
-              onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}
-              className={`opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:text-white ${
-                layer.visible ? 'text-[#888]' : 'text-[#444]'
-              }`}
-            >
-              <EyeIcon open={layer.visible} />
-            </button>
-
-            {/* Delete */}
-            <button
-              onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id) }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-[#888] hover:text-red-400"
-            >
-              <TrashIcon />
-            </button>
-          </div>
+            layer={layer}
+            selected={selectedLayerIds.includes(layer.id)}
+            onSelect={() => selectLayer(layer.id)}
+          />
         ))}
       </div>
     </div>

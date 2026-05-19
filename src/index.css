@@ -1,52 +1,100 @@
 @import "tailwindcss";
 
-* {
-  box-sizing: border-box;
+/* ── Theme variables ───────────────────────────────────── */
+:root {
+  --bg:       #f4f4f5;
+  --bg2:      #e8e8ea;
+  --panel:    #ffffff;
+  --panel2:   #f8f8f9;
+  --input:    #efefef;
+  --border:   #d4d4d8;
+  --border2:  #e4e4e7;
+  --text:     #18181b;
+  --text2:    #52525b;
+  --text3:    #a1a1aa;
+  --accent:   #6366f1;
+  --timeline: #f0f0f2;
 }
+
+:root.dark {
+  --bg:       #0f0f0f;
+  --bg2:      #141414;
+  --panel:    #161616;
+  --panel2:   #1a1a1a;
+  --input:    #222222;
+  --border:   #2a2a2a;
+  --border2:  #1e1e1e;
+  --text:     #e0e0e0;
+  --text2:    #888888;
+  --text3:    #555555;
+  --accent:   #6366f1;
+  --timeline: #141414;
+}
+
+/* ── Base ──────────────────────────────────────────────── */
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: #0f0f0f;
-  color: #e0e0e0;
+  background: var(--bg);
+  color: var(--text);
   font-family: 'Inter', system-ui, sans-serif;
   overflow: hidden;
   height: 100vh;
+  font-size: 13px;
 }
 
-#root {
-  height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
+#root { height: 100vh; display: flex; flex-direction: column; }
 
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #1a1a1a; }
-::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+/* ── Scrollbars ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 
-/* Timeline keyframe diamond */
-.keyframe-diamond {
-  width: 10px;
-  height: 10px;
+/* ── No spin arrows on number inputs ──────────────────── */
+input[type=number] { -moz-appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+/* ── Keyframe diamond ──────────────────────────────────── */
+.kf-diamond {
+  width: 9px; height: 9px;
   background: #f59e0b;
   transform: rotate(45deg);
   border-radius: 1px;
   cursor: pointer;
   position: absolute;
-  top: 50%;
-  margin-top: -5px;
-  margin-left: -5px;
+  top: 50%; margin-top: -4.5px; margin-left: -4.5px;
   transition: background 0.1s;
+  z-index: 2;
 }
-.keyframe-diamond:hover { background: #fbbf24; }
-.keyframe-diamond.selected { background: #60a5fa; }
+.kf-diamond:hover { background: #fbbf24; }
+.kf-diamond.active { background: #60a5fa; }
 
-/* Input number style */
-input[type=number] {
-  -moz-appearance: textfield;
+/* ── Panel base ────────────────────────────────────────── */
+.panel { background: var(--panel); border-color: var(--border); color: var(--text); }
+.panel-header { color: var(--text2); border-color: var(--border); }
+.input-base {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s;
 }
-input[type=number]::-webkit-inner-spin-button,
-input[type=number]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
+.input-base:focus { border-color: var(--accent); }
+
+/* ── Canvas cursor modes ───────────────────────────────── */
+.cursor-crosshair { cursor: crosshair; }
+.cursor-grab { cursor: grab; }
+.cursor-grabbing { cursor: grabbing; }
+
+/* ── Selection outline pulse ───────────────────────────── */
+@keyframes selectionPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
 }
+.selection-ring { animation: selectionPulse 2s ease-in-out infinite; }
