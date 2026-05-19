@@ -20,12 +20,23 @@ const BASE_FPX = 4
 const RULER_H = 24
 const LABEL_W = 150
 const ROW_H = 28
+const ROW_H_MAX = 40
 const SUBTRACK_H = 22
+const SUBTRACK_H_MAX = 30
+const GROUP_HEADER_H = 16
+const GROUP_HEADER_H_MAX = 22
+const VALUE_GRAPH_H = 42
+const VALUE_GRAPH_H_MAX = 56
 const MIN_TL_H = 120
 const MAX_TL_H_RATIO = 0.6
 const BAR_HANDLE_W = 6
 const SNAP_FRAMES = 5
 const TIMELINE_LEFT_OFFSET = 32
+
+function scaleTimelineHeight(base: number, max: number, zoom: number) {
+  const amount = Math.max(0, Math.min(1, (zoom - 1) / 3))
+  return Math.round(base + (max - base) * amount)
+}
 
 // ── Property metadata ──────────────────────────────────────────────────────
 const PROP_GROUPS: { label: string; color: string; keys: (keyof TransformProps)[] }[] = [
@@ -252,7 +263,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
 function SortableLabel({
   layer, selected, currentFrame, onSelect, rowH,
   expanded, onToggleExpand, animProps,
-  onAddSubKf, depth, childCount, showValueGraph,
+  onAddSubKf, depth, childCount, showValueGraph, groupHeaderH, subtrackH, valueGraphH,
 }: {
   layer: Layer; selected: boolean; currentFrame: number; onSelect: (e: React.MouseEvent) => void; rowH: number
   expanded: boolean; onToggleExpand: () => void; animProps: AnimatableProperty[]
@@ -260,6 +271,9 @@ function SortableLabel({
   depth: number
   childCount: number
   showValueGraph: boolean
+  groupHeaderH: number
+  subtrackH: number
+  valueGraphH: number
 }) {
   const { t } = useTranslation()
   const { toggleVisibility, toggleLock, toggleLayerCollapsed } = useStore()
@@ -351,7 +365,7 @@ function SortableLabel({
               <div key={group.label}>
                 {/* Group header */}
                 <div style={{
-                  height: 16, display: 'flex', alignItems: 'center', paddingLeft: 28,
+                  height: groupHeaderH, display: 'flex', alignItems: 'center', paddingLeft: 28,
                   background: 'rgba(0,0,0,0.15)',
                 }}>
                   <span style={{ fontSize: 8, color: group.color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -360,7 +374,7 @@ function SortableLabel({
                 </div>
                 {groupProps.map((propKey) => (
                   <div key={propKey} style={{
-                    height: showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? 42 : SUBTRACK_H, display: 'flex', alignItems: 'center', gap: 4,
+                    height: showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? valueGraphH : subtrackH, display: 'flex', alignItems: 'center', gap: 4,
                     paddingLeft: 28, paddingRight: 6,
                     borderLeft: `2px solid ${group.color}40`,
                     background: 'rgba(0,0,0,0.08)',
@@ -391,7 +405,7 @@ function TrackRow({
   expanded, animProps, showValueGraph,
   onKfMouseDown, onKfContextMenu, onClick,
   onBarMouseDown, onBarContextMenu, groupRange,
-  selectedKeyframes,
+  selectedKeyframes, groupHeaderH, subtrackH, valueGraphH,
 }: {
   layer: Layer; fpx: number; totalWidth: number; contentWidth: number; timelineOffset: number; selected: boolean; currentFrame: number; rowH: number
   expanded: boolean; animProps: AnimatableProperty[]; showValueGraph: boolean
@@ -402,6 +416,9 @@ function TrackRow({
   onBarContextMenu: (e: React.MouseEvent, layerId: string) => void
   groupRange?: { start: number; end: number }
   selectedKeyframes: { layerId: string; frame: number; propKey?: AnimatableProperty }[]
+  groupHeaderH: number
+  subtrackH: number
+  valueGraphH: number
 }) {
   const isGroup = layer.type === 'group' || layer.isGroup
   const frameX = (frame: number) => timelineOffset + frame * fpx
@@ -411,6 +428,7 @@ function TrackRow({
   const barW = Math.max(4, (endF - startF) * fpx)
   const color = LAYER_TYPE_COLOR[layer.type] ?? '#6366f1'
   const hasMultipleKf = layer.keyframes.length >= 2
+  const barH = Math.min(18, Math.max(12, Math.round(rowH * 0.42)))
 
   return (
     <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'rgba(99,102,241,0.04)' : 'transparent', cursor: 'pointer' }}>
@@ -420,7 +438,7 @@ function TrackRow({
         <div
           style={{
             position: 'absolute', left: barLeft, width: barW,
-            top: rowH / 2 - 6, height: 12,
+            top: rowH / 2 - barH / 2, height: barH,
             background: color + '33', borderRadius: 3, border: `1px solid ${color}66`, userSelect: 'none',
           }}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
@@ -490,7 +508,7 @@ function TrackRow({
             return (
               <div key={group.label}>
                 {/* Group header track */}
-                <div style={{ height: 16, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
+                <div style={{ height: groupHeaderH, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
                 {groupProps.map((propKey) => {
                   const propKfs = getPropertyKeyframes(layer, propKey)
                   const effectivePropKey = propKfs.length ? propKey : undefined
@@ -500,7 +518,7 @@ function TrackRow({
                   const pRange = sourceKfs.map((kf) => typeof kf.value === 'number' ? kf.value : 0)
                   const pMin = Math.min(...pRange)
                   const pMax = Math.max(...pRange)
-                  const graphH = showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? 42 : SUBTRACK_H
+                  const graphH = showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? valueGraphH : subtrackH
 
                   return (
                     <div key={propKey} style={{ height: graphH, position: 'relative', background: 'rgba(0,0,0,0.08)', borderLeft: `2px solid ${group.color}30` }}>
@@ -678,12 +696,16 @@ export function Timeline() {
   const [timingModal, setTimingModal] = useState<TimingModalState | null>(null)
   const [copiedKf, setCopiedKf] = useState<{ props: unknown; easing: string } | null>(null)
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
+  const [timelineScrollbar, setTimelineScrollbar] = useState({ left: 0, width: 0, visible: false })
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const labelScrollRef = useRef<HTMLDivElement>(null)
+  const timelineScrollbarThumbRef = useRef<HTMLDivElement>(null)
+  const lastAutoScrollFrame = useRef(currentFrame)
   const isDragging = useRef(false)
   const kfDrag = useRef<{ layerId: string; fromFrame: number; propKey?: AnimatableProperty } | null>(null)
   const barDrag = useRef<BarDragState | null>(null)
+  const timelineScrollDrag = useRef<{ startX: number; startScrollLeft: number; maxScrollLeft: number; maxThumbLeft: number } | null>(null)
   const resizeDragging = useRef(false)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
@@ -699,7 +721,18 @@ export function Timeline() {
   const fpx = BASE_FPX * timelineZoom
   const totalWidth = totalFrames * fpx
   const contentWidth = Math.max(totalWidth + TIMELINE_LEFT_OFFSET + BAR_HANDLE_W, 400)
+  const rowH = scaleTimelineHeight(ROW_H, ROW_H_MAX, timelineZoom)
+  const groupHeaderH = scaleTimelineHeight(GROUP_HEADER_H, GROUP_HEADER_H_MAX, timelineZoom)
+  const subtrackH = scaleTimelineHeight(SUBTRACK_H, SUBTRACK_H_MAX, timelineZoom)
+  const valueGraphH = scaleTimelineHeight(VALUE_GRAPH_H, VALUE_GRAPH_H_MAX, timelineZoom)
   const rows = visibleLayerRows(layers, true)
+
+  useEffect(() => {
+    updateTimelineScrollbar()
+    window.addEventListener('resize', updateTimelineScrollbar)
+    return () => window.removeEventListener('resize', updateTimelineScrollbar)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentWidth, timelineH, rowH, groupHeaderH, subtrackH, valueGraphH, rows.length, expandedLayers])
   const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
   const getGroupRange = (id: string) => {
     const group = layers.find((l) => l.id === id)
@@ -800,6 +833,66 @@ export function Timeline() {
   function onRulerUp() { if (isDragging.current) endInteraction(); isDragging.current = false }
   function onRulerContextMenu(e: React.MouseEvent) { e.preventDefault(); addMarker(frameFromX(e.clientX)) }
 
+  function updateTimelineScrollbar() {
+    const el = scrollRef.current
+    if (!el) return
+    const visible = el.scrollWidth > el.clientWidth + 1
+    if (!visible) {
+      setTimelineScrollbar((prev) => prev.visible ? { left: 0, width: 0, visible: false } : prev)
+      return
+    }
+    const width = Math.max(36, (el.clientWidth / el.scrollWidth) * el.clientWidth)
+    const maxThumbLeft = Math.max(1, el.clientWidth - width)
+    const maxScrollLeft = Math.max(1, el.scrollWidth - el.clientWidth)
+    const left = (el.scrollLeft / maxScrollLeft) * maxThumbLeft
+    setTimelineScrollbar((prev) => {
+      if (prev.visible && Math.abs(prev.left - left) < 0.5 && Math.abs(prev.width - width) < 0.5) return prev
+      return { left, width, visible: true }
+    })
+  }
+
+  function handleTimelineWheel(e: WheelEvent) {
+    const el = scrollRef.current
+    if (!el) return
+    if (!e.shiftKey) {
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) requestAnimationFrame(updateTimelineScrollbar)
+      return
+    }
+    e.preventDefault()
+    const rect = el.getBoundingClientRect()
+    const pointerX = e.clientX - rect.left
+    const currentFpx = BASE_FPX * timelineZoom
+    const frameAtPointer = Math.max(0, (el.scrollLeft + pointerX - TIMELINE_LEFT_OFFSET) / currentFpx)
+    const dominantDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
+    const nextZoom = Math.max(0.25, Math.min(8, timelineZoom * (dominantDelta < 0 ? 1.15 : 1 / 1.15)))
+    if (nextZoom === timelineZoom) return
+    const nextFpx = BASE_FPX * nextZoom
+    const nextContentWidth = Math.max(totalFrames * nextFpx + TIMELINE_LEFT_OFFSET + BAR_HANDLE_W, 400)
+    const nextScrollLeft = TIMELINE_LEFT_OFFSET + frameAtPointer * nextFpx - pointerX
+    const maxScrollLeft = Math.max(0, nextContentWidth - el.clientWidth)
+    const clampedScrollLeft = Math.max(0, Math.min(maxScrollLeft, nextScrollLeft))
+    setTimelineZoom(nextZoom)
+    requestAnimationFrame(() => {
+      if (!scrollRef.current) return
+      scrollRef.current.scrollLeft = clampedScrollLeft
+      setTimelineScrollX(clampedScrollLeft)
+      updateTimelineScrollbar()
+    })
+  }
+
+  function onTimelineScrollbarMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    const el = scrollRef.current
+    if (!el || !timelineScrollbar.visible) return
+    e.preventDefault()
+    e.currentTarget.style.cursor = 'grabbing'
+    timelineScrollDrag.current = {
+      startX: e.clientX,
+      startScrollLeft: el.scrollLeft,
+      maxScrollLeft: Math.max(1, el.scrollWidth - el.clientWidth),
+      maxThumbLeft: Math.max(1, el.clientWidth - timelineScrollbar.width),
+    }
+  }
+
   // ── Keyframe drag ──────────────────────────────────────────────────────
   function onKfMouseDown(e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) {
     e.stopPropagation()
@@ -869,6 +962,44 @@ export function Timeline() {
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
   }, [totalFrames, fpx, moveKeyframe, movePropertyKeyframe, updateLayerTimeRange, setLayerRange, currentFrame, endInteraction])
 
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    el.addEventListener('wheel', handleTimelineWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleTimelineWheel)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timelineZoom, totalFrames])
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      const drag = timelineScrollDrag.current
+      const el = scrollRef.current
+      if (!drag || !el) return
+      const nextScrollLeft = drag.startScrollLeft + ((e.clientX - drag.startX) / drag.maxThumbLeft) * drag.maxScrollLeft
+      const clamped = Math.max(0, Math.min(drag.maxScrollLeft, nextScrollLeft))
+      el.scrollLeft = clamped
+      if (timelineScrollbarThumbRef.current) {
+        const nextLeft = (clamped / drag.maxScrollLeft) * drag.maxThumbLeft
+        timelineScrollbarThumbRef.current.style.left = `${nextLeft}px`
+      }
+    }
+    function onMouseUp() {
+      const drag = timelineScrollDrag.current
+      if (drag && scrollRef.current) {
+        setTimelineScrollX(scrollRef.current.scrollLeft)
+        updateTimelineScrollbar()
+      }
+      if (timelineScrollbarThumbRef.current) {
+        timelineScrollbarThumbRef.current.style.cursor = 'grab'
+      }
+      timelineScrollDrag.current = null
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setTimelineScrollX])
+
   // ── Context menu auto-close ────────────────────────────────────────────
   useEffect(() => {
     if (!kfContextMenu && !barContextMenu) return
@@ -879,6 +1010,8 @@ export function Timeline() {
 
   // ── Auto-scroll playhead ───────────────────────────────────────────────
   useEffect(() => {
+    if (lastAutoScrollFrame.current === currentFrame) return
+    lastAutoScrollFrame.current = currentFrame
     const el = scrollRef.current
     if (!el) return
     const px = TIMELINE_LEFT_OFFSET + currentFrame * fpx
@@ -1008,11 +1141,14 @@ export function Timeline() {
                     selected={selectedLayerIds.includes(layer.id)}
                     currentFrame={currentFrame}
                     onSelect={(e) => selectLayer(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)}
-                    rowH={ROW_H}
+                    rowH={rowH}
                     expanded={expandedLayers.has(layer.id)}
                     onToggleExpand={() => toggleExpand(layer.id)}
                     animProps={getVisibleAnimProps(layer, showAllSubtracks)}
                     onAddSubKf={onAddSubKf}
+                    groupHeaderH={groupHeaderH}
+                    subtrackH={subtrackH}
+                    valueGraphH={valueGraphH}
                   />
                 ))}
               </SortableContext>
@@ -1021,16 +1157,20 @@ export function Timeline() {
         </div>
 
         {/* Scrollable tracks */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-x-auto overflow-y-auto"
-          style={{ position: 'relative', cursor: 'default' }}
-          onScroll={(e) => {
-            setTimelineScrollX(e.currentTarget.scrollLeft)
-            syncVerticalScroll('tracks', e.currentTarget.scrollTop)
-          }}
-        >
-          <div style={{ width: contentWidth, position: 'relative' }}>
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-x-auto overflow-y-auto"
+            style={{ position: 'relative', cursor: 'default' }}
+            onScroll={(e) => {
+              if (!timelineScrollDrag.current) {
+                setTimelineScrollX(e.currentTarget.scrollLeft)
+                updateTimelineScrollbar()
+              }
+              syncVerticalScroll('tracks', e.currentTarget.scrollTop)
+            }}
+          >
+            <div style={{ width: contentWidth, position: 'relative' }}>
             {/* Ruler */}
             <div
               style={{ height: RULER_H, position: 'relative', borderBottom: '1px solid var(--border2)', cursor: 'col-resize', userSelect: 'none', flexShrink: 0 }}
@@ -1058,12 +1198,15 @@ export function Timeline() {
                 key={layer.id}
                 layer={layer} fpx={fpx} totalWidth={totalWidth} contentWidth={contentWidth} timelineOffset={TIMELINE_LEFT_OFFSET}
                 selected={selectedLayerIds.includes(layer.id)}
-                currentFrame={currentFrame} rowH={ROW_H}
+                currentFrame={currentFrame} rowH={rowH}
                 expanded={expandedLayers.has(layer.id)}
                 animProps={getVisibleAnimProps(layer, showAllSubtracks)}
                 showValueGraph={showValueGraph}
                 groupRange={getGroupRange(layer.id)}
                 selectedKeyframes={selectedKeyframes}
+                groupHeaderH={groupHeaderH}
+                subtrackH={subtrackH}
+                valueGraphH={valueGraphH}
                 onKfMouseDown={onKfMouseDown}
                 onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => {
                   e.preventDefault(); e.stopPropagation()
@@ -1079,6 +1222,32 @@ export function Timeline() {
             <div style={{ position: 'absolute', top: 0, left: TIMELINE_LEFT_OFFSET + currentFrame * fpx, width: 1, bottom: 0, background: '#ef4444', pointerEvents: 'none', zIndex: 10 }}>
               <div style={{ position: 'absolute', top: 0, left: -4, width: 8, height: 10, background: '#ef4444', clipPath: 'polygon(50% 100%, 0 0, 100% 0)' }} />
             </div>
+            </div>
+          </div>
+          <div
+            style={{
+              height: 12,
+              flexShrink: 0,
+              borderTop: '1px solid var(--border2)',
+              background: 'var(--toolbar)',
+              position: 'relative',
+              display: timelineScrollbar.visible ? 'block' : 'none',
+            }}
+          >
+            <div
+              ref={timelineScrollbarThumbRef}
+              onMouseDown={onTimelineScrollbarMouseDown}
+              style={{
+                position: 'absolute',
+                left: timelineScrollbar.left,
+                top: 2,
+                width: timelineScrollbar.width,
+                height: 8,
+                borderRadius: 8,
+                background: 'var(--scrollbar)',
+                cursor: 'grab',
+              }}
+            />
           </div>
         </div>
       </div>
