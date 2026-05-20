@@ -4,6 +4,8 @@ import { DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
 import { buildTransform } from '../remotion/interpolateProps'
+import { LayerOrderMenu } from './LayerOrderMenu'
+import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
 interface Props {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -44,6 +46,9 @@ interface LayerBox {
   height: number
   centerCx: number
   centerCy: number
+  worldScaleX: number
+  worldScaleY: number
+  worldRotateZ: number
 }
 
 interface BoxRect {
@@ -381,41 +386,69 @@ function snapMovingBox(
   }
 }
 
-function groupOrigin(layer: Layer) {
-  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
+function rotatePoint(x: number, y: number, degrees: number) {
+  const radians = degrees * Math.PI / 180
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
   return {
-    x: layer.groupOriginX ?? first?.props.x ?? 0,
-    y: layer.groupOriginY ?? first?.props.y ?? 0,
+    x: x * cos - y * sin,
+    y: x * sin + y * cos,
   }
 }
 
-function parentRenderOffset(layer: Layer, layers: Layer[], frame: number) {
-  let x = 0
-  let y = 0
+function layerWorldMetrics(layer: Layer, layers: Layer[], frame: number, canvasW: number, canvasH: number) {
+  const chain: Layer[] = []
   const seen = new Set<string>()
-  let parentId = layer.parentId ?? null
-  while (parentId && !seen.has(parentId)) {
-    seen.add(parentId)
-    const parent = layers.find((item) => item.id === parentId)
-    if (!parent) break
-    const p = resolveLayerAnimation(parent, frame).transform
-    const origin = groupOrigin(parent)
-    x += p.x - origin.x
-    y += p.y - origin.y
-    parentId = parent.parentId ?? null
+  let current: Layer | undefined = layer
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    chain.unshift(current)
+    current = current.parentId ? layers.find((item) => item.id === current!.parentId) : undefined
   }
-  return { x, y }
+
+  let centerX = canvasW / 2
+  let centerY = canvasH / 2
+  let scaleX = 1
+  let scaleY = 1
+  let rotateZ = 0
+  let transform = resolveLayerAnimation(layer, frame).transform
+  let animatedLayer = resolveLayerAnimation(layer, frame).layer
+
+  chain.forEach((item) => {
+    const resolved = resolveLayerAnimation(item, frame)
+    const p = resolved.transform
+    const translated = rotatePoint(p.x * scaleX, p.y * scaleY, rotateZ)
+    centerX += translated.x
+    centerY += translated.y
+    rotateZ += p.rotateZ
+    scaleX *= p.scale * p.scaleX
+    scaleY *= p.scale * p.scaleY
+    if (item.id === layer.id) {
+      transform = p
+      animatedLayer = resolved.layer
+    }
+  })
+
+  return {
+    animatedLayer,
+    transform,
+    centerX,
+    centerY,
+    scaleX,
+    scaleY,
+    rotateZ,
+  }
 }
 
 function getLayerBox(layer: Layer, layers: Layer[], frame: number, canvasW: number, canvasH: number): LayerBox {
-  const { layer: animatedLayer, transform } = resolveLayerAnimation(layer, frame)
+  const world = layerWorldMetrics(layer, layers, frame, canvasW, canvasH)
+  const { animatedLayer, transform } = world
   const rawWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
   const rawHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height
-  const width = Math.abs(rawWidth * transform.scale * transform.scaleX)
-  const height = Math.abs(rawHeight * transform.scale * transform.scaleY)
-  const parentOffset = parentRenderOffset(layer, layers, frame)
-  const centerCx = canvasW / 2 + transform.x + parentOffset.x
-  const centerCy = canvasH / 2 + transform.y + parentOffset.y
+  const width = Math.abs(rawWidth * world.scaleX)
+  const height = Math.abs(rawHeight * world.scaleY)
+  const centerCx = world.centerX
+  const centerCy = world.centerY
   return {
     layer,
     animatedLayer,
@@ -426,6 +459,9 @@ function getLayerBox(layer: Layer, layers: Layer[], frame: number, canvasW: numb
     height,
     centerCx,
     centerCy,
+    worldScaleX: world.scaleX,
+    worldScaleY: world.scaleY,
+    worldRotateZ: world.rotateZ,
   }
 }
 
@@ -721,6 +757,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
     selectLayer, selectLayers, clearSelectedKeyframes, currentTool, addGeneratedLayer, resizeLayerBox,
+    reorderLayersById,
   } = useStore()
 
   const [displayScale, setDisplayScale] = useState(0)
@@ -728,6 +765,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const [spacingGuides, setSpacingGuides] = useState<SpacingGuide[]>([])
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([])
   const [movePreview, setMovePreview] = useState<MovePreview | null>(null)
+  const [orderMenu, setOrderMenu] = useState<{ x: number; y: number; layerId: string } | null>(null)
   const [penPoints, setPenPoints] = useState<PenPoint[]>([])
   const [penPreviewPoint, setPenPreviewPoint] = useState<PenPoint | null>(null)
   const dragRef = useRef<DragState | null>(null)
@@ -1195,6 +1233,34 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     }
   }
 
+  function hitLayerAtPoint(x: number, y: number) {
+    return [...layers].reverse()
+      .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+      .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
+      .find((box) => pointInBox(x, y, box))
+  }
+
+  function orderTargetIds(layerId: string) {
+    return selectedLayerIds.includes(layerId) ? selectedLayerIds : [layerId]
+  }
+
+  function openOrderMenu(e: React.MouseEvent, layerId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    clearGuideUpdate()
+    clearSelectedKeyframes()
+    if (!selectedLayerIds.includes(layerId)) selectLayer(layerId)
+    setOrderMenu({ x: e.clientX, y: e.clientY, layerId })
+  }
+
+  function applyLayerOrder(action: LayerOrderAction) {
+    if (!orderMenu) return
+    const state = useStore.getState()
+    const ids = state.selectedLayerIds.includes(orderMenu.layerId) ? state.selectedLayerIds : [orderMenu.layerId]
+    reorderLayersById(reorderLayersForStack(state.layers, ids, action))
+    setOrderMenu(null)
+  }
+
   function updateMarqueeSelection(state: MarqueeState) {
     const left = Math.min(state.startX, state.currentX)
     const right = Math.max(state.startX, state.currentX)
@@ -1214,6 +1280,11 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     e.preventDefault()
     e.stopPropagation()
     const point = getCanvasPoint(e.clientX, e.clientY)
+    if (e.ctrlKey && currentTool !== 'pen') {
+      const hit = hitLayerAtPoint(point.x, point.y)
+      if (hit) openOrderMenu(e, hit.layer.id)
+      return
+    }
     if (currentTool === 'pen') {
       if (penPoints.length >= 3 && distance(point, penPoints[0]) <= 10 / displayScale) {
         finishPenPath(true)
@@ -1293,8 +1364,32 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     }
   }
 
+  function onCanvasContextMenu(e: React.MouseEvent) {
+    if (currentTool === 'pen') return
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const hit = hitLayerAtPoint(point.x, point.y)
+    if (hit) openOrderMenu(e, hit.layer.id)
+  }
+
+  function onOverlayMouseDownCapture(e: React.MouseEvent) {
+    if (currentTool === 'pen' || e.button !== 0 || !e.ctrlKey) return
+    if ((e.target as HTMLElement).closest('[data-layer-order-menu]')) return
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const hit = hitLayerAtPoint(point.x, point.y)
+    if (hit) openOrderMenu(e, hit.layer.id)
+  }
+
+  function onOverlayContextMenuCapture(e: React.MouseEvent) {
+    if (currentTool === 'pen') return
+    if ((e.target as HTMLElement).closest('[data-layer-order-menu]')) return
+    const point = getCanvasPoint(e.clientX, e.clientY)
+    const hit = hitLayerAtPoint(point.x, point.y)
+    if (hit) openOrderMenu(e, hit.layer.id)
+  }
+
   function onHandleMouseDown(e: React.MouseEvent, type: HandleType) {
     if (currentTool === 'pen') return
+    if (e.button !== 0) return
     if (!layer || !animatedLayer || !p || layer.locked) return
     e.preventDefault()
     e.stopPropagation()
@@ -1461,7 +1556,11 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, pointerEvents: 'all', overflow: 'visible' }}>
+    <div
+      style={{ position: 'absolute', inset: 0, pointerEvents: 'all', overflow: 'visible', zIndex: 10 }}
+      onMouseDownCapture={onOverlayMouseDownCapture}
+      onContextMenuCapture={onOverlayContextMenuCapture}
+    >
       <div
         style={{
           position: 'absolute',
@@ -1476,6 +1575,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         onMouseDown={onBackgroundMouseDown}
         onMouseMove={onBackgroundMouseMove}
         onDoubleClick={onBackgroundDoubleClick}
+        onContextMenu={onCanvasContextMenu}
       >
         {marquee?.started && (
           <div
@@ -1609,7 +1709,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             top: boxTop + (movePreview?.dy ?? 0),
             width: boxW,
             height: boxH,
-            transform: isMultiSelection ? undefined : `rotate(${p.rotateZ}deg)`,
+            transform: isMultiSelection ? undefined : `rotate(${primaryBox.worldRotateZ}deg)`,
             transformOrigin: 'center',
             border: `${1.5 / displayScale}px solid #0d99ff`,
             ...selectionShape,
@@ -1617,7 +1717,14 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             cursor: layer.locked ? 'not-allowed' : perspectiveHeld.current ? 'grab' : 'move',
             boxSizing: 'border-box',
           }}
-          onMouseDown={(e) => onHandleMouseDown(e, !isMultiSelection && perspectiveHeld.current ? 'perspective' : 'move')}
+          onMouseDown={(e) => {
+            if (e.button === 0 && e.ctrlKey) {
+              openOrderMenu(e, layer.id)
+              return
+            }
+            onHandleMouseDown(e, !isMultiSelection && perspectiveHeld.current ? 'perspective' : 'move')
+          }}
+          onContextMenu={(e) => openOrderMenu(e, layer.id)}
           onDoubleClick={(e) => {
             if (isMultiSelection || animatedLayer.type !== 'text') return
             e.stopPropagation()
@@ -1854,6 +1961,15 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         </div>
         )}
       </div>
+      {orderMenu && (
+        <LayerOrderMenu
+          x={orderMenu.x}
+          y={orderMenu.y}
+          count={orderTargetIds(orderMenu.layerId).length}
+          onAction={applyLayerOrder}
+          onClose={() => setOrderMenu(null)}
+        />
+      )}
     </div>
   )
 }

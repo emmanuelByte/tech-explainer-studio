@@ -27,6 +27,7 @@ import { VideoLibraryModal } from './VideoLibraryModal'
 import { LibraryModal } from './LibraryModal'
 import type { ImageAsset, VideoAsset } from '../assetStorage'
 import { useToast } from './Toast'
+import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
 function CompositionAccordion() {
   const { t } = useTranslation()
@@ -431,7 +432,23 @@ export function LayersPanel() {
       replaceImageSource(replaceImageLayerId, asset.url, asset.imageKind, asset.naturalWidth, asset.naturalHeight)
       setReplaceImageLayerId(null)
     } else {
-      addImage(asset.url, asset.name, asset.imageKind, asset.naturalWidth, asset.naturalHeight)
+      const maxW = 360
+      const maxH = 260
+      const aspect = asset.naturalWidth && asset.naturalHeight ? asset.naturalWidth / asset.naturalHeight : 1.5
+      const scale = asset.naturalWidth && asset.naturalHeight ? Math.min(1, maxW / asset.naturalWidth, maxH / asset.naturalHeight) : 1
+      const width = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(asset.naturalWidth * scale)) : 300
+      const height = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(width / aspect)) : 200
+      addGeneratedLayer('image', {
+        parentId: insertionParentId(),
+        name: asset.name,
+        src: asset.url,
+        imageKind: asset.imageKind,
+        imageFit: 'contain',
+        imageNaturalWidth: asset.naturalWidth,
+        imageNaturalHeight: asset.naturalHeight,
+        width,
+        height,
+      })
     }
     setShowImages(false)
   }
@@ -441,13 +458,30 @@ export function LayersPanel() {
       replaceVideoSource(replaceVideoLayerId, asset.url, asset.naturalWidth, asset.naturalHeight, asset.duration)
       setReplaceVideoLayerId(null)
     } else {
-      addVideo(asset.url, asset.name, asset.naturalWidth, asset.naturalHeight, asset.duration)
+      const maxW = 420
+      const maxH = 280
+      const aspect = asset.naturalWidth && asset.naturalHeight ? asset.naturalWidth / asset.naturalHeight : 16 / 9
+      const scale = asset.naturalWidth && asset.naturalHeight ? Math.min(1, maxW / asset.naturalWidth, maxH / asset.naturalHeight) : 1
+      const width = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(asset.naturalWidth * scale)) : 320
+      const height = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(width / aspect)) : 180
+      addGeneratedLayer('video', {
+        parentId: insertionParentId(),
+        name: asset.name,
+        src: asset.url,
+        imageFit: 'contain',
+        videoNaturalWidth: asset.naturalWidth,
+        videoNaturalHeight: asset.naturalHeight,
+        videoDuration: asset.duration,
+        width,
+        height,
+      })
     }
     setShowVideos(false)
   }
 
   function addIconLayer(choice: IconPick) {
     addGeneratedLayer('image', {
+      parentId: insertionParentId(),
       name: choice.name,
       src: choice.src,
       imageKind: 'svg',
@@ -461,9 +495,41 @@ export function LayersPanel() {
   }
 
   function addShape(type: LayerType) {
-    addLayer(type)
+    addGeneratedLayer(type, { parentId: insertionParentId() })
     setAddMenuOpen(false)
     setShapeMenuOpen(false)
+  }
+
+  function addTextLayer() {
+    addGeneratedLayer('text', { parentId: insertionParentId() })
+    setAddMenuOpen(false)
+  }
+
+  function insertionParentId() {
+    const selected = selectedLayerIds
+      .map((id) => layers.find((layer) => layer.id === id))
+      .filter((layer): layer is Layer => Boolean(layer))
+    if (selected.length === 1) {
+      const [layer] = selected
+      if (layer.type === 'group' || layer.isGroup) return layer.id
+      return layer.parentId ?? null
+    }
+    if (selected.length > 1) {
+      const parentId = selected[0].parentId ?? null
+      if (selected.every((layer) => (layer.parentId ?? null) === parentId)) return parentId
+    }
+    return null
+  }
+
+  function menuTargetIds(layerId: string) {
+    return selectedLayerIds.includes(layerId) ? selectedLayerIds : [layerId]
+  }
+
+  function applyLayerOrder(action: LayerOrderAction) {
+    if (!menu) return
+    const ids = menuTargetIds(menu.layer.id)
+    reorderLayersById(reorderLayersForStack(useStore.getState().layers, ids, action))
+    setMenu(null)
   }
 
   async function exportSelectionToLibrary(kind: 'design' | 'animation', sourceLayer: Layer) {
@@ -565,7 +631,7 @@ export function LayersPanel() {
                 </div>
               )}
             </div>
-            <AddMenuItem label={t('layers.text')} icon={Type} onClick={() => { addLayer('text'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.text')} icon={Type} onClick={addTextLayer} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
@@ -599,6 +665,7 @@ export function LayersPanel() {
                 onSelect={(e) => handleLayerSelect(layer.id, e)}
                 onContextMenu={(e) => {
                   e.preventDefault()
+                  e.stopPropagation()
                   setMenu({ x: e.clientX, y: e.clientY, layer })
                   if (!selectedLayerIds.includes(layer.id)) selectLayer(layer.id)
                 }}
@@ -609,10 +676,21 @@ export function LayersPanel() {
       </div>
       {menu && (
         <div
-          style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 2500, minWidth: 180, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: '4px 0' }}
+          style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 2500, minWidth: 190, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: '4px 0' }}
           onClick={(e) => e.stopPropagation()}
           onMouseLeave={() => setMenu(null)}
         >
+          {[
+            { label: t('layers.bringToFront'), action: () => applyLayerOrder('front') },
+            { label: t('layers.bringForward'), action: () => applyLayerOrder('forward') },
+            { label: t('layers.sendBackward'), action: () => applyLayerOrder('backward') },
+            { label: t('layers.sendToBack'), action: () => applyLayerOrder('back') },
+          ].map((item) => (
+            <button key={item.label} onClick={() => { void item.action(); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-2 text-xs" style={{ color: 'var(--text)' }}>
+              {item.label}
+            </button>
+          ))}
+          <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           {[
             { label: t('layers.groupSelected'), action: groupSelected },
             { label: t('layers.ungroup'), action: () => ungroupLayer(menu.layer.id) },

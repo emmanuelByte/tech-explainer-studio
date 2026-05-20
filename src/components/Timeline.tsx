@@ -177,6 +177,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
     layers,
     updateKeyframeEasing,
     updatePropertyKeyframeEasing,
+    fps,
     currentFrame,
     isPlaying,
     loopIn,
@@ -210,13 +211,39 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
 
   useEffect(() => {
     if (!nextFrame) return
+    let timer: number | null = null
+    let cancelled = false
+    const frameDelay = Math.max(42, (1000 / Math.max(1, fps)) / 0.45)
+    const endPause = 700
+
+    const schedule = (fn: () => void, delay: number) => {
+      timer = window.setTimeout(fn, delay)
+    }
+
+    const playFrame = (previewFrame: number) => {
+      if (cancelled) return
+      setCurrentFrame(previewFrame, { preserveKeyframeSelection: true })
+      if (previewFrame >= nextFrame) {
+        schedule(() => {
+          if (cancelled) return
+          setCurrentFrame(frame, { preserveKeyframeSelection: true })
+          schedule(() => playFrame(frame + 1), frameDelay)
+        }, endPause)
+        return
+      }
+      schedule(() => playFrame(previewFrame + 1), frameDelay)
+    }
+
     previewStateRef.current = { currentFrame, isPlaying, loopIn, loopOut, loopEnabled }
     setLoop(frame, nextFrame)
     setLoopEnabled(true)
     setCurrentFrame(frame, { preserveKeyframeSelection: true })
-    setPlaying(true)
+    setPlaying(false)
+    schedule(() => playFrame(frame + 1), frameDelay)
 
     return () => {
+      cancelled = true
+      if (timer !== null) window.clearTimeout(timer)
       const previous = previewStateRef.current
       if (!previous) return
       if (previous.loopIn === null || previous.loopOut === null) clearLoop()
@@ -226,7 +253,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
       setPlaying(previous.isPlaying)
       previewStateRef.current = null
     }
-  }, [layerId, frame, propKey, nextFrame])
+  }, [layerId, frame, propKey, nextFrame, fps])
 
   function apply(easing: PairEasingType) {
     setSelectedEasing(easing)

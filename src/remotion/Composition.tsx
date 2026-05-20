@@ -137,14 +137,6 @@ function layerSize(layer: Layer, canvasWidth: number, canvasHeight: number) {
   }
 }
 
-function baseGroupOffset(layer: Layer) {
-  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
-  return {
-    x: layer.groupOriginX ?? first?.props.x ?? 0,
-    y: layer.groupOriginY ?? first?.props.y ?? 0,
-  }
-}
-
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
@@ -359,8 +351,6 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   const children = (childrenByParent.get(layer.id) ?? []).filter((child) => !ancestors.has(child.id))
   const nextAncestors = children.length ? new Set([...ancestors, layer.id]) : ancestors
   const isSelected = selectedLayerIds.includes(layer.id)
-  const anchor = baseGroupOffset(layer)
-
   const outerStyle: React.CSSProperties = {
     position: 'absolute',
     left: '50%',
@@ -395,10 +385,10 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
 
   const childPlaneStyle: React.CSSProperties = {
     position: 'absolute',
-    left: layerWidth / 2 - canvasWidth / 2 - anchor.x,
-    top: layerHeight / 2 - canvasHeight / 2 - anchor.y,
-    width: canvasWidth,
-    height: canvasHeight,
+    left: 0,
+    top: 0,
+    width: layerWidth,
+    height: layerHeight,
     transformStyle: 'preserve-3d',
     pointerEvents: 'none',
     zIndex: 1,

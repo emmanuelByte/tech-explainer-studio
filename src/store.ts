@@ -36,9 +36,7 @@ function baseGroupOffset(layer: Layer) {
 }
 
 function ensureGroupOrigin(layer: Layer) {
-  if (!isGroupLayer(layer) || (layer.groupOriginX !== undefined && layer.groupOriginY !== undefined)) return layer
-  const origin = baseGroupOffset(layer)
-  return { ...layer, groupOriginX: origin.x, groupOriginY: origin.y }
+  return layer
 }
 
 function shiftPropertyKeyframes(layer: Layer, delta: number): Layer['propertyKeyframes'] {
@@ -73,14 +71,42 @@ function getCanvasSize(state: EditorState) {
   }
 }
 
-function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+function layerWorldPosition(layers: Layer[], layer: Layer, frame: number) {
+  const seen = new Set<string>()
+  let x = 0
+  let y = 0
+  let current: Layer | undefined = layer
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    const transform = interpolateProps(frame, current.keyframes)
+    x += transform.x
+    y += transform.y
+    current = current.parentId ? layers.find((item) => item.id === current!.parentId) : undefined
+  }
+  return { x, y }
+}
+
+function reparentLayerAtFrame(layer: Layer, layers: Layer[], frame: number, parentId: string | null) {
+  const current = interpolateProps(frame, layer.keyframes)
+  const world = layerWorldPosition(layers, layer, frame)
+  const parent = parentId ? layers.find((item) => item.id === parentId) : null
+  const parentWorld = parent ? layerWorldPosition(layers, parent, frame) : { x: 0, y: 0 }
+  return upsertTransformKeyframe(
+    { ...layer, parentId },
+    frame,
+    { ...current, x: Math.round(world.x - parentWorld.x), y: Math.round(world.y - parentWorld.y) },
+  )
+}
+
+function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number, layers: Layer[] = [layer]) {
   const transform = interpolateProps(frame, layer.keyframes)
   const rawWidth = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
   const rawHeight = layer.sizeMode === 'fill-canvas' ? canvasHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
   const width = Math.max(1, Math.abs(rawWidth * transform.scale * transform.scaleX))
   const height = Math.max(1, Math.abs(rawHeight * transform.scale * transform.scaleY))
-  const centerX = canvasWidth / 2 + transform.x
-  const centerY = canvasHeight / 2 + transform.y
+  const world = layerWorldPosition(layers, layer, frame)
+  const centerX = canvasWidth / 2 + world.x
+  const centerY = canvasHeight / 2 + world.y
   return {
     left: centerX - width / 2,
     right: centerX + width / 2,
@@ -89,9 +115,9 @@ function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canv
   }
 }
 
-function getLayersFrameBounds(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number) {
+function getLayersFrameBounds(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number, allLayers: Layer[] = layers) {
   if (!layers.length) return null
-  const boxes = layers.map((layer) => getLayerFrameBox(layer, frame, canvasWidth, canvasHeight))
+  const boxes = layers.map((layer) => getLayerFrameBox(layer, frame, canvasWidth, canvasHeight, allLayers))
   const left = Math.min(...boxes.map((box) => box.left))
   const right = Math.max(...boxes.map((box) => box.right))
   const top = Math.min(...boxes.map((box) => box.top))
@@ -112,40 +138,49 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
   let next = layers
   for (let pass = 0; pass < 3; pass += 1) {
     let changed = false
-    next = next.map((layer) => {
+    const groups = next.filter((layer) => layer.autoFit && layer.type === 'group' && !skipIds.has(layer.id))
+    groups.forEach((layer) => {
+      const currentLayer = next.find((item) => item.id === layer.id)
+      if (!currentLayer) return
       if (skipIds.has(layer.id)) return layer
-      if (!layer.autoFit || layer.type !== 'group') return layer
-      const children = next.filter((child) => child.parentId === layer.id && child.visible)
-      if (!children.length) return layer
-      const boxes = children.map((child) => getLayerFrameBox(child, frame, canvasWidth, canvasHeight))
+      const children = next.filter((child) => child.parentId === currentLayer.id && child.visible)
+      if (!children.length) return
+      const boxes = children.map((child) => getLayerFrameBox(child, frame, canvasWidth, canvasHeight, next))
       const left = Math.min(...boxes.map((box) => box.left))
       const right = Math.max(...boxes.map((box) => box.right))
       const top = Math.min(...boxes.map((box) => box.top))
       const bottom = Math.max(...boxes.map((box) => box.bottom))
       const width = Math.max(1, Math.round(right - left))
       const height = Math.max(1, Math.round(bottom - top))
-      const x = left + width / 2 - canvasWidth / 2
-      const y = top + height / 2 - canvasHeight / 2
-      const current = interpolateProps(frame, layer.keyframes)
-      const existing = layer.keyframes.find((kf) => kf.frame === frame)
-      const keyframe: Keyframe = {
-        frame,
-        easing: existing?.easing ?? layer.keyframes[0]?.easing ?? 'ease-out',
-        bezier: existing?.bezier,
-        props: { ...current, x, y },
-      }
-      const keyframes = existing
-        ? layer.keyframes.map((kf) => kf.frame === frame ? keyframe : kf)
-        : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
-      if (layer.width !== width || layer.height !== height || current.x !== x || current.y !== y) changed = true
-      return {
-        ...layer,
+      const worldX = Math.round(left + width / 2 - canvasWidth / 2)
+      const worldY = Math.round(top + height / 2 - canvasHeight / 2)
+      const parent = currentLayer.parentId ? next.find((item) => item.id === currentLayer.parentId) : null
+      const parentWorld = parent ? layerWorldPosition(next, parent, frame) : { x: 0, y: 0 }
+      const current = interpolateProps(frame, currentLayer.keyframes)
+      const currentWorld = { x: parentWorld.x + current.x, y: parentWorld.y + current.y }
+      const x = worldX - parentWorld.x
+      const y = worldY - parentWorld.y
+      const deltaX = parentWorld.x + x - currentWorld.x
+      const deltaY = parentWorld.y + y - currentWorld.y
+      if (currentLayer.width !== width || currentLayer.height !== height || current.x !== x || current.y !== y) changed = true
+      const fittedGroup = {
+        ...upsertTransformKeyframe(currentLayer, frame, { ...current, x, y }),
         width,
         height,
-        startFrame: Math.min(layer.startFrame ?? 0, ...children.map((child) => child.startFrame ?? 0)),
-        endFrame: Math.max(layer.endFrame ?? totalFrames, ...children.map((child) => child.endFrame ?? totalFrames)),
-        keyframes,
+        startFrame: Math.min(currentLayer.startFrame ?? 0, ...children.map((child) => child.startFrame ?? 0)),
+        endFrame: Math.max(currentLayer.endFrame ?? totalFrames, ...children.map((child) => child.endFrame ?? totalFrames)),
       }
+      next = next.map((item) => {
+        if (item.id === currentLayer.id) return fittedGroup
+        if (item.parentId !== currentLayer.id || (!deltaX && !deltaY)) return item
+        const childCurrent = interpolateProps(frame, item.keyframes)
+        changed = true
+        return upsertTransformKeyframe(item, frame, {
+          ...childCurrent,
+          x: Math.round(childCurrent.x - deltaX),
+          y: Math.round(childCurrent.y - deltaY),
+        })
+      })
     })
     if (!changed) break
   }
@@ -308,8 +343,6 @@ function normalizeLayoutLayer(group: Layer, frame: number, canvasWidth: number, 
   const height = group.sizeMode === 'fill-canvas' ? canvasHeight : group.type === 'line' ? group.strokeWidth || 2 : group.height
   return {
     p,
-    left: canvasWidth / 2 + p.x - width / 2,
-    top: canvasHeight / 2 + p.y - height / 2,
     width: Math.max(1, width),
     height: Math.max(1, height),
     padding: Math.max(0, group.layoutPadding ?? 0),
@@ -363,11 +396,11 @@ function applyGroupLayout(layers: Layer[], groupId: string, state: EditorState) 
       const col = index % columns
       const yBefore = rowHeights.slice(0, row).reduce((sum, h) => sum + h, 0) + groupBox.gap * row
       const childWidth = group.layoutAlign === 'stretch' ? cellWidth : size.width
-      const x = groupBox.left + groupBox.padding + col * (cellWidth + groupBox.gap) + cellWidth / 2
-      const y = groupBox.top + groupBox.padding + yBefore + rowHeights[row] / 2
+      const x = -groupBox.width / 2 + groupBox.padding + col * (cellWidth + groupBox.gap) + cellWidth / 2
+      const y = -groupBox.height / 2 + groupBox.padding + yBefore + rowHeights[row] / 2
       placements.set(child.id, {
-        x: Math.round(x - canvasWidth / 2),
-        y: Math.round(y - canvasHeight / 2),
+        x: Math.round(x),
+        y: Math.round(y),
         width: group.layoutAlign === 'stretch' ? Math.round(childWidth) : undefined,
       })
     })
@@ -388,14 +421,14 @@ function applyGroupLayout(layers: Layer[], groupId: string, state: EditorState) 
       const mainCenter = cursor + mainSize / 2
       const crossCenter = alignOffset(group.layoutAlign, crossAvailable, crossSize) + crossSize / 2
       const x = isRow
-        ? groupBox.left + groupBox.padding + mainCenter
-        : groupBox.left + groupBox.padding + crossCenter
+        ? -groupBox.width / 2 + groupBox.padding + mainCenter
+        : -groupBox.width / 2 + groupBox.padding + crossCenter
       const y = isRow
-        ? groupBox.top + groupBox.padding + crossCenter
-        : groupBox.top + groupBox.padding + mainCenter
+        ? -groupBox.height / 2 + groupBox.padding + crossCenter
+        : -groupBox.height / 2 + groupBox.padding + mainCenter
       placements.set(child.id, {
-        x: Math.round(x - canvasWidth / 2),
-        y: Math.round(y - canvasHeight / 2),
+        x: Math.round(x),
+        y: Math.round(y),
         width: !isRow && group.layoutAlign === 'stretch' ? Math.round(crossAvailable) : undefined,
         height: isRow && group.layoutAlign === 'stretch' ? Math.round(crossAvailable) : undefined,
       })
@@ -475,8 +508,8 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     layoutAlign: 'center',
     layoutJustify: 'start',
     gridColumns: 2,
-    fillType: 'solid',
-    fillColor: type === 'group' ? 'transparent' : `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
+    fillType: type === 'text' || type === 'group' ? 'none' : 'solid',
+    fillColor: type === 'text' || type === 'group' ? 'transparent' : `hsl(${Math.floor(Math.random() * 360)},65%,55%)`,
     gradientStops: [{ color: '#6366f1', position: 0 }, { color: '#a855f7', position: 100 }],
     gradientAngle: 135,
     strokeEnabled: type === 'line' || type === 'path',
@@ -494,7 +527,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     textAlign: 'center',
     letterSpacing: 0,
     lineHeight: 1.2,
-    textColor: '#ffffff',
+    textColor: type === 'text' ? '#000000' : '#ffffff',
     textSpans: [],
     textRevealMode: 'plain',
     imageFit: 'contain',
@@ -1469,8 +1502,10 @@ export const useStore = create<Store>()(
             const wrapIds = Array.from(new Set([...layerIds, target.id]))
             const wrapLayers = s.layers.filter((l) => wrapIds.includes(l.id))
             const { width: canvasWidth, height: canvasHeight } = getCanvasSize(s)
-            const bounds = getLayersFrameBounds(wrapLayers, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames)
+            const bounds = getLayersFrameBounds(wrapLayers, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames, s.layers)
             if (!bounds) return {}
+            const groupParent = target.parentId ? s.layers.find((l) => l.id === target.parentId) : null
+            const groupParentWorld = groupParent ? layerWorldPosition(s.layers, groupParent, s.currentFrame) : { x: 0, y: 0 }
             const group = makeLayer('group', {
               name: 'Group',
               parentId: target.parentId ?? null,
@@ -1487,8 +1522,8 @@ export const useStore = create<Store>()(
                 easing: 'ease-out',
                 props: {
                   ...DEFAULT_TRANSFORM,
-                  x: bounds.x,
-                  y: bounds.y,
+                  x: Math.round(bounds.x - groupParentWorld.x),
+                  y: Math.round(bounds.y - groupParentWorld.y),
                 },
               }],
             })
@@ -1496,12 +1531,17 @@ export const useStore = create<Store>()(
             const next = [...s.layers]
             next.splice(firstIdx, 0, group)
             return {
-              layers: normalizeLayerTree(s, next.map((l) => wrapIds.includes(l.id) ? { ...l, parentId: group.id } : l), group.id, true),
+              layers: normalizeLayerTree(
+                s,
+                next.map((l) => wrapIds.includes(l.id) ? reparentLayerAtFrame(l, next, s.currentFrame, group.id) : l),
+                group.id,
+                true,
+              ),
               selectedLayerIds: [group.id],
             }
           }
           let next = s.layers.map((l) => {
-            if (layerIds.includes(l.id)) return { ...l, parentId }
+            if (layerIds.includes(l.id)) return reparentLayerAtFrame(l, s.layers, s.currentFrame, parentId)
             return l
           })
           if (insertAfterId) {
@@ -1529,8 +1569,10 @@ export const useStore = create<Store>()(
             ? selected[0].parentId ?? null
             : null
           const { width: canvasWidth, height: canvasHeight } = getCanvasSize(s)
-          const bounds = getLayersFrameBounds(selected, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames)
+          const bounds = getLayersFrameBounds(selected, s.currentFrame, canvasWidth, canvasHeight, s.totalFrames, s.layers)
           if (!bounds) return {}
+          const parent = sharedParent ? s.layers.find((l) => l.id === sharedParent) : null
+          const parentWorld = parent ? layerWorldPosition(s.layers, parent, s.currentFrame) : { x: 0, y: 0 }
           const group = makeLayer('group', {
             name: 'Group',
             parentId: sharedParent,
@@ -1540,8 +1582,6 @@ export const useStore = create<Store>()(
             fillType: 'none',
             strokeEnabled: false,
             autoFit: true,
-            groupOriginX: bounds.x,
-            groupOriginY: bounds.y,
             startFrame: bounds.startFrame,
             endFrame: bounds.endFrame,
             keyframes: [{
@@ -1549,15 +1589,15 @@ export const useStore = create<Store>()(
               easing: 'ease-out',
               props: {
                 ...DEFAULT_TRANSFORM,
-                x: bounds.x,
-                y: bounds.y,
+                x: Math.round(bounds.x - parentWorld.x),
+                y: Math.round(bounds.y - parentWorld.y),
               },
             }],
           })
           const firstIdx = Math.min(...selected.map((l) => s.layers.findIndex((x) => x.id === l.id)).filter((i) => i >= 0))
           const next = [...s.layers]
           next.splice(firstIdx, 0, group)
-          const layers = next.map((l) => selectedLayerIds.includes(l.id) ? { ...l, parentId: group.id } : l)
+          const layers = next.map((l) => selectedLayerIds.includes(l.id) ? reparentLayerAtFrame(l, next, s.currentFrame, group.id) : l)
           return {
             layers: normalizeLayerTree(s, layers, group.id, true),
             selectedLayerIds: [group.id],
@@ -1570,10 +1610,11 @@ export const useStore = create<Store>()(
         set((s) => {
           const group = s.layers.find((l) => l.id === id)
           if (!group) return {}
+          const withoutGroup = s.layers.filter((l) => l.id !== id)
           return {
-            layers: s.layers
-              .filter((l) => l.id !== id)
-              .map((l) => l.parentId === id ? { ...l, parentId: group.parentId ?? null } : l),
+            layers: withoutGroup.map((l) => l.parentId === id
+              ? reparentLayerAtFrame(l, s.layers, s.currentFrame, group.parentId ?? null)
+              : l),
             selectedLayerIds: s.selectedLayerIds.filter((sid) => sid !== id),
           }
         })

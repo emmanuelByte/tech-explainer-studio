@@ -411,15 +411,6 @@ function visibleImageSize(layer: ReturnType<typeof resolveLayerAnimation>['layer
   }
 }
 
-function groupOrigin(layer: Layer | null | undefined) {
-  if (!layer) return { x: 0, y: 0 }
-  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
-  return {
-    x: layer.groupOriginX ?? first?.props.x ?? 0,
-    y: layer.groupOriginY ?? first?.props.y ?? 0,
-  }
-}
-
 function parentRenderOffset(layer: Layer, layers: Layer[], frame: number) {
   let x = 0
   let y = 0
@@ -430,9 +421,8 @@ function parentRenderOffset(layer: Layer, layers: Layer[], frame: number) {
     const parent = layers.find((item) => item.id === parentId)
     if (!parent) break
     const p = resolveLayerAnimation(parent, frame).transform
-    const origin = groupOrigin(parent)
-    x += p.x - origin.x
-    y += p.y - origin.y
+    x += p.x
+    y += p.y
     parentId = parent.parentId ?? null
   }
   return { x, y }
@@ -495,9 +485,8 @@ export function TransformPanel() {
   const canUseLayout = layer.type === 'group' || layer.isGroup
   const layoutMode = layer.layoutMode ?? 'none'
   const parentLayer = layer.parentId ? layers.find((item) => item.id === layer.parentId) : null
-  const parentOrigin = groupOrigin(parentLayer)
-  const relativeX = p.x - parentOrigin.x
-  const relativeY = p.y - parentOrigin.y
+  const relativeX = p.x
+  const relativeY = p.y
   const animatedLayer = resolveLayerAnimation(layer, currentFrame).layer
   const effectiveW = sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
   const effectiveH = sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
@@ -542,8 +531,8 @@ export function TransformPanel() {
     const rounded = Math.round(nextValue)
     setLayerAnimatedProperty(layer.id, key as never, rounded)
   }
-  const setRelativeX = (value: number) => moveLayerTree('x', parentOrigin.x + value)
-  const setRelativeY = (value: number) => moveLayerTree('y', parentOrigin.y + value)
+  const setRelativeX = (value: number) => moveLayerTree('x', value)
+  const setRelativeY = (value: number) => moveLayerTree('y', value)
   const setWidth = (value: number) => {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
