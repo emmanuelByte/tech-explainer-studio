@@ -23,6 +23,18 @@ function collectDescendants(layers: Layer[], parentId: string): Layer[] {
   return result
 }
 
+function collectAncestorIds(layers: Layer[], layerId: string) {
+  const result: string[] = []
+  const seen = new Set<string>()
+  let current = layers.find((layer) => layer.id === layerId)
+  while (current?.parentId && !seen.has(current.parentId)) {
+    seen.add(current.parentId)
+    result.push(current.parentId)
+    current = layers.find((layer) => layer.id === current!.parentId)
+  }
+  return result
+}
+
 function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
@@ -190,6 +202,19 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
 function withAutoFitGroups(state: EditorState, layers: Layer[], skipIds = new Set<string>()) {
   const { width, height } = getCanvasSize(state)
   return fitAutoGroups(layers, state.currentFrame, width, height, state.totalFrames, skipIds)
+}
+
+function autoFitSkipIdsForMove(layers: Layer[], ids: string[]) {
+  const skipIds = new Set<string>()
+  ids.forEach((id) => {
+    const layer = layers.find((item) => item.id === id)
+    if (layer && isGroupLayer(layer)) skipIds.add(id)
+    collectAncestorIds(layers, id).forEach((ancestorId) => {
+      const ancestor = layers.find((item) => item.id === ancestorId)
+      if (ancestor?.autoFit) skipIds.add(ancestorId)
+    })
+  })
+  return skipIds
 }
 
 function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformProps, easing?: PairEasingType): Layer {
@@ -1128,8 +1153,8 @@ export const useStore = create<Store>()(
                 ),
               }
             })
-            const skipAutoFitIds = (key === 'x' || key === 'y') && targetLayer && isGroupLayer(targetLayer)
-              ? new Set([id])
+            const skipAutoFitIds = (key === 'x' || key === 'y')
+              ? autoFitSkipIdsForMove(s.layers, [id])
               : new Set<string>()
             return { layers: normalizeLayerTree(s, layers, id, false, skipAutoFitIds) }
           })
@@ -1180,8 +1205,8 @@ export const useStore = create<Store>()(
                 const current = interpolateProps(currentFrame, target.keyframes)
                 return upsertTransformKeyframe(target, currentFrame, { ...current, [key]: value } as TransformProps)
               })
-              const skipAutoFitIds = (key === 'x' || key === 'y') && targetLayer && isGroupLayer(targetLayer)
-                ? new Set([id])
+              const skipAutoFitIds = (key === 'x' || key === 'y')
+                ? autoFitSkipIdsForMove(s.layers, [id])
                 : new Set<string>()
               return { layers: normalizeLayerTree(s, layers, id, false, skipAutoFitIds) }
             })
@@ -1198,7 +1223,7 @@ export const useStore = create<Store>()(
             return setLayerBaseValue(target, key, value, currentFrame)
           })
           const shouldLayout = key !== 'x' && key !== 'y'
-          const skipAutoFitIds = !shouldLayout && targetLayer && isGroupLayer(targetLayer) ? new Set([id]) : new Set<string>()
+          const skipAutoFitIds = !shouldLayout ? autoFitSkipIdsForMove(s.layers, [id]) : new Set<string>()
           return { layers: shouldLayout ? normalizeLayerTree(s, layers, id, false, skipAutoFitIds) : withAutoFitGroups(s, layers, skipAutoFitIds) }
         })
       },
@@ -1384,11 +1409,7 @@ export const useStore = create<Store>()(
             const target = ('x' in props || 'y' in props) ? ensureGroupOrigin(layer) : layer
             return upsertTransformKeyframe(target, frame, props, easing as PairEasingType)
           })
-          const skipAutoFitIds = new Set(
-            s.layers
-              .filter((layer) => byId.has(layer.id) && isGroupLayer(layer))
-              .map((layer) => layer.id),
-          )
+          const skipAutoFitIds = autoFitSkipIdsForMove(s.layers, [...byId.keys()])
           return { layers: withAutoFitGroups(s, layers, skipAutoFitIds) }
         })
       },

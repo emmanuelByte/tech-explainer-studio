@@ -1,4 +1,4 @@
-import { CANVAS_PRESETS, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem } from './types'
+import { CANVAS_PRESETS, DEFAULT_TRANSFORM, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem, TransformProps } from './types'
 import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
@@ -9,6 +9,7 @@ export interface ProjectStorageStats {
 }
 
 const PROJECT_INDEX_KEY = 'projects:index'
+const MAX_REASONABLE_TRANSFORM_VALUE = 1_000_000
 let legacyMigrationPromise: Promise<void> | null = null
 
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -80,9 +81,58 @@ export async function readProjectIndexWithLegacyMigration(): Promise<ProjectInde
 
 export async function readProject(id: string): Promise<MotionProject | null> {
   try {
-    return await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(id)}`)
+    return sanitizeProject(await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(id)}`))
   } catch {
     return null
+  }
+}
+
+function isReasonableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_REASONABLE_TRANSFORM_VALUE
+}
+
+function nearestReasonableTransformValue(layer: Layer, frameIndex: number, key: keyof TransformProps) {
+  for (let index = frameIndex - 1; index >= 0; index -= 1) {
+    const value = layer.keyframes[index]?.props?.[key]
+    if (isReasonableNumber(value)) return value
+  }
+  for (let index = frameIndex + 1; index < layer.keyframes.length; index += 1) {
+    const value = layer.keyframes[index]?.props?.[key]
+    if (isReasonableNumber(value)) return value
+  }
+  return DEFAULT_TRANSFORM[key]
+}
+
+function sanitizeLayer(layer: Layer): Layer {
+  return {
+    ...layer,
+    keyframes: layer.keyframes.map((kf, frameIndex) => {
+      const props = { ...DEFAULT_TRANSFORM, ...kf.props }
+      ;(Object.keys(DEFAULT_TRANSFORM) as Array<keyof TransformProps>).forEach((key) => {
+        if (!isReasonableNumber(props[key])) {
+          props[key] = nearestReasonableTransformValue(layer, frameIndex, key) as never
+        }
+      })
+      return { ...kf, props }
+    }),
+    propertyKeyframes: layer.propertyKeyframes
+      ? Object.fromEntries(Object.entries(layer.propertyKeyframes).map(([key, frames]) => [
+        key,
+        (frames ?? []).map((kf) => ({
+          ...kf,
+          value: typeof kf.value === 'number' && !isReasonableNumber(kf.value)
+            ? DEFAULT_TRANSFORM[key as keyof TransformProps] ?? 0
+            : kf.value,
+        })),
+      ])) as Layer['propertyKeyframes']
+      : layer.propertyKeyframes,
+  }
+}
+
+function sanitizeProject(project: MotionProject): MotionProject {
+  return {
+    ...project,
+    layers: project.layers.map(sanitizeLayer),
   }
 }
 
@@ -184,6 +234,7 @@ export function indexItemFromProject(project: MotionProject): ProjectIndexItem {
 }
 
 export async function upsertProject(project: MotionProject) {
+  project = sanitizeProject(project)
   project.thumbnail = thumbnailFor(project)
   await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(project.id)}`, {
     method: 'PUT',

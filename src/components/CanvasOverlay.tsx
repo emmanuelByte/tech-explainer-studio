@@ -396,6 +396,36 @@ function rotatePoint(x: number, y: number, degrees: number) {
   }
 }
 
+function parentWorldTransform(layer: Layer, layers: Layer[], frame: number) {
+  const chain: Layer[] = []
+  const seen = new Set<string>()
+  let current = layer.parentId ? layers.find((item) => item.id === layer.parentId) : undefined
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    chain.unshift(current)
+    current = current.parentId ? layers.find((item) => item.id === current!.parentId) : undefined
+  }
+
+  let scaleX = 1
+  let scaleY = 1
+  let rotateZ = 0
+  chain.forEach((item) => {
+    const p = resolveLayerAnimation(item, frame).transform
+    rotateZ += p.rotateZ
+    scaleX *= p.scale * p.scaleX
+    scaleY *= p.scale * p.scaleY
+  })
+  return { scaleX, scaleY, rotateZ }
+}
+
+function worldDeltaToParentLocal(dx: number, dy: number, parent: { scaleX: number; scaleY: number; rotateZ: number }) {
+  const rotated = rotatePoint(dx, dy, -parent.rotateZ)
+  return {
+    x: rotated.x / (parent.scaleX || 1),
+    y: rotated.y / (parent.scaleY || 1),
+  }
+}
+
 function layerWorldMetrics(layer: Layer, layers: Layer[], frame: number, canvasW: number, canvasH: number) {
   const chain: Layer[] = []
   const seen = new Set<string>()
@@ -962,9 +992,14 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const moveUpdates = movingLayers.flatMap((movingLayer) => {
         const startProps = d.startPropsById[movingLayer.id]
         if (!startProps) return []
+        const localDelta = worldDeltaToParentLocal(
+          snappedDx,
+          snappedDy,
+          parentWorldTransform(movingLayer, layers, currentFrame),
+        )
         return [{
           layerId: movingLayer.id,
-          props: { ...startProps, x: startProps.x + snappedDx, y: startProps.y + snappedDy },
+          props: { ...startProps, x: startProps.x + localDelta.x, y: startProps.y + localDelta.y },
         }]
       })
       d.pendingMoveUpdates = moveUpdates

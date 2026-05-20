@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
 import { interpolateProps } from '../remotion/interpolateProps'
-import { AnimatableProperty, KeyframeSelection, PairEasingType, TransformProps } from '../types'
+import { rootLayerIds, selectedWithDescendants } from '../libraryItems'
+import { AnimatableProperty, KeyframeSelection, Layer, PairEasingType, TransformProps } from '../types'
 
 type KeyframeClipboardItem =
   | {
@@ -23,6 +24,8 @@ type KeyframeClipboardItem =
   }
 
 let keyframeClipboard: KeyframeClipboardItem[] = []
+let layerClipboard: { layers: Layer[]; rootLayerIds: string[]; pasteCount: number } | null = null
+let clipboardKind: 'keyframe' | 'layer' | null = null
 
 function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['layers'], selectedIds: string[]) {
   const ids = new Set<string>()
@@ -67,6 +70,7 @@ function copySelectedKeyframes(store: ReturnType<typeof useStore.getState>) {
   })
   if (!items.length) return false
   keyframeClipboard = items
+  clipboardKind = 'keyframe'
   return true
 }
 
@@ -93,6 +97,72 @@ function pasteKeyframeClipboard(store: ReturnType<typeof useStore.getState>) {
   return true
 }
 
+function cloneLayer(layer: Layer): Layer {
+  return {
+    ...layer,
+    keyframes: layer.keyframes.map((kf) => ({ ...kf, props: { ...kf.props }, bezier: kf.bezier ? [...kf.bezier] as [number, number, number, number] : undefined })),
+    propertyKeyframes: layer.propertyKeyframes
+      ? Object.fromEntries(
+        Object.entries(layer.propertyKeyframes).map(([key, frames]) => [
+          key,
+          (frames ?? []).map((kf) => ({ ...kf, bezier: kf.bezier ? [...kf.bezier] as [number, number, number, number] : undefined })),
+        ]),
+      ) as Layer['propertyKeyframes']
+      : undefined,
+    gradientStops: layer.gradientStops.map((stop) => ({ ...stop })),
+    textSpans: layer.textSpans?.map((span) => ({ ...span })),
+  }
+}
+
+function copySelectedLayers(store: ReturnType<typeof useStore.getState>) {
+  if (!store.selectedLayerIds.length) return false
+  const layers = selectedWithDescendants(store.layers, store.selectedLayerIds).map(cloneLayer)
+  if (!layers.length) return false
+  layerClipboard = {
+    layers,
+    rootLayerIds: rootLayerIds(layers),
+    pasteCount: 0,
+  }
+  clipboardKind = 'layer'
+  return true
+}
+
+function offsetRootLayers(layers: Layer[], rootIds: string[], offset: number) {
+  const roots = new Set(rootIds)
+  return layers.map((layer) => {
+    if (!roots.has(layer.id)) return cloneLayer(layer)
+    return {
+      ...cloneLayer(layer),
+      keyframes: layer.keyframes.map((kf) => ({
+        ...kf,
+        props: {
+          ...kf.props,
+          x: (kf.props.x ?? 0) + offset,
+          y: (kf.props.y ?? 0) + offset,
+        },
+      })),
+      propertyKeyframes: layer.propertyKeyframes
+        ? {
+          ...layer.propertyKeyframes,
+          x: layer.propertyKeyframes.x?.map((kf) => ({ ...kf, value: typeof kf.value === 'number' ? kf.value + offset : kf.value })),
+          y: layer.propertyKeyframes.y?.map((kf) => ({ ...kf, value: typeof kf.value === 'number' ? kf.value + offset : kf.value })),
+        }
+        : undefined,
+    }
+  })
+}
+
+function pasteLayerClipboard(store: ReturnType<typeof useStore.getState>) {
+  if (!layerClipboard?.layers.length) return false
+  layerClipboard.pasteCount += 1
+  const offset = 24 * layerClipboard.pasteCount
+  store.insertLibraryLayers(offsetRootLayers(layerClipboard.layers, layerClipboard.rootLayerIds, offset), {
+    rootLayerIds: layerClipboard.rootLayerIds,
+  })
+  clipboardKind = 'layer'
+  return true
+}
+
 export function useKeyboardShortcuts() {
   const store = useStore()
 
@@ -110,10 +180,15 @@ export function useKeyboardShortcuts() {
         e.preventDefault(); store.undo(); return
       }
 
-      // Keyframe clipboard
+      // Clipboard
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && store.selectedKeyframes.length) {
         e.preventDefault()
         copySelectedKeyframes(store)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && store.selectedLayerIds.length) {
+        e.preventDefault()
+        copySelectedLayers(store)
         return
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x' && store.selectedKeyframes.length) {
@@ -121,7 +196,12 @@ export function useKeyboardShortcuts() {
         if (copySelectedKeyframes(store)) store.deleteSelectedKeyframes()
         return
       }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && keyframeClipboard.length) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clipboardKind === 'layer' && layerClipboard?.layers.length) {
+        e.preventDefault()
+        pasteLayerClipboard(store)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clipboardKind === 'keyframe' && keyframeClipboard.length) {
         e.preventDefault()
         pasteKeyframeClipboard(store)
         return

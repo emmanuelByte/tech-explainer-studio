@@ -26,6 +26,34 @@ interface ProjectHistorySnapshotLike {
   project: MotionProjectLike
 }
 
+const MAX_REASONABLE_TRANSFORM_VALUE = 1_000_000
+const DEFAULT_TRANSFORM = {
+  x: 0,
+  y: 0,
+  scale: 1,
+  scaleX: 1,
+  scaleY: 1,
+  opacity: 1,
+  rotateX: 0,
+  rotateY: 0,
+  rotateZ: 0,
+  skewX: 0,
+  skewY: 0,
+  perspective: 800,
+  originX: 50,
+  originY: 50,
+  blur: 0,
+  brightness: 100,
+  contrast: 100,
+  grayscale: 0,
+  backdropBlur: 0,
+  shadowX: 0,
+  shadowY: 4,
+  shadowBlur: 12,
+  shadowSpread: 0,
+  charProgress: 1,
+}
+
 function projectsDir(root: string) {
   return resolve(root, 'data', 'projects')
 }
@@ -73,6 +101,49 @@ function indexItemFromProject(project: MotionProjectLike) {
   }
 }
 
+function isReasonableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_REASONABLE_TRANSFORM_VALUE
+}
+
+function nearestReasonableTransformValue(layer: any, frameIndex: number, key: string) {
+  for (let index = frameIndex - 1; index >= 0; index -= 1) {
+    const value = layer.keyframes?.[index]?.props?.[key]
+    if (isReasonableNumber(value)) return value
+  }
+  for (let index = frameIndex + 1; index < (layer.keyframes?.length ?? 0); index += 1) {
+    const value = layer.keyframes?.[index]?.props?.[key]
+    if (isReasonableNumber(value)) return value
+  }
+  return DEFAULT_TRANSFORM[key as keyof typeof DEFAULT_TRANSFORM]
+}
+
+function sanitizeProject(project: MotionProjectLike) {
+  return {
+    ...project,
+    layers: (project.layers ?? []).map((layer: any) => ({
+      ...layer,
+      keyframes: (layer.keyframes ?? []).map((kf: any, frameIndex: number) => {
+        const props = { ...DEFAULT_TRANSFORM, ...(kf.props ?? {}) }
+        Object.keys(DEFAULT_TRANSFORM).forEach((key) => {
+          if (!isReasonableNumber(props[key])) props[key] = nearestReasonableTransformValue(layer, frameIndex, key)
+        })
+        return { ...kf, props }
+      }),
+      propertyKeyframes: layer.propertyKeyframes
+        ? Object.fromEntries(Object.entries(layer.propertyKeyframes).map(([key, frames]) => [
+          key,
+          (frames as any[] ?? []).map((kf) => ({
+            ...kf,
+            value: typeof kf.value === 'number' && !isReasonableNumber(kf.value)
+              ? DEFAULT_TRANSFORM[key as keyof typeof DEFAULT_TRANSFORM] ?? 0
+              : kf.value,
+          })),
+        ]))
+        : layer.propertyKeyframes,
+    })),
+  }
+}
+
 async function listProjects(root: string) {
   await ensureProjectDir(root)
   const names = await readdir(projectsDir(root))
@@ -117,6 +188,7 @@ async function storageStats(root: string) {
 async function saveProject(root: string, project: MotionProjectLike) {
   if (!project?.id) throw new Error('Missing project id.')
   await ensureProjectDir(root)
+  project = sanitizeProject(project)
   await writeFile(projectPath(root, project.id), `${JSON.stringify(project, null, 2)}\n`, 'utf-8')
   return project
 }
