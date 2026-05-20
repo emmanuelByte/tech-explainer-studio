@@ -339,6 +339,28 @@ const PRESETS: Record<string, PresetDef> = {
       { frame: s + d, easing: 'linear', props: { ...b, blur: 0, opacity: 1 } },
     ],
   },
+  'wheel-in': {
+    label: 'Wheel In', category: 'in', textOnly: true, textRevealMode: 'wheel-fade',
+    generate: (s, d, e, b, layer) => {
+      const travel = Math.max(96, Math.min(340, layer.fontSize * 2.8))
+      return [
+        { frame: s, easing: e, props: { ...b, y: b.y + travel, blur: 0, opacity: Math.min(b.opacity, 0.16), scale: b.scale * 0.98 } },
+        { frame: s + Math.round(d * 0.72), easing: 'ease-out', props: { ...b, y: b.y - travel * 0.06, blur: 0, opacity: Math.max(b.opacity, 1), scale: b.scale * 1.006 } },
+        { frame: s + d, easing: 'linear', props: { ...b, y: b.y, blur: 0, opacity: Math.max(b.opacity, 1), scale: b.scale } },
+      ]
+    },
+  },
+  'wheel-out': {
+    label: 'Wheel Out', category: 'out', textOnly: true, textRevealMode: 'wheel-fade',
+    generate: (s, d, e, b, layer) => {
+      const travel = Math.max(96, Math.min(340, layer.fontSize * 2.8))
+      return [
+        { frame: s, easing: e, props: { ...b, y: b.y, blur: 0, opacity: Math.max(b.opacity, 1), scale: b.scale } },
+        { frame: s + Math.round(d * 0.28), easing: 'ease-in', props: { ...b, y: b.y - travel * 0.12, blur: 0, opacity: Math.max(b.opacity, 1), scale: b.scale * 1.006 } },
+        { frame: s + d, easing: 'linear', props: { ...b, y: b.y - travel, blur: 0, opacity: Math.min(b.opacity, 0.12), scale: b.scale * 0.98 } },
+      ]
+    },
+  },
   'glitch': {
     label: 'Glitch', category: 'attention',
     generate: (s, d, _e, b) => {
@@ -412,7 +434,14 @@ const PRESETS: Record<string, PresetDef> = {
     ],
   },
   'word-reveal': {
-    label: 'Word Reveal', category: 'text', textOnly: true, textRevealMode: 'plain',
+    label: 'Word Rise', category: 'text', textOnly: true, textRevealMode: 'word-rise',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 0, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 1, opacity: 1 } },
+    ],
+  },
+  'word-reveal-old': {
+    label: 'Word Step Reveal', category: 'text', textOnly: true, textRevealMode: 'plain',
     generate: (s, d, _e, b, layer) => {
       const text = layer.text || ''
       const ends = [...text.matchAll(/\S+/g)].map((match) => (match.index ?? 0) + match[0].length)
@@ -429,6 +458,13 @@ const PRESETS: Record<string, PresetDef> = {
         })),
       ]
     },
+  },
+  'word-blur-out': {
+    label: 'Word Blur Out', category: 'out', textOnly: true, textRevealMode: 'word-rise',
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, charProgress: 1, opacity: 1 } },
+      { frame: s + d, easing: 'linear', props: { ...b, charProgress: 0, opacity: 1 } },
+    ],
   },
   'line-reveal': {
     label: 'Line Reveal', category: 'text', textOnly: true, textRevealMode: 'plain',

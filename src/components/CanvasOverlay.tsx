@@ -1877,7 +1877,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   inset: 0,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: animatedLayer.textAlign === 'center' ? 'center' : animatedLayer.textAlign === 'right' ? 'flex-end' : 'flex-start',
+                  justifyContent: 'stretch',
                   padding: '4px 8px',
                   boxSizing: 'border-box',
                   pointerEvents: 'none',
@@ -1892,7 +1892,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   wordBreak: 'break-word',
                 }}
               >
-                <div style={{ width: '100%' }}>
+                <div style={{ width: '100%', textAlign: animatedLayer.textAlign }}>
                   {textRuns(animatedLayer).map((run, idx) => (
                     <span
                       key={idx}

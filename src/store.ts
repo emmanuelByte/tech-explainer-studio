@@ -608,6 +608,7 @@ interface Actions {
   addKeyframeSequence: (layerId: string, keyframes: Keyframe[]) => void
   resizeLayerBox: (layerId: string, frame: number, props: TransformProps, size: { width?: number; height?: number }) => void
   removeKeyframe: (layerId: string, frame: number) => void
+  clearLayerKeyframes: (layerId: string) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
   updateKeyframeEasing: (layerId: string, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
   // Time range
@@ -1737,6 +1738,20 @@ export const useStore = create<Store>()(
           layers: s.layers.map((l) =>
             l.id === layerId ? { ...l, keyframes: l.keyframes.filter((k) => k.frame !== frame) } : l
           ),
+        }))
+      },
+
+      clearLayerKeyframes: (layerId) => {
+        const target = get().layers.find((layer) => layer.id === layerId)
+        if (!target || (!target.keyframes.length && !Object.values(target.propertyKeyframes ?? {}).some((frames) => frames?.length))) return
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) =>
+            layer.id === layerId
+              ? { ...layer, keyframes: [], propertyKeyframes: {} }
+              : layer
+          ),
+          selectedKeyframes: s.selectedKeyframes.filter((kf) => kf.layerId !== layerId),
         }))
       },
 

@@ -58,39 +58,80 @@ function charRevealStyle(mode: Layer['textRevealMode'], progress: number): React
   return {}
 }
 
+function wordRevealStyle(progress: number): React.CSSProperties {
+  const t = Math.max(0, Math.min(1, progress))
+  return {
+    display: 'inline-block',
+    opacity: t,
+    transform: `translateY(${(1 - t) * 24}px)`,
+    filter: t < 1 ? `blur(${(1 - t) * 6}px)` : undefined,
+    willChange: t < 1 ? 'transform, opacity, filter' : undefined,
+  }
+}
+
+function styledTextRuns(layer: Layer, start: number, end: number) {
+  const spans = (layer.textSpans ?? [])
+    .filter((span) => span.end > start && span.start < end)
+    .sort((a, b) => a.start - b.start)
+  const runs: { text: string; style?: typeof spans[number] }[] = []
+  let cursor = start
+  spans.forEach((span) => {
+    const runStart = Math.max(start, Math.min(end, span.start))
+    const runEnd = Math.max(runStart, Math.min(end, span.end))
+    if (runStart > cursor) runs.push({ text: layer.text.slice(cursor, runStart) })
+    if (runEnd > runStart) runs.push({ text: layer.text.slice(runStart, runEnd), style: span })
+    cursor = Math.max(cursor, runEnd)
+  })
+  if (cursor < end) runs.push({ text: layer.text.slice(cursor, end) })
+  return runs.length ? runs : [{ text: layer.text.slice(start, end) }]
+}
+
+function renderStyledTextRange(layer: Layer, start: number, end: number) {
+  return styledTextRuns(layer, start, end).map((run, idx) => (
+    <span
+      key={idx}
+      style={{
+        fontFamily: run.style?.fontFamily,
+        fontSize: run.style?.fontSize,
+        fontWeight: run.style?.fontWeight,
+        color: run.style?.textColor,
+        letterSpacing: run.style?.letterSpacing,
+      }}
+    >
+      {run.text}
+    </span>
+  ))
+}
+
 function renderAnimatedText(layer: Layer, charProgress: number) {
   const progress = Math.max(0, Math.min(1, charProgress))
   const mode = layer.textRevealMode ?? 'plain'
   if (mode === 'plain') {
     const visible = Math.floor(layer.text.length * progress)
     const displayText = layer.text.slice(0, visible)
-    const spans = (layer.textSpans ?? [])
-      .filter((span) => span.end > 0 && span.start < displayText.length)
-      .sort((a, b) => a.start - b.start)
-    const runs: { text: string; style?: typeof spans[number] }[] = []
-    let cursor = 0
-    spans.forEach((span) => {
-      const start = Math.max(0, Math.min(displayText.length, span.start))
-      const end = Math.max(start, Math.min(displayText.length, span.end))
-      if (start > cursor) runs.push({ text: displayText.slice(cursor, start) })
-      if (end > start) runs.push({ text: displayText.slice(start, end), style: span })
-      cursor = Math.max(cursor, end)
+    return renderStyledTextRange({ ...layer, text: displayText }, 0, displayText.length)
+  }
+
+  if (mode === 'word-rise') {
+    const tokens = Array.from(layer.text.matchAll(/\s+|\S+/g))
+    const wordCount = tokens.filter((token) => /\S/.test(token[0])).length
+    const reveal = progress * Math.max(1, wordCount)
+    let wordIndex = 0
+
+    return tokens.map((token, index) => {
+      const text = token[0]
+      const start = token.index ?? 0
+      const end = start + text.length
+      if (!/\S/.test(text)) return <span key={index} style={{ whiteSpace: 'pre-wrap' }}>{text}</span>
+
+      const wordT = Math.max(0, Math.min(1, reveal - wordIndex))
+      wordIndex += 1
+      return (
+        <span key={index} style={wordRevealStyle(wordT)}>
+          {renderStyledTextRange(layer, start, end)}
+        </span>
+      )
     })
-    if (cursor < displayText.length) runs.push({ text: displayText.slice(cursor) })
-    return runs.length ? runs.map((run, idx) => (
-      <span
-        key={idx}
-        style={{
-          fontFamily: run.style?.fontFamily,
-          fontSize: run.style?.fontSize,
-          fontWeight: run.style?.fontWeight,
-          color: run.style?.textColor,
-          letterSpacing: run.style?.letterSpacing,
-        }}
-      >
-        {run.text}
-      </span>
-    )) : displayText
   }
 
   const chars = Array.from(layer.text)
@@ -118,6 +159,48 @@ function renderAnimatedText(layer: Layer, charProgress: number) {
       </span>
     )
   })
+}
+
+function renderWheelText(layer: Layer) {
+  const mask = (value: string): React.CSSProperties => ({
+    WebkitMaskImage: value,
+    maskImage: value,
+    WebkitMaskSize: '100% 100%',
+    maskSize: '100% 100%',
+  })
+  const textBlock: React.CSSProperties = {
+    width: '100%',
+    textAlign: layer.textAlign,
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-word',
+  }
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <div
+        style={{
+          ...textBlock,
+          ...mask('linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.15) 24%, rgba(0,0,0,0.85) 52%, #000 100%)'),
+        }}
+      >
+        {renderStyledTextRange(layer, 0, layer.text.length)}
+      </div>
+      <div
+        aria-hidden
+        style={{
+          ...textBlock,
+          ...mask('linear-gradient(to bottom, transparent 0%, rgba(0,0,0,0.85) 18%, rgba(0,0,0,0.65) 42%, transparent 74%, transparent 100%)'),
+          position: 'absolute',
+          inset: 0,
+          filter: 'blur(8px)',
+          opacity: 0.68,
+          pointerEvents: 'none',
+        }}
+      >
+        {renderStyledTextRange(layer, 0, layer.text.length)}
+      </div>
+    </div>
+  )
 }
 
 function isGroupLayer(layer: Layer) {
@@ -251,6 +334,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'text') {
+    const wheelFade = animatedLayer.textRevealMode === 'wheel-fade'
     return (
           <div
           data-layer-id={animatedLayer.id}
@@ -260,17 +344,16 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
           display: 'flex',
           alignItems: 'center',
-          justifyContent: animatedLayer.textAlign === 'center' ? 'center' : animatedLayer.textAlign === 'right' ? 'flex-end' : 'flex-start',
+          justifyContent: 'stretch',
           fontFamily: animatedLayer.fontFamily,
           fontSize: animatedLayer.fontSize,
           fontWeight: animatedLayer.fontWeight,
           color: animatedLayer.textColor,
           letterSpacing: animatedLayer.letterSpacing,
           lineHeight: animatedLayer.lineHeight,
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
           padding: '4px 8px',
           borderRadius: animatedLayer.borderRadius,
+          boxSizing: 'border-box',
         }}
         onClick={handleClick}
         onDoubleClick={(e) => {
@@ -279,7 +362,16 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           useStore.getState().setEditingTextLayerId(animatedLayer.id)
         }}
       >
-        {renderAnimatedText(animatedLayer, p.charProgress)}
+        <div
+          style={{
+            width: '100%',
+            textAlign: animatedLayer.textAlign,
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {wheelFade ? renderWheelText(animatedLayer) : renderAnimatedText(animatedLayer, p.charProgress)}
+        </div>
       </div>
     )
   }

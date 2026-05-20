@@ -10,7 +10,7 @@ export type LayoutMode = 'none' | 'flex' | 'grid'
 export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
 export type LayoutJustify = 'start' | 'center' | 'end' | 'space-between'
-export type TextRevealMode = 'plain' | 'char-pop' | 'char-fall' | 'char-rise' | 'char-spin' | 'char-blur'
+export type TextRevealMode = 'plain' | 'char-pop' | 'char-fall' | 'char-rise' | 'char-spin' | 'char-blur' | 'word-rise' | 'wheel-fade'
 export type Tool = 'select' | 'hand' | 'rectangle' | 'ellipse' | 'text' | 'line' | 'triangle' | 'pen'
 
 export interface TextRangeStyle {
