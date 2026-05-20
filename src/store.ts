@@ -526,6 +526,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     collapsed: false,
     isGroup: type === 'group',
     autoFit: false,
+    clipChildren: false,
     width: type === 'text' ? 400 : type === 'line' ? 200 : type === 'video' ? 320 : 200,
     height: type === 'text' ? 80 : type === 'line' ? 4 : type === 'path' ? 200 : type === 'video' ? 180 : 140,
     sizeMode: 'fixed',

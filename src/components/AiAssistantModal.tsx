@@ -50,6 +50,8 @@ const LAYER_PROPS = new Set<keyof Layer>([
   'borderRadius',
   'pathData',
   'pathClosed',
+  'isGroup',
+  'clipChildren',
   'shadowEnabled',
   'shadowColor',
   'fontFamily',

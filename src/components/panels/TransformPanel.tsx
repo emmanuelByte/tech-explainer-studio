@@ -483,6 +483,7 @@ export function TransformPanel() {
   const canvasH = canvasPreset.name === 'Custom' ? customHeight : canvasPreset.height
   const sizeMode = layer.sizeMode ?? 'fixed'
   const canUseLayout = layer.type === 'group' || layer.isGroup
+  const canMaskLayer = layer.type === 'group' || layer.type === 'rectangle' || layer.type === 'ellipse' || layer.type === 'triangle' || layer.type === 'path' || layer.isGroup
   const layoutMode = layer.layoutMode ?? 'none'
   const parentLayer = layer.parentId ? layers.find((item) => item.id === layer.parentId) : null
   const relativeX = p.x
@@ -526,6 +527,11 @@ export function TransformPanel() {
       setLayerAnimatedProperty(layer.id, 'width' as never, canvasW)
       setLayerAnimatedProperty(layer.id, 'height' as never, canvasH)
     }
+  }
+
+  function setClipChildren(enabled: boolean) {
+    if (enabled && !layer.isGroup) updateLayerProp(layer.id, 'isGroup', true)
+    updateLayerProp(layer.id, 'clipChildren', enabled)
   }
 
   const moveLayerTree = (key: 'x' | 'y', nextValue: number) => {
@@ -653,6 +659,30 @@ export function TransformPanel() {
             ))}
           </div>
         </Row>
+        {canMaskLayer && (
+          <Row label={t('transform.mask')}>
+            <label
+              className="w-full"
+              style={{
+                height: 24,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 11,
+                color: 'var(--text2)',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!layer.clipChildren}
+                onChange={(e) => setClipChildren(e.target.checked)}
+              />
+              {t('transform.clipChildren')}
+            </label>
+          </Row>
+        )}
       </Section>
 
       {/* ── LAYOUT (groups only) ────────────────────────────── */}

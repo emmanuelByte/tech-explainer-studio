@@ -207,6 +207,15 @@ function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
 
+function layerShapeClipStyle(layer: Layer): React.CSSProperties {
+  if (layer.type === 'ellipse') return { borderRadius: '50%' }
+  if (layer.type === 'triangle') return { clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }
+  if (layer.type === 'path' && layer.pathClosed && layer.pathData) {
+    return { clipPath: `path('${layer.pathData.replace(/'/g, "\\'")}')` }
+  }
+  return { borderRadius: layer.borderRadius }
+}
+
 function isLayerActive(layer: Layer, frame: number) {
   return layer.visible && frame >= (layer.startFrame ?? 0) && frame <= (layer.endFrame ?? Infinity)
 }
@@ -485,6 +494,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   const children = (childrenByParent.get(layer.id) ?? []).filter((child) => !ancestors.has(child.id))
   const nextAncestors = children.length ? new Set([...ancestors, layer.id]) : ancestors
   const isSelected = selectedLayerIds.includes(layer.id)
+  const shapeStyle = layerShapeClipStyle(animatedLayer)
   const outerStyle: React.CSSProperties = {
     position: 'absolute',
     left: '50%',
@@ -505,7 +515,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     position: 'absolute',
     inset: 0,
     background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
-    borderRadius: animatedLayer.borderRadius,
+    ...shapeStyle,
     border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
     boxSizing: 'border-box',
     boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
@@ -526,6 +536,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     transformStyle: 'preserve-3d',
     pointerEvents: 'none',
     zIndex: 1,
+    ...(animatedLayer.clipChildren ? { overflow: 'hidden', ...shapeStyle } : {}),
   }
 
   const handleClick = (e: React.MouseEvent) => {

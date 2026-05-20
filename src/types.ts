@@ -110,6 +110,7 @@ export interface Layer {
   collapsed?: boolean
   isGroup?: boolean
   autoFit?: boolean
+  clipChildren?: boolean
   visible: boolean
   locked: boolean
   width: number
