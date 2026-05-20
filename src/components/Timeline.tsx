@@ -90,6 +90,25 @@ function getVisibleAnimProps(layer: Layer, showAll: boolean): AnimatableProperty
   return [...props]
 }
 
+function getTransformPropertyKeyframes(layer: Layer, propKey: AnimatableProperty) {
+  const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
+  if (!(propKey in DEFAULT_TRANSFORM)) return []
+  return sorted
+    .filter((kf, index) => {
+      if (sorted.length <= 2 || index === 0 || index === sorted.length - 1) return true
+      const without = sorted.filter((item) => item.frame !== kf.frame)
+      const fallback = interpolateProps(kf.frame, without)
+      return kf.props[propKey as keyof TransformProps] !== fallback[propKey as keyof TransformProps]
+    })
+    .map((kf) => ({
+      id: `${propKey}-${kf.frame}`,
+      frame: kf.frame,
+      value: kf.props[propKey as keyof TransformProps] as number | string,
+      easing: kf.easing,
+      bezier: kf.bezier,
+    }))
+}
+
 function savedTimelineH() {
   const v = localStorage.getItem('tl-h')
   return v ? Math.max(MIN_TL_H, parseInt(v)) : 200
@@ -542,10 +561,10 @@ function TrackRow({
                 <div style={{ height: groupHeaderH, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
                 {groupProps.map((propKey) => {
                   const propKfs = getPropertyKeyframes(layer, propKey)
-                  const effectivePropKey = propKfs.length ? propKey : undefined
+                  const effectivePropKey = propKey
                   const sourceKfs = propKfs.length
                     ? propKfs
-                    : layer.keyframes.map((kf) => ({ id: `${propKey}-${kf.frame}`, frame: kf.frame, value: kf.props[propKey as keyof TransformProps] as number | string, easing: kf.easing, bezier: kf.bezier }))
+                    : getTransformPropertyKeyframes(layer, propKey)
                   const pRange = sourceKfs.map((kf) => typeof kf.value === 'number' ? kf.value : 0)
                   const pMin = Math.min(...pRange)
                   const pMax = Math.max(...pRange)

@@ -718,9 +718,9 @@ function textRuns(layer: Layer) {
 
 export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
-    layers, selectedLayerIds, currentFrame, addKeyframe, addKeyframes, setLayerAnimatedProperty,
+    layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
-    selectLayer, selectLayers, currentTool, addGeneratedLayer, resizeLayerBox,
+    selectLayer, selectLayers, clearSelectedKeyframes, currentTool, addGeneratedLayer, resizeLayerBox,
   } = useStore()
 
   const [displayScale, setDisplayScale] = useState(0)
@@ -939,16 +939,23 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const my = (e.clientY - rect.top) / d.displayScale - d.centerCy
       const angle = Math.atan2(my, mx) * (180 / Math.PI) + 90
       const nextAngle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle)
-      addKeyframe(layer.id, currentFrame, { ...d.props, rotateZ: nextAngle })
+      if (autoKeyframe) addKeyframe(layer.id, currentFrame, { ...d.props, rotateZ: nextAngle })
+      else setLayerAnimatedProperty(layer.id, 'rotateZ', nextAngle)
 
     } else if (d.type === 'skewX') {
-      addKeyframe(layer.id, currentFrame, { ...d.props, skewX: d.props.skewX + rawDx * 0.5 })
+      const skewX = d.props.skewX + rawDx * 0.5
+      if (autoKeyframe) addKeyframe(layer.id, currentFrame, { ...d.props, skewX })
+      else setLayerAnimatedProperty(layer.id, 'skewX', skewX)
 
     } else if (d.type === 'skewY') {
-      addKeyframe(layer.id, currentFrame, { ...d.props, skewY: d.props.skewY + rawDy * 0.5 })
+      const skewY = d.props.skewY + rawDy * 0.5
+      if (autoKeyframe) addKeyframe(layer.id, currentFrame, { ...d.props, skewY })
+      else setLayerAnimatedProperty(layer.id, 'skewY', skewY)
 
     } else if (d.type === 'perspective') {
-      addKeyframe(layer.id, currentFrame, { ...d.props, perspective: Math.max(100, d.props.perspective - rawDy * 4) })
+      const perspective = Math.max(100, d.props.perspective - rawDy * 4)
+      if (autoKeyframe) addKeyframe(layer.id, currentFrame, { ...d.props, perspective })
+      else setLayerAnimatedProperty(layer.id, 'perspective', perspective)
 
     } else {
       const pullsLeft = d.type === 'tl' || d.type === 'ml' || d.type === 'bl'
@@ -1002,27 +1009,41 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const sx = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleX))
       const sy = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleY))
 
-      resizeLayerBox(
-        layer.id,
-        currentFrame,
-        {
-          ...d.props,
-          x: nextCx - canvasW / 2,
-          y: nextCy - canvasH / 2,
-        },
-        {
-          width: pullsLeft || pullsRight ? nextBoxW / sx : undefined,
-          height: pullsTop || pullsBottom ? nextBoxH / sy : undefined,
-        },
-      )
+      const nextX = nextCx - canvasW / 2
+      const nextY = nextCy - canvasH / 2
+      const nextW = pullsLeft || pullsRight ? nextBoxW / sx : undefined
+      const nextH = pullsTop || pullsBottom ? nextBoxH / sy : undefined
+      if (autoKeyframe) {
+        resizeLayerBox(
+          layer.id,
+          currentFrame,
+          { ...d.props, x: nextX, y: nextY },
+          { width: nextW, height: nextH },
+        )
+      } else {
+        setLayerAnimatedProperty(layer.id, 'x', nextX)
+        setLayerAnimatedProperty(layer.id, 'y', nextY)
+        if (nextW !== undefined) setLayerAnimatedProperty(layer.id, 'width', nextW)
+        if (nextH !== undefined) {
+          if (layer.type === 'line') updateLayerProp(layer.id, 'strokeWidth', Math.max(1, Math.round(nextH)))
+          else setLayerAnimatedProperty(layer.id, 'height', nextH)
+        }
+      }
     }
-  }, [layers, selectedLayerIds, currentFrame, addKeyframe, addKeyframes, setLayerAnimatedProperty, updateLayerProp, resizeLayerBox, scheduleGuideUpdate, containerRef, canvasW, canvasH])
+  }, [layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty, updateLayerProp, resizeLayerBox, scheduleGuideUpdate, containerRef, canvasW, canvasH])
 
   const onMouseUp = useCallback(() => {
     pathDragRef.current = null
     const drag = dragRef.current
     if (drag?.type === 'move' && drag.pendingMoveUpdates?.length) {
-      addKeyframes(drag.pendingMoveUpdates, currentFrame)
+      if (autoKeyframe) {
+        addKeyframes(drag.pendingMoveUpdates, currentFrame)
+      } else {
+        drag.pendingMoveUpdates.forEach((update) => {
+          setLayerAnimatedProperty(update.layerId, 'x', update.props.x)
+          setLayerAnimatedProperty(update.layerId, 'y', update.props.y)
+        })
+      }
       window.requestAnimationFrame(() => {
         const state = useStore.getState()
         clearLayerTransformPreviews(containerRef.current, state.layers, state.currentFrame)
@@ -1047,7 +1068,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       marqueeRef.current = null
       setMarquee(null)
     }
-  }, [layers, currentFrame, canvasW, canvasH, selectLayer, addKeyframes, endInteraction, clearGuideUpdate])
+  }, [layers, currentFrame, canvasW, canvasH, autoKeyframe, selectLayer, addKeyframes, setLayerAnimatedProperty, endInteraction, clearGuideUpdate])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -1278,6 +1299,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     e.preventDefault()
     e.stopPropagation()
     clearGuideUpdate()
+    clearSelectedKeyframes()
     if (type === 'move' && !isMultiSelection && (layer.type === 'group' || layer.isGroup)) {
       const point = getCanvasPoint(e.clientX, e.clientY)
       const childIds = new Set(descendantsOf(layers, layer.id).map((child) => child.id))

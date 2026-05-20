@@ -276,6 +276,22 @@ function setLayerBaseValue(layer: Layer, key: AnimatableProperty, value: number 
   return { ...layer, [key]: value }
 }
 
+function removeTransformPropertyChange(layer: Layer, key: AnimatableProperty, frame: number): Layer {
+  if (!(key in DEFAULT_TRANSFORM)) return layer
+  const target = layer.keyframes.find((kf) => kf.frame === frame)
+  if (!target || layer.keyframes.length <= 1) return layer
+  const withoutTarget = layer.keyframes.filter((kf) => kf.frame !== frame)
+  const fallback = interpolateProps(frame, withoutTarget)
+  return {
+    ...layer,
+    keyframes: layer.keyframes.map((kf) =>
+      kf.frame === frame
+        ? { ...kf, props: { ...kf.props, [key]: fallback[key as keyof TransformProps] } as TransformProps }
+        : kf
+    ),
+  }
+}
+
 function getLayerLayoutSize(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
   const p = interpolateProps(frame, layer.keyframes)
   const rawWidth = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
@@ -1074,7 +1090,15 @@ export const useStore = create<Store>()(
               s.layers.map((layer) => {
                 if (layer.id !== id) return layer
                 const frames = layer.propertyKeyframes?.[key]
-                if (!frames?.some((kf) => kf.frame === selectedKeyframe.frame)) return layer
+                if (!frames?.some((kf) => kf.frame === selectedKeyframe.frame)) {
+                  if (key in DEFAULT_TRANSFORM && typeof value === 'number') {
+                    return upsertTransformKeyframe(layer, selectedKeyframe.frame, {
+                      ...interpolateProps(selectedKeyframe.frame, layer.keyframes),
+                      [key]: value,
+                    } as TransformProps)
+                  }
+                  return layer
+                }
                 return {
                   ...layer,
                   propertyKeyframes: {
@@ -1144,11 +1168,15 @@ export const useStore = create<Store>()(
         set((s) => ({
           layers: s.layers.map((layer) => {
             if (layer.id !== layerId) return layer
+            const existing = layer.propertyKeyframes?.[key] ?? []
+            if (!existing.some((kf) => kf.frame === frame)) {
+              return removeTransformPropertyChange(layer, key, frame)
+            }
             return {
               ...layer,
               propertyKeyframes: {
                 ...(layer.propertyKeyframes ?? {}),
-                [key]: (layer.propertyKeyframes?.[key] ?? []).filter((kf) => kf.frame !== frame),
+                [key]: existing.filter((kf) => kf.frame !== frame),
               },
             }
           }),
@@ -1196,9 +1224,15 @@ export const useStore = create<Store>()(
         const { layers, totalFrames } = get()
         const layer = layers.find((item) => item.id === layerId)
         if (!layer) return
+        const propFrames = propKey ? layer.propertyKeyframes?.[propKey] ?? [] : []
+        const hasPropertyFrames = propFrames.length > 0
         const usedFrames = new Set(
           propKey
-            ? (layer.propertyKeyframes?.[propKey] ?? []).map((kf) => kf.frame)
+            ? hasPropertyFrames
+              ? propFrames.map((kf) => kf.frame)
+              : propKey in DEFAULT_TRANSFORM
+                ? layer.keyframes.map((kf) => kf.frame)
+                : []
             : layer.keyframes.map((kf) => kf.frame)
         )
         if (!usedFrames.has(frame)) return
@@ -1220,7 +1254,16 @@ export const useStore = create<Store>()(
             if (item.id !== layerId) return item
             if (propKey) {
               const source = item.propertyKeyframes?.[propKey]?.find((kf) => kf.frame === frame)
-              if (!source) return item
+              if (!source) {
+                if (!(propKey in DEFAULT_TRANSFORM)) return item
+                const transformSource = item.keyframes.find((kf) => kf.frame === frame)
+                if (!transformSource) return item
+                const current = interpolateProps(destination, item.keyframes)
+                return upsertTransformKeyframe(item, destination, {
+                  ...current,
+                  [propKey]: transformSource.props[propKey as keyof TransformProps],
+                } as TransformProps, transformSource.easing)
+              }
               return {
                 ...item,
                 propertyKeyframes: {

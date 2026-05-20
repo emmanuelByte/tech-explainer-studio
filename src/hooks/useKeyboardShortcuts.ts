@@ -180,7 +180,7 @@ export function useKeyboardShortcuts() {
       }
 
       // Arrow keys to nudge x/y
-      const { selectedLayerIds, selectedKeyframes, currentFrame, addKeyframe, layers } = store
+      const { selectedLayerIds, selectedKeyframes, currentFrame, autoKeyframe, addKeyframe, setLayerAnimatedProperty, layers } = store
       const step = e.shiftKey ? 10 : 1
       if (selectedKeyframes.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         e.preventDefault()
@@ -200,7 +200,12 @@ export function useKeyboardShortcuts() {
           const layer = layers.find((l) => l.id === id)
           if (!layer) return
           const props = interpolateProps(currentFrame, layer.keyframes)
-          addKeyframe(id, currentFrame, { ...props, x: props.x + dx, y: props.y + dy })
+          if (autoKeyframe) {
+            addKeyframe(id, currentFrame, { ...props, x: props.x + dx, y: props.y + dy })
+          } else {
+            if (dx !== 0) setLayerAnimatedProperty(id, 'x', props.x + dx)
+            if (dy !== 0) setLayerAnimatedProperty(id, 'y', props.y + dy)
+          }
         })
       }
 
