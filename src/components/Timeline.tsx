@@ -784,7 +784,7 @@ export function Timeline() {
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, setPlaybackRate,
-    selectLayer, removeKeyframe, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe, duplicateKeyframe,
+    selectLayer, removeKeyframe, clearLayerKeyframes, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe, duplicateKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
     updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById,
@@ -1242,13 +1242,13 @@ export function Timeline() {
 
   const durationSec = totalFrames / fps
   const keyframeMenuItemCount = kfContextMenu && !kfContextMenu.showEasing
-    ? 3 + (kfContextMenu.propKey ? 0 : 1) + (copiedKf && !kfContextMenu.propKey ? 1 : 0)
+    ? 4 + (kfContextMenu.propKey ? 0 : 1) + (copiedKf && !kfContextMenu.propKey ? 1 : 0)
     : 0
   const keyframeMenuStyle = kfContextMenu && !kfContextMenu.showEasing
     ? fixedPopoverPosition(kfContextMenu.x, kfContextMenu.y, 176, keyframeMenuItemCount * 30 + 8)
     : null
   const barMenuStyle = barContextMenu
-    ? fixedPopoverPosition(barContextMenu.x, barContextMenu.y, 190, 6 * 30 + 8)
+    ? fixedPopoverPosition(barContextMenu.x, barContextMenu.y, 190, 7 * 30 + 8)
     : null
 
   return (
@@ -1476,6 +1476,7 @@ export function Timeline() {
             ...(!kfContextMenu.propKey ? [{ label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } }] : []),
             ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
             { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
+            { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(kfContextMenu.layerId); setKfContextMenu(null) } },
           ].map(({ label, action, danger }) => (
             <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
               style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
@@ -1502,6 +1503,7 @@ export function Timeline() {
             { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerOutPoint(l); setBarContextMenu(null) } },
             { label: t('timeline.editTimingMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
             { label: t('timeline.setDurationMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+            { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(barContextMenu.layerId); setBarContextMenu(null) } },
             { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
             { label: t('timeline.deleteLayer'), danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
           ].map(({ label, action, danger }) => (
