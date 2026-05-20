@@ -345,7 +345,7 @@ export function StylePanel() {
       <div className="px-3 pb-2 flex flex-col gap-1.5">
         <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
           <input type="checkbox" checked={layer.strokeEnabled}
-            onChange={(e) => upd('strokeEnabled', e.target.checked)} className="accent-[#6366f1]"
+            onChange={(e) => upd('strokeEnabled', e.target.checked)} className="accent-[#0d99ff]"
           />
           {t('style.enableStroke')}
         </label>
@@ -395,7 +395,7 @@ export function StylePanel() {
                 type="checkbox"
                 checked={Boolean(layer.pathClosed)}
                 onChange={(e) => setPathClosed(e.target.checked)}
-                className="accent-[#6366f1]"
+                className="accent-[#0d99ff]"
               />
               {t('style.closedPath')}
             </label>
@@ -471,7 +471,7 @@ export function StylePanel() {
                     type="checkbox"
                     checked={Boolean(sourceLayer.svgFillEnabled)}
                     onChange={(e) => upd('svgFillEnabled', e.target.checked)}
-                    className="accent-[#6366f1]"
+                    className="accent-[#0d99ff]"
                   />
                   {t('style.enableFill')}
                 </label>

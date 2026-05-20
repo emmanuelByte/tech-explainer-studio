@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
 import { interpolateProps } from '../remotion/interpolateProps'
-import { descendantsOf } from '../layerTree'
 
 function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['layers'], selectedIds: string[]) {
   const ids = new Set<string>()
@@ -9,7 +8,6 @@ function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['l
     const layer = layers.find((item) => item.id === id)
     if (!layer || layer.locked) return
     ids.add(id)
-    descendantsOf(layers, id).forEach((child) => ids.add(child.id))
   })
   return [...ids]
 }
@@ -84,9 +82,14 @@ export function useKeyboardShortcuts() {
       }
 
       // Arrow keys to nudge x/y
-      const { selectedLayerIds, currentFrame, addKeyframe, layers } = store
-      if (!selectedLayerIds.length) return
+      const { selectedLayerIds, selectedKeyframes, currentFrame, addKeyframe, layers } = store
       const step = e.shiftKey ? 10 : 1
+      if (selectedKeyframes.length && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        store.moveSelectedKeyframes(e.key === 'ArrowLeft' ? -step : step)
+        return
+      }
+      if (!selectedLayerIds.length) return
 
       let dx = 0, dy = 0
       if (e.key === 'ArrowLeft') { e.preventDefault(); dx = -step }

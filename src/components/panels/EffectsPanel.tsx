@@ -117,7 +117,7 @@ export function EffectsPanel() {
             type="checkbox"
             checked={layer.shadowEnabled}
             onChange={(e) => updateLayerProp(layer.id, 'shadowEnabled', e.target.checked)}
-            className="accent-[#6366f1]"
+            className="accent-[#0d99ff]"
           />
           {t('effects.enableShadow')}
         </label>

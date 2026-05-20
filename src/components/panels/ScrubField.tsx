@@ -116,7 +116,7 @@ export function ScrubField({
           right: compact ? 0 : 12,
           top: '50%',
           height: 1,
-          background: 'rgba(99,102,241,0.35)',
+          background: 'var(--accent-bg)',
           pointerEvents: 'none',
         }} />
       )}
@@ -135,8 +135,8 @@ export function ScrubField({
       <div
         className="flex-1 flex items-center justify-end gap-0.5 rounded text-xs px-1.5 py-0.5 select-none"
         style={{
-          background: scrubbing ? 'rgba(99,102,241,0.12)' : 'var(--input)',
-          border: `1px solid ${scrubbing ? '#6366f1' : 'var(--border)'}`,
+          background: scrubbing ? 'var(--accent-bg)' : 'var(--input)',
+          border: `1px solid ${scrubbing ? 'var(--accent)' : 'var(--input-border)'}`,
           cursor: scrubbing ? 'ew-resize' : 'text',
           minHeight: 24,
           fontVariantNumeric: 'tabular-nums',
@@ -158,7 +158,7 @@ export function ScrubField({
             zIndex: 4000,
             pointerEvents: 'none',
             background: 'rgba(15,15,15,0.92)',
-            border: '1px solid #6366f1',
+            border: '1px solid var(--accent)',
             color: '#fff',
             borderRadius: 4,
             padding: '3px 6px',

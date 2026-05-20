@@ -27,6 +27,20 @@ function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
 
+function baseGroupOffset(layer: Layer) {
+  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
+  return {
+    x: first?.props.x ?? 0,
+    y: first?.props.y ?? 0,
+  }
+}
+
+function ensureGroupOrigin(layer: Layer) {
+  if (!isGroupLayer(layer) || (layer.groupOriginX !== undefined && layer.groupOriginY !== undefined)) return layer
+  const origin = baseGroupOffset(layer)
+  return { ...layer, groupOriginX: origin.x, groupOriginY: origin.y }
+}
+
 function shiftPropertyKeyframes(layer: Layer, delta: number): Layer['propertyKeyframes'] {
   if (!layer.propertyKeyframes) return layer.propertyKeyframes
   return Object.fromEntries(
@@ -94,11 +108,12 @@ function getLayersFrameBounds(layers: Layer[], frame: number, canvasWidth: numbe
   }
 }
 
-function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number) {
+function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number, totalFrames: number, skipIds = new Set<string>()) {
   let next = layers
   for (let pass = 0; pass < 3; pass += 1) {
     let changed = false
     next = next.map((layer) => {
+      if (skipIds.has(layer.id)) return layer
       if (!layer.autoFit || layer.type !== 'group') return layer
       const children = next.filter((child) => child.parentId === layer.id && child.visible)
       if (!children.length) return layer
@@ -137,17 +152,17 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
   return next
 }
 
-function withAutoFitGroups(state: EditorState, layers: Layer[]) {
+function withAutoFitGroups(state: EditorState, layers: Layer[], skipIds = new Set<string>()) {
   const { width, height } = getCanvasSize(state)
-  return fitAutoGroups(layers, state.currentFrame, width, height, state.totalFrames)
+  return fitAutoGroups(layers, state.currentFrame, width, height, state.totalFrames, skipIds)
 }
 
-function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformProps): Layer {
+function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformProps, easing?: PairEasingType): Layer {
   const current = interpolateProps(frame, layer.keyframes)
   const existing = layer.keyframes.find((kf) => kf.frame === frame)
   const keyframe: Keyframe = {
     frame,
-    easing: existing?.easing ?? layer.keyframes[0]?.easing ?? 'ease-out',
+    easing: easing ?? existing?.easing ?? layer.keyframes[0]?.easing ?? 'ease-out',
     bezier: existing?.bezier,
     props: { ...current, ...props },
   }
@@ -214,6 +229,48 @@ function setLayerValueAtFrame(layer: Layer, key: AnimatableProperty, value: numb
       ? layer.keyframes.map((item) => item.frame === targetFrame ? keyframe : item)
       : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
     return { ...layer, keyframes }
+  }
+
+  return { ...layer, [key]: value }
+}
+
+function setLayerBaseValue(layer: Layer, key: AnimatableProperty, value: number | string, frame: number): Layer {
+  if (key in DEFAULT_TRANSFORM && typeof value === 'number') {
+    const current = interpolateProps(frame, layer.keyframes)
+    const delta = value - (current[key as keyof TransformProps] as number)
+    const keyframes = layer.keyframes.length
+      ? layer.keyframes.map((kf) => ({
+        ...kf,
+        props: {
+          ...kf.props,
+          [key]: ((kf.props[key as keyof TransformProps] ?? DEFAULT_TRANSFORM[key as keyof TransformProps]) as number) + delta,
+        } as TransformProps,
+      }))
+      : [{ frame: 0, easing: 'ease-out' as PairEasingType, props: { ...DEFAULT_TRANSFORM, [key]: value } as TransformProps }]
+    return {
+      ...layer,
+      keyframes,
+      propertyKeyframes: layer.propertyKeyframes?.[key]?.length
+        ? {
+          ...(layer.propertyKeyframes ?? {}),
+          [key]: (layer.propertyKeyframes[key] ?? []).map((kf) => ({
+            ...kf,
+            value: typeof kf.value === 'number' ? kf.value + delta : value,
+          })),
+        }
+        : layer.propertyKeyframes,
+    }
+  }
+
+  if (layer.propertyKeyframes?.[key]?.length) {
+    return {
+      ...layer,
+      [key]: value,
+      propertyKeyframes: {
+        ...(layer.propertyKeyframes ?? {}),
+        [key]: (layer.propertyKeyframes[key] ?? []).map((kf) => ({ ...kf, value })),
+      },
+    }
   }
 
   return { ...layer, [key]: value }
@@ -360,8 +417,8 @@ function normalizeLayoutGroups(state: EditorState, layers: Layer[], changedId?: 
   return next
 }
 
-function normalizeLayerTree(state: EditorState, layers: Layer[], changedId?: string, includeAllLayouts = false) {
-  return withAutoFitGroups(state, normalizeLayoutGroups(state, layers, changedId, includeAllLayouts))
+function normalizeLayerTree(state: EditorState, layers: Layer[], changedId?: string, includeAllLayouts = false, skipAutoFitIds = new Set<string>()) {
+  return withAutoFitGroups(state, normalizeLayoutGroups(state, layers, changedId, includeAllLayouts), skipAutoFitIds)
 }
 
 const LAYOUT_PROP_KEYS = new Set<keyof Layer>([
@@ -442,6 +499,7 @@ interface Actions {
   // Layers
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
+  insertLibraryLayers: (layers: Layer[], options?: { frameOffset?: number; fitToTimeline?: boolean; rootLayerIds?: string[] }) => string[]
   addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
   replaceImageSource: (id: string, src: string, imageKind: ImageKind, naturalWidth?: number, naturalHeight?: number) => void
   deleteLayer: (id: string) => void
@@ -453,6 +511,7 @@ interface Actions {
   selectKeyframe: (selection: KeyframeSelection, multi?: boolean) => void
   clearSelectedKeyframes: () => void
   deleteSelectedKeyframes: () => void
+  moveSelectedKeyframes: (delta: number) => void
   renameLayer: (id: string, name: string) => void
   updateLayerProp: <K extends keyof Layer>(id: string, key: K, value: Layer[K]) => void
   setLayerAnimatedProperty: (id: string, key: AnimatableProperty, value: number | string) => void
@@ -661,6 +720,56 @@ export const useStore = create<Store>()(
         return layer.id
       },
 
+      insertLibraryLayers: (sourceLayers, options = {}) => {
+        if (!sourceLayers.length) return []
+        get()._snapshot()
+        const { totalFrames } = get()
+        const frameOffset = options.frameOffset ?? 0
+        const idMap = new Map(sourceLayers.map((layer) => [layer.id, uid()]))
+        const sourceIdSet = new Set(sourceLayers.map((layer) => layer.id))
+        const shiftFrame = (frame: number) => Math.max(0, frame + frameOffset)
+
+        const copies = sourceLayers.map((layer) => {
+          const keyframes = (layer.keyframes ?? []).map((kf) => ({
+            ...kf,
+            frame: shiftFrame(kf.frame),
+            props: { ...kf.props },
+          })).sort((a, b) => a.frame - b.frame)
+          const propertyKeyframes = layer.propertyKeyframes
+            ? Object.fromEntries(
+              Object.entries(layer.propertyKeyframes).map(([key, frames]) => [
+                key,
+                (frames ?? []).map((kf) => ({ ...kf, id: uid(), frame: shiftFrame(kf.frame) })).sort((a, b) => a.frame - b.frame),
+              ]),
+            ) as Layer['propertyKeyframes']
+            : undefined
+          const parentId = layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : null
+          return {
+            ...layer,
+            id: idMap.get(layer.id)!,
+            name: layer.name,
+            parentId,
+            keyframes,
+            propertyKeyframes,
+            startFrame: options.fitToTimeline ? 0 : shiftFrame(layer.startFrame ?? 0),
+            endFrame: options.fitToTimeline ? totalFrames : Math.max(1, shiftFrame(layer.endFrame ?? totalFrames)),
+          }
+        })
+
+        const roots = (options.rootLayerIds?.length ? options.rootLayerIds : sourceLayers
+          .filter((layer) => !layer.parentId || !sourceIdSet.has(layer.parentId))
+          .map((layer) => layer.id))
+          .map((id) => idMap.get(id))
+          .filter((id): id is string => Boolean(id))
+
+        set((s) => ({
+          layers: [...s.layers, ...copies],
+          selectedLayerIds: roots,
+          selectedKeyframes: [],
+        }))
+        return roots
+      },
+
       addImage: (src, name, imageKind = 'raster', naturalWidth, naturalHeight) => {
         get()._snapshot()
         const { totalFrames } = get()
@@ -812,6 +921,57 @@ export const useStore = create<Store>()(
         }))
       },
 
+      moveSelectedKeyframes: (delta) => {
+        const selected = get().selectedKeyframes
+        if (!selected.length || delta === 0) return
+        const minFrame = Math.min(...selected.map((kf) => kf.frame))
+        const maxFrame = Math.max(...selected.map((kf) => kf.frame))
+        const appliedDelta = Math.max(-minFrame, Math.min(delta, get().totalFrames - maxFrame))
+        if (appliedDelta === 0) return
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            const layerSelections = selected.filter((kf) => kf.layerId === layer.id)
+            if (!layerSelections.length) return layer
+
+            const fullFrames = new Set(layerSelections.filter((kf) => !kf.propKey).map((kf) => kf.frame))
+            const movedFullFrames = new Set([...fullFrames].map((frame) => frame + appliedDelta))
+            let nextLayer = { ...layer }
+            if (fullFrames.size) {
+              const moved = layer.keyframes
+                .filter((kf) => fullFrames.has(kf.frame))
+                .map((kf) => ({ ...kf, frame: kf.frame + appliedDelta }))
+              nextLayer.keyframes = [
+                ...layer.keyframes.filter((kf) => !fullFrames.has(kf.frame) && !movedFullFrames.has(kf.frame)),
+                ...moved,
+              ].sort((a, b) => a.frame - b.frame)
+            }
+
+            const byProp = new Map<AnimatableProperty, Set<number>>()
+            layerSelections.filter((kf) => kf.propKey).forEach((kf) => {
+              const key = kf.propKey!
+              byProp.set(key, new Set([...(byProp.get(key) ?? []), kf.frame]))
+            })
+            if (byProp.size) {
+              nextLayer.propertyKeyframes = { ...(nextLayer.propertyKeyframes ?? {}) }
+              byProp.forEach((frames, key) => {
+                const movedFrames = new Set([...frames].map((frame) => frame + appliedDelta))
+                const moved = (layer.propertyKeyframes?.[key] ?? [])
+                  .filter((kf) => frames.has(kf.frame))
+                  .map((kf) => ({ ...kf, frame: kf.frame + appliedDelta }))
+                nextLayer.propertyKeyframes![key] = [
+                  ...(layer.propertyKeyframes?.[key] ?? []).filter((kf) => !frames.has(kf.frame) && !movedFrames.has(kf.frame)),
+                  ...moved,
+                ].sort((a, b) => a.frame - b.frame)
+              })
+            }
+
+            return nextLayer
+          }),
+          selectedKeyframes: s.selectedKeyframes.map((kf) => ({ ...kf, frame: kf.frame + appliedDelta })),
+        }))
+      },
+
       renameLayer: (id, name) =>
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, name } : l) })),
 
@@ -825,13 +985,36 @@ export const useStore = create<Store>()(
       setLayerAnimatedProperty: (id, key, value) => {
         const { autoKeyframe, currentFrame } = get()
         if (autoKeyframe) {
+          if (key in DEFAULT_TRANSFORM && typeof value === 'number') {
+            if (get().activeInteractionCount === 0) get()._snapshot()
+            set((s) => {
+              const targetLayer = s.layers.find((layer) => layer.id === id)
+              const layers = s.layers.map((layer) => {
+                if (layer.id !== id) return layer
+                const target = key === 'x' || key === 'y' ? ensureGroupOrigin(layer) : layer
+                const current = interpolateProps(currentFrame, target.keyframes)
+                return upsertTransformKeyframe(target, currentFrame, { ...current, [key]: value } as TransformProps)
+              })
+              const skipAutoFitIds = (key === 'x' || key === 'y') && targetLayer && isGroupLayer(targetLayer)
+                ? new Set([id])
+                : new Set<string>()
+              return { layers: normalizeLayerTree(s, layers, id, false, skipAutoFitIds) }
+            })
+            return
+          }
           get().addPropertyKeyframe(id, key, currentFrame, value)
           return
         }
         set((s) => {
-          const layers = s.layers.map((l) => l.id === id ? setLayerValueAtFrame(l, key, value, currentFrame) : l)
+          const targetLayer = s.layers.find((layer) => layer.id === id)
+          const layers = s.layers.map((l) => {
+            if (l.id !== id) return l
+            const target = key === 'x' || key === 'y' ? ensureGroupOrigin(l) : l
+            return setLayerBaseValue(target, key, value, currentFrame)
+          })
           const shouldLayout = key !== 'x' && key !== 'y'
-          return { layers: shouldLayout ? normalizeLayerTree(s, layers, id, false) : withAutoFitGroups(s, layers) }
+          const skipAutoFitIds = !shouldLayout && targetLayer && isGroupLayer(targetLayer) ? new Set([id]) : new Set<string>()
+          return { layers: shouldLayout ? normalizeLayerTree(s, layers, id, false, skipAutoFitIds) : withAutoFitGroups(s, layers, skipAutoFitIds) }
         })
       },
 
@@ -924,7 +1107,9 @@ export const useStore = create<Store>()(
               : [...l.keyframes, kf].sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
           })
-          return { layers: normalizeLayerTree(s, layers, layerId, false) }
+          const target = s.layers.find((layer) => layer.id === layerId)
+          const skipAutoFitIds = target && isGroupLayer(target) ? new Set([layerId]) : new Set<string>()
+          return { layers: normalizeLayerTree(s, layers, layerId, false, skipAutoFitIds) }
         })
       },
 
@@ -936,19 +1121,15 @@ export const useStore = create<Store>()(
           const layers = s.layers.map((layer) => {
             const props = byId.get(layer.id)
             if (!props) return layer
-            const existing = layer.keyframes.find((keyframe) => keyframe.frame === frame)
-            const kf: Keyframe = {
-              frame,
-              easing: (easing as Keyframe['easing']),
-              bezier: existing?.bezier,
-              props,
-            }
-            const keyframes = existing
-              ? layer.keyframes.map((keyframe) => keyframe.frame === frame ? kf : keyframe)
-              : [...layer.keyframes, kf].sort((a, b) => a.frame - b.frame)
-            return { ...layer, keyframes }
+            const target = ('x' in props || 'y' in props) ? ensureGroupOrigin(layer) : layer
+            return upsertTransformKeyframe(target, frame, props, easing as PairEasingType)
           })
-          return { layers: withAutoFitGroups(s, layers) }
+          const skipAutoFitIds = new Set(
+            s.layers
+              .filter((layer) => byId.has(layer.id) && isGroupLayer(layer))
+              .map((layer) => layer.id),
+          )
+          return { layers: withAutoFitGroups(s, layers, skipAutoFitIds) }
         })
       },
 
@@ -969,7 +1150,9 @@ export const useStore = create<Store>()(
             }
             return next
           })
-          return { layers: normalizeLayerTree(s, layers, layerId, false) }
+          const target = s.layers.find((layer) => layer.id === layerId)
+          const skipAutoFitIds = target && isGroupLayer(target) ? new Set([layerId]) : new Set<string>()
+          return { layers: normalizeLayerTree(s, layers, layerId, false, skipAutoFitIds) }
         })
       },
 
@@ -1130,6 +1313,8 @@ export const useStore = create<Store>()(
             fillType: 'none',
             strokeEnabled: false,
             autoFit: true,
+            groupOriginX: bounds.x,
+            groupOriginY: bounds.y,
             startFrame: bounds.startFrame,
             endFrame: bounds.endFrame,
             keyframes: [{

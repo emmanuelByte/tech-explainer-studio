@@ -7,7 +7,7 @@ import { SectionHeader } from './TransformPanel'
 
 type PresetCategory = 'in' | 'out' | 'attention' | 'text'
 type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective'
-type MotionBuilderState = Record<MotionBuilderKey, { enabled: boolean; from: number; to: number }>
+type MotionBuilderState = Record<MotionBuilderKey, { enabled: boolean; to: number }>
 
 interface PresetDef {
   label: string
@@ -275,14 +275,14 @@ const BUILDER_FIELDS: Array<{
 
 function makeBuilderState(base: TransformProps): MotionBuilderState {
   return {
-    rotateY: { enabled: true, from: base.rotateY, to: base.rotateY + 180 },
-    rotateX: { enabled: false, from: base.rotateX, to: base.rotateX },
-    rotateZ: { enabled: false, from: base.rotateZ, to: base.rotateZ },
-    skewX: { enabled: false, from: base.skewX, to: base.skewX + 12 },
-    skewY: { enabled: false, from: base.skewY, to: base.skewY },
-    scale: { enabled: false, from: base.scale, to: base.scale },
-    opacity: { enabled: false, from: base.opacity, to: base.opacity },
-    perspective: { enabled: true, from: base.perspective, to: base.perspective },
+    rotateY: { enabled: false, to: base.rotateY },
+    rotateX: { enabled: false, to: base.rotateX },
+    rotateZ: { enabled: false, to: base.rotateZ },
+    skewX: { enabled: false, to: base.skewX },
+    skewY: { enabled: false, to: base.skewY },
+    scale: { enabled: false, to: base.scale },
+    opacity: { enabled: false, to: base.opacity },
+    perspective: { enabled: false, to: base.perspective },
   }
 }
 
@@ -294,9 +294,54 @@ function storedValue(value: number, percent?: boolean) {
   return percent ? value / 100 : value
 }
 
+function NumberTargetInput({ label, unit, value, disabled, step, min, max, precision, percent, onChange }: {
+  label: string
+  unit: string
+  value: number
+  disabled?: boolean
+  step: number
+  min?: number
+  max?: number
+  precision: number
+  percent?: boolean
+  onChange: (value: number) => void
+}) {
+  return (
+    <label className="block min-w-0">
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={step}
+        value={Number(displayValue(value, percent).toFixed(precision))}
+        disabled={disabled}
+        onChange={(e) => onChange(storedValue(Number(e.target.value), percent))}
+        className="input-base w-full text-right"
+      />
+      <span className="block text-[9px] leading-3 mt-0.5 uppercase" style={{ color: 'var(--text3)' }}>
+        {label}{unit ? ` (${unit})` : ''}
+      </span>
+    </label>
+  )
+}
+
+function MiniStepButton({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="icon-btn text-xs"
+      style={{ width: 28, height: 28, minWidth: 28, opacity: disabled ? 0.45 : 1 }}
+    >
+      {label}
+    </button>
+  )
+}
+
 export function AnimationPresetsPanel() {
   const { t } = useTranslation()
-  const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, updateLayerProp } = useStore()
+  const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, addKeyframes, updateLayerProp } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
 
   const [duration, setDuration] = useState(30)
@@ -323,58 +368,53 @@ export function AnimationPresetsPanel() {
 
   if (!layer) return null
 
+  const presetTargets = [layer]
+
   function applyPreset(key: string) {
     if (!layer) return
     const preset = PRESETS[key]
     const start = Math.max(0, Math.round(startFrame))
     const dur = Math.max(1, Math.round(duration))
-    const base = interpolateProps(start, layer.keyframes)
-    const keyframes = preset.generate(start, dur, easing, base, layer)
-    if (preset.textRevealMode) updateLayerProp(layer.id, 'textRevealMode', preset.textRevealMode)
-    keyframes.forEach((kf) => addKeyframe(layer.id, kf.frame, kf.props, kf.easing))
+    const targets = preset.textOnly ? presetTargets.filter((item) => item.type === 'text') : presetTargets
+    targets.forEach((target) => {
+      const base = interpolateProps(start, target.keyframes)
+      const keyframes = preset.generate(start, dur, easing, base, target)
+      if (preset.textRevealMode) updateLayerProp(target.id, 'textRevealMode', preset.textRevealMode)
+      keyframes.forEach((kf) => addKeyframe(target.id, kf.frame, kf.props, kf.easing))
+    })
   }
 
   function updateBuilder(key: MotionBuilderKey, patch: Partial<MotionBuilderState[MotionBuilderKey]>) {
-    setBuilder((current) => ({ ...current, [key]: { ...current[key], ...patch } }))
+    const next = { ...builder, [key]: { ...builder[key], ...patch } }
+    setBuilder(next)
+    applyBuilderMotion(next)
   }
 
-  function useCurrentAsFrom() {
+  function applyBuilderMotion(nextBuilder = builder) {
     if (!layer) return
-    const current = interpolateProps(Math.max(0, Math.round(startFrame)), layer.keyframes)
-    setBuilder((state) => {
-      const next = { ...state }
-      BUILDER_FIELDS.forEach(({ key }) => {
-        next[key] = { ...next[key], from: current[key] }
-      })
-      return next
-    })
-  }
-
-  function swapBuilderValues() {
-    setBuilder((state) => {
-      const next = { ...state }
-      BUILDER_FIELDS.forEach(({ key }) => {
-        next[key] = { ...next[key], from: next[key].to, to: next[key].from }
-      })
-      return next
-    })
-  }
-
-  function applyBuilderMotion() {
-    if (!layer) return
-    const enabled = BUILDER_FIELDS.filter(({ key }) => builder[key].enabled)
+    const enabled = BUILDER_FIELDS.filter(({ key }) => nextBuilder[key].enabled)
     if (!enabled.length) return
-    const start = Math.max(0, Math.round(startFrame))
     const dur = Math.max(1, Math.round(duration))
-    const base = interpolateProps(start, layer.keyframes)
-    const fromProps: TransformProps = { ...base }
-    const toProps: TransformProps = { ...base }
-    enabled.forEach(({ key }) => {
-      fromProps[key] = builder[key].from
-      toProps[key] = builder[key].to
+    const layerStart = layer.startFrame ?? 0
+    const layerEnd = layer.endFrame ?? totalFrames
+    const targetFrame = Math.max(layerStart, Math.min(Math.round(currentFrame), Math.max(layerStart, layerEnd - 1)))
+    const start = Math.max(layerStart, targetFrame - dur)
+    const fromUpdates: Array<{ layerId: string; props: TransformProps }> = []
+    const toUpdates: Array<{ layerId: string; props: TransformProps }> = []
+
+    presetTargets.forEach((target) => {
+      const base = interpolateProps(start, target.keyframes)
+      const fromProps: TransformProps = { ...base }
+      const toProps: TransformProps = { ...interpolateProps(targetFrame, target.keyframes) }
+      enabled.forEach(({ key }) => {
+        toProps[key] = nextBuilder[key].to
+      })
+      fromUpdates.push({ layerId: target.id, props: fromProps })
+      toUpdates.push({ layerId: target.id, props: toProps })
     })
-    addKeyframe(layer.id, start, fromProps, easing)
-    addKeyframe(layer.id, start + dur, toProps, 'linear')
+
+    addKeyframes(fromUpdates, start, easing)
+    addKeyframes(toUpdates, targetFrame, 'linear')
   }
 
   const categories = (layer.type === 'text' ? ['text', 'in', 'out', 'attention'] : ['in', 'out', 'attention']) as PresetCategory[]
@@ -415,8 +455,8 @@ export function AnimationPresetsPanel() {
               onClick={() => setTimeUnit(unit)}
               className="text-xs rounded py-1 transition-colors"
               style={{
-                background: timeUnit === unit ? 'rgba(32,213,248,0.16)' : 'var(--input)',
-                color: timeUnit === unit ? '#20d5f8' : 'var(--text2)',
+                background: timeUnit === unit ? 'var(--accent-bg)' : 'var(--input)',
+                color: timeUnit === unit ? '#0d99ff' : 'var(--text2)',
                 border: '1px solid var(--border)',
               }}
             >
@@ -467,72 +507,115 @@ export function AnimationPresetsPanel() {
 
       <SectionHeader label={t('motion.custom3d')} />
       <div className="px-3 pb-3 flex flex-col gap-2">
-        <div className="grid grid-cols-[22px_1fr_72px_72px_24px] items-center gap-1 text-[10px]" style={{ color: 'var(--text3)' }}>
-          <span />
-          <span>{t('motion.property')}</span>
-          <span className="text-right">{t('motion.from')}</span>
-          <span className="text-right">{t('motion.to')}</span>
-          <span />
+        <div className="rounded-md px-2 py-2" style={{ background: 'var(--input)', border: '1px solid var(--border)' }}>
+          <div className="text-[10px] font-semibold uppercase mb-1.5" style={{ color: 'var(--text3)' }}>
+            {t('motion.rotation')}
+          </div>
+          <div className="grid grid-cols-[58px_1fr_58px] gap-1.5 items-center">
+            <NumberTargetInput
+              label="Y" unit="deg" value={builder.rotateY.to} step={1} precision={0}
+              onChange={(value) => updateBuilder('rotateY', { enabled: true, to: value })}
+            />
+            <div className="grid grid-cols-3 gap-1 place-items-center">
+              <span />
+              <MiniStepButton label="↑" onClick={() => updateBuilder('rotateX', { enabled: true, to: builder.rotateX.to - 15 })} />
+              <span />
+              <MiniStepButton label="←" onClick={() => updateBuilder('rotateY', { enabled: true, to: builder.rotateY.to - 15 })} />
+              <button
+                type="button"
+                className="rounded-full"
+                onClick={() => updateBuilder('rotateZ', { enabled: true, to: builder.rotateZ.to + 15 })}
+                title={t('motion.rotateZ')}
+                style={{ width: 26, height: 26, border: '1px solid var(--border)', background: 'var(--panel)', color: '#0d99ff' }}
+              >
+                •
+              </button>
+              <MiniStepButton label="→" onClick={() => updateBuilder('rotateY', { enabled: true, to: builder.rotateY.to + 15 })} />
+              <span />
+              <MiniStepButton label="↓" onClick={() => updateBuilder('rotateX', { enabled: true, to: builder.rotateX.to + 15 })} />
+              <span />
+            </div>
+            <NumberTargetInput
+              label="Z" unit="deg" value={builder.rotateZ.to} step={1} precision={0}
+              onChange={(value) => updateBuilder('rotateZ', { enabled: true, to: value })}
+            />
+          </div>
+          <div className="mt-1.5">
+            <NumberTargetInput
+              label="X" unit="deg" value={builder.rotateX.to} step={1} precision={0}
+              onChange={(value) => updateBuilder('rotateX', { enabled: true, to: value })}
+            />
+          </div>
         </div>
+
+        <div className="rounded-md px-2 py-2" style={{ background: 'var(--input)', border: '1px solid var(--border)' }}>
+          <div className="text-[10px] font-semibold uppercase mb-1.5" style={{ color: 'var(--text3)' }}>
+            {t('motion.skew')}
+          </div>
+          <div className="grid grid-cols-[58px_1fr_58px] gap-1.5 items-center">
+            <NumberTargetInput
+              label="X" unit="deg" value={builder.skewX.to} step={1} precision={0}
+              onChange={(value) => updateBuilder('skewX', { enabled: true, to: value })}
+            />
+            <div className="grid grid-cols-3 gap-1 place-items-center">
+              <span />
+              <MiniStepButton label="↑" onClick={() => updateBuilder('skewY', { enabled: true, to: builder.skewY.to - 5 })} />
+              <span />
+              <MiniStepButton label="←" onClick={() => updateBuilder('skewX', { enabled: true, to: builder.skewX.to - 5 })} />
+              <span style={{ width: 22, height: 22, borderRadius: 999, border: '1px solid var(--border)', background: 'var(--panel)' }} />
+              <MiniStepButton label="→" onClick={() => updateBuilder('skewX', { enabled: true, to: builder.skewX.to + 5 })} />
+              <span />
+              <MiniStepButton label="↓" onClick={() => updateBuilder('skewY', { enabled: true, to: builder.skewY.to + 5 })} />
+              <span />
+            </div>
+            <NumberTargetInput
+              label="Y" unit="deg" value={builder.skewY.to} step={1} precision={0}
+              onChange={(value) => updateBuilder('skewY', { enabled: true, to: value })}
+            />
+          </div>
+        </div>
+
         {BUILDER_FIELDS.map((field) => {
+          if (field.key === 'rotateX' || field.key === 'rotateY' || field.key === 'rotateZ' || field.key === 'skewX' || field.key === 'skewY') return null
           const item = builder[field.key]
           const disabled = !item.enabled
           return (
-            <div key={field.key} className="grid grid-cols-[22px_1fr_72px_72px_24px] items-center gap-1">
-              <input
-                type="checkbox"
-                checked={item.enabled}
-                onChange={(e) => updateBuilder(field.key, { enabled: e.target.checked })}
-                className="accent-[#20d5f8]"
-                aria-label={t(`motion.${field.labelKey}`)}
-              />
-              <span className="text-xs truncate" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>
-                {t(`motion.${field.labelKey}`)}
-              </span>
-              {(['from', 'to'] as const).map((side) => (
+            <div
+              key={field.key}
+              className="rounded-md px-2 py-1.5"
+              style={{ background: 'var(--input)', border: '1px solid var(--border)', opacity: disabled ? 0.62 : 1 }}
+            >
+              <label className="flex items-center gap-2 min-w-0">
                 <input
-                  key={side}
+                  type="checkbox"
+                  checked={item.enabled}
+                  onChange={(e) => updateBuilder(field.key, { enabled: e.target.checked })}
+                  className="accent-[#0d99ff] flex-shrink-0"
+                  aria-label={t(`motion.${field.labelKey}`)}
+                />
+                <span className="text-xs font-medium min-w-0 flex-1" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>
+                  {t(`motion.${field.labelKey}`)}
+                </span>
+                <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text3)' }}>{field.unit}</span>
+              </label>
+              <label className="block min-w-0 mt-1.5">
+                <input
                   type="number"
                   min={field.min}
                   max={field.max}
                   step={field.step}
-                  value={Number(displayValue(item[side], field.percent).toFixed(field.precision))}
+                  value={Number(displayValue(item.to, field.percent).toFixed(field.precision))}
                   disabled={disabled}
-                  onChange={(e) => updateBuilder(field.key, { [side]: storedValue(Number(e.target.value), field.percent) })}
+                  onChange={(e) => updateBuilder(field.key, { to: storedValue(Number(e.target.value), field.percent) })}
                   className="input-base w-full text-right"
-                  style={{ opacity: disabled ? 0.45 : 1 }}
                 />
-              ))}
-              <span className="text-[10px]" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>{field.unit}</span>
+                <span className="block text-[9px] leading-3 mt-0.5 uppercase" style={{ color: 'var(--text3)' }}>
+                  {t('motion.target')}
+                </span>
+              </label>
             </div>
           )
         })}
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            type="button"
-            onClick={useCurrentAsFrom}
-            className="text-xs rounded py-1 transition-colors"
-            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-          >
-            {t('motion.useCurrentAsFrom')}
-          </button>
-          <button
-            type="button"
-            onClick={swapBuilderValues}
-            className="text-xs rounded py-1 transition-colors"
-            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-          >
-            {t('motion.swapFromTo')}
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={applyBuilderMotion}
-          className="text-xs rounded py-2 font-medium transition-colors"
-          style={{ background: 'var(--accent)', color: '#fff', border: '1px solid var(--accent)' }}
-        >
-          {t('motion.apply3d')}
-        </button>
       </div>
 
       <SectionHeader label={t('motion.presets')} />

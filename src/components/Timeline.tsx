@@ -42,7 +42,7 @@ function scaleTimelineHeight(base: number, max: number, zoom: number) {
 const PROP_GROUPS: { label: string; color: string; keys: (keyof TransformProps)[] }[] = [
   {
     label: 'Transform',
-    color: '#6366f1',
+    color: '#0d99ff',
     keys: ['x', 'y', 'scale', 'opacity', 'rotateX', 'rotateY', 'rotateZ', 'skewX', 'skewY', 'perspective', 'originX', 'originY'],
   },
   {
@@ -227,7 +227,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
       {EASINGS.map((e) => (
         <button key={e} onClick={() => apply(e)}
           className="w-full text-left px-3 py-1.5 text-xs hover:opacity-80"
-          style={{ color: selectedEasing === e ? '#20d5f8' : 'var(--text)', background: selectedEasing === e ? 'rgba(32,213,248,0.08)' : 'transparent', display: 'block' }}>
+          style={{ color: selectedEasing === e ? '#0d99ff' : 'var(--text)', background: selectedEasing === e ? 'var(--accent-bg)' : 'transparent', display: 'block' }}>
           {e}
         </button>
       ))}
@@ -307,9 +307,9 @@ function SortableLabel({
           height: rowH, display: 'flex', alignItems: 'center', gap: 3,
           cursor: 'pointer', paddingLeft: 2, paddingRight: 6,
           background: isDragging
-            ? 'rgba(99,102,241,0.18)'
-            : selected ? 'rgba(99,102,241,0.1)' : 'transparent',
-          borderLeft: selected ? '2px solid #6366f1' : '2px solid transparent',
+            ? 'var(--selected-bg)'
+            : selected ? 'var(--selected-bg)' : 'transparent',
+          borderLeft: selected ? '2px solid #0d99ff' : '2px solid transparent',
           overflow: 'hidden',
         }}
       >
@@ -432,12 +432,12 @@ function TrackRow({
   const endF = groupRange?.end ?? (layer.endFrame ?? (totalWidth / fpx))
   const barLeft = frameX(startF)
   const barW = Math.max(4, (endF - startF) * fpx)
-  const color = LAYER_TYPE_COLOR[layer.type] ?? '#6366f1'
+  const color = LAYER_TYPE_COLOR[layer.type] ?? '#0d99ff'
   const hasMultipleKf = layer.keyframes.length >= 2
   const barH = Math.min(18, Math.max(12, Math.round(rowH * 0.42)))
 
   return (
-    <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'rgba(99,102,241,0.04)' : 'transparent', cursor: 'pointer' }}>
+    <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'var(--hover)' : 'transparent', cursor: 'pointer' }}>
       {/* Main bar row */}
       <div style={{ height: rowH, position: 'relative' }}>
         {/* Layer time bar */}
@@ -1152,7 +1152,7 @@ export function Timeline() {
       <div
         onMouseDown={() => { resizeDragging.current = true; beginInteraction(false) }}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, cursor: 'row-resize', zIndex: 20, background: 'transparent' }}
-        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(99,102,241,0.35)' }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'var(--accent-bg)' }}
         onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.background = 'transparent' }}
       />
 
@@ -1183,8 +1183,8 @@ export function Timeline() {
         <button onClick={() => setLoopEnabled(!loopEnabled)}
           className="pill-btn"
           style={{
-            background: loopEnabled ? 'rgba(32,213,248,0.16)' : 'var(--input)',
-            color: loopEnabled ? '#20d5f8' : 'var(--text2)',
+            background: loopEnabled ? 'var(--accent-bg)' : 'var(--input)',
+            color: loopEnabled ? '#0d99ff' : 'var(--text2)',
           }}><Repeat2 size={13} />{t('timeline.loop')}</button>
         {loopEnabled && (loopIn !== null || loopOut !== null) && (
           <button onClick={clearLoop} className="text-xs" style={{ color: 'var(--text3)' }}>✕</button>
@@ -1193,14 +1193,14 @@ export function Timeline() {
         <button
           onClick={() => setShowAllSubtracks(!showAllSubtracks)}
           className="pill-btn"
-          style={{ background: showAllSubtracks ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showAllSubtracks ? '#20d5f8' : 'var(--text2)' }}
+          style={{ background: showAllSubtracks ? 'var(--accent-bg)' : 'var(--input)', color: showAllSubtracks ? '#0d99ff' : 'var(--text2)' }}
         >
           {t('timeline.allProps')}
         </button>
         <button
           onClick={() => setShowValueGraph(!showValueGraph)}
           className="pill-btn"
-          style={{ background: showValueGraph ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: showValueGraph ? '#20d5f8' : 'var(--text2)' }}
+          style={{ background: showValueGraph ? 'var(--accent-bg)' : 'var(--input)', color: showValueGraph ? '#0d99ff' : 'var(--text2)' }}
         >
           <LineChart size={13} />{t('timeline.valueGraph')}
         </button>
@@ -1283,7 +1283,7 @@ export function Timeline() {
             >
               {rulerMarks}
               {loopEnabled && loopIn !== null && loopOut !== null && (
-                <div style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + loopIn * fpx, width: (loopOut - loopIn) * fpx, top: 0, bottom: 0, background: 'rgba(99,102,241,0.15)', borderLeft: '2px solid #6366f1', borderRight: '2px solid #6366f1', pointerEvents: 'none' }} />
+                <div style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + loopIn * fpx, width: (loopOut - loopIn) * fpx, top: 0, bottom: 0, background: 'rgba(99,102,241,0.15)', borderLeft: '2px solid #0d99ff', borderRight: '2px solid #0d99ff', pointerEvents: 'none' }} />
               )}
               {markers.map((m: TimelineMarker) => (
                 <div key={m.id} style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + m.frame * fpx, top: 0, zIndex: 5 }}>
@@ -1366,8 +1366,8 @@ export function Timeline() {
             ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
             { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
           ].map(({ label, action, danger }) => (
-            <button key={label} onClick={action} className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
-              style={{ color: danger ? '#ef4444' : 'var(--text)', background: 'transparent', display: 'block' }}>{label}</button>
+            <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
+              style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
           ))}
         </div>
       )}
@@ -1394,8 +1394,8 @@ export function Timeline() {
             { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
             { label: t('timeline.deleteLayer'), danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
           ].map(({ label, action, danger }) => (
-            <button key={label} onClick={action} className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
-              style={{ color: danger ? '#ef4444' : 'var(--text)', background: 'transparent', display: 'block' }}>{label}</button>
+            <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
+              style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
           ))}
         </div>
       )}

@@ -128,6 +128,23 @@ function isLayerActive(layer: Layer, frame: number) {
   return layer.visible && frame >= (layer.startFrame ?? 0) && frame <= (layer.endFrame ?? Infinity)
 }
 
+function layerSize(layer: Layer, canvasWidth: number, canvasHeight: number) {
+  return {
+    width: layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width,
+    height: layer.sizeMode === 'fill-canvas'
+      ? canvasHeight
+      : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height,
+  }
+}
+
+function baseGroupOffset(layer: Layer) {
+  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
+  return {
+    x: layer.groupOriginX ?? first?.props.x ?? 0,
+    y: layer.groupOriginY ?? first?.props.y ?? 0,
+  }
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
@@ -137,16 +154,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   onSelect: (multi: boolean) => void
 }) {
   if (isGroupLayer(layer)) {
-    return (
-      <GroupElement
-        layer={layer}
-        frame={frame}
-        canvasWidth={canvasWidth}
-        canvasHeight={canvasHeight}
-        isSelected={isSelected}
-        onSelect={onSelect}
-      />
-    )
+    return null
   }
   if (!isLayerActive(layer, frame)) return null
 
@@ -154,10 +162,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   const animatedLayer = resolved.layer
   const p = resolved.transform
   const bg = getBackground(animatedLayer.fillType, animatedLayer.fillColor, animatedLayer.gradientStops, animatedLayer.gradientAngle)
-  const layerWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasWidth : animatedLayer.width
-  const layerHeight = animatedLayer.sizeMode === 'fill-canvas'
-    ? canvasHeight
-    : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
+  const { width: layerWidth, height: layerHeight } = layerSize(animatedLayer, canvasWidth, canvasHeight)
 
   const wrapperStyle: React.CSSProperties = {
     position: 'absolute',
@@ -178,6 +183,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',
     outlineOffset: '2px',
+    pointerEvents: 'auto',
   }
 
   const handleClick = (e: React.MouseEvent) => {
@@ -314,13 +320,15 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   )
 }
 
-function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
+function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors }: {
   layer: Layer
+  childrenByParent: Map<string | null, Layer[]>
   frame: number
   canvasWidth: number
   canvasHeight: number
-  isSelected: boolean
-  onSelect: (multi: boolean) => void
+  selectedLayerIds: string[]
+  selectLayer: (id: string | null, multi?: boolean) => void
+  ancestors: Set<string>
 }) {
   if (!isLayerActive(layer, frame)) return null
 
@@ -328,10 +336,13 @@ function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   const animatedLayer = resolved.layer
   const p = resolved.transform
   const bg = getBackground(animatedLayer.fillType, animatedLayer.fillColor, animatedLayer.gradientStops, animatedLayer.gradientAngle)
-  const layerWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasWidth : animatedLayer.width
-  const layerHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasHeight : animatedLayer.height
+  const { width: layerWidth, height: layerHeight } = layerSize(animatedLayer, canvasWidth, canvasHeight)
+  const children = (childrenByParent.get(layer.id) ?? []).filter((child) => !ancestors.has(child.id))
+  const nextAncestors = children.length ? new Set([...ancestors, layer.id]) : ancestors
+  const isSelected = selectedLayerIds.includes(layer.id)
+  const anchor = baseGroupOffset(layer)
 
-  const wrapperStyle: React.CSSProperties = {
+  const outerStyle: React.CSSProperties = {
     position: 'absolute',
     left: '50%',
     top: '50%',
@@ -343,26 +354,62 @@ function GroupElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
     transformStyle: 'preserve-3d',
-    perspective: p.perspective,
     filter: buildFilter(p),
+    pointerEvents: 'none',
+  }
+
+  const surfaceStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
+    borderRadius: animatedLayer.borderRadius,
+    border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+    boxSizing: 'border-box',
     boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',
     outlineOffset: '2px',
-    background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
-    borderRadius: animatedLayer.borderRadius,
-    border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
-    boxSizing: 'border-box',
-    pointerEvents: animatedLayer.fillType === 'none' && !animatedLayer.strokeEnabled ? 'none' : 'auto',
+    pointerEvents: 'auto',
+    zIndex: 0,
+  }
+
+  const childPlaneStyle: React.CSSProperties = {
+    position: 'absolute',
+    left: layerWidth / 2 - canvasWidth / 2 - anchor.x,
+    top: layerHeight / 2 - canvasHeight / 2 - anchor.y,
+    width: canvasWidth,
+    height: canvasHeight,
+    transformStyle: 'preserve-3d',
+    pointerEvents: 'none',
+    zIndex: 1,
   }
 
   const handleClick = (e: React.MouseEvent) => {
     e.stopPropagation()
-    onSelect(e.shiftKey || e.metaKey || e.ctrlKey)
+    selectLayer(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)
   }
 
-  return <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick} />
+  return (
+    <div data-layer-id={animatedLayer.id} style={outerStyle}>
+      <div style={surfaceStyle} onClick={handleClick} />
+      <div style={childPlaneStyle}>
+        {children.map((child) => (
+          <RenderLayerNode
+            key={child.id}
+            layer={child}
+            childrenByParent={childrenByParent}
+            frame={frame}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            selectedLayerIds={selectedLayerIds}
+            selectLayer={selectLayer}
+            ancestors={nextAncestors}
+          />
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>() }: {
@@ -376,35 +423,31 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
   ancestors?: Set<string>
 }) {
   const isGroup = isGroupLayer(layer)
-  const children = isGroup && isLayerActive(layer, frame)
-    ? (childrenByParent.get(layer.id) ?? []).filter((child) => !ancestors.has(child.id))
-    : []
-  const nextAncestors = isGroup && children.length ? new Set([...ancestors, layer.id]) : ancestors
 
-  return (
-    <>
-      <LayerElement
+  if (isGroup) {
+    return (
+      <GroupNode
         layer={layer}
+        childrenByParent={childrenByParent}
         frame={frame}
         canvasWidth={canvasWidth}
         canvasHeight={canvasHeight}
-        isSelected={selectedLayerIds.includes(layer.id)}
-        onSelect={(multi) => selectLayer(layer.id, multi)}
+        selectedLayerIds={selectedLayerIds}
+        selectLayer={selectLayer}
+        ancestors={ancestors}
       />
-      {children.map((child) => (
-        <RenderLayerNode
-          key={child.id}
-          layer={child}
-          childrenByParent={childrenByParent}
-          frame={frame}
-          canvasWidth={canvasWidth}
-          canvasHeight={canvasHeight}
-          selectedLayerIds={selectedLayerIds}
-          selectLayer={selectLayer}
-          ancestors={nextAncestors}
-        />
-      ))}
-    </>
+    )
+  }
+
+  return (
+    <LayerElement
+      layer={layer}
+      frame={frame}
+      canvasWidth={canvasWidth}
+      canvasHeight={canvasHeight}
+      isSelected={selectedLayerIds.includes(layer.id)}
+      onSelect={(multi) => selectLayer(layer.id, multi)}
+    />
   )
 }
 

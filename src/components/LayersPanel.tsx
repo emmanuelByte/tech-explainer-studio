@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
-  Lock, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
+  Library, Lock, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
   Type, Unlock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -17,11 +17,15 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useTranslation } from 'react-i18next'
+import { animationLayerInRange, designLayerAtFrame, frameRangeFromSelection, rootLayerIds, selectedWithDescendants } from '../libraryItems'
+import { saveLibraryItem } from '../libraryStorage'
 import { visibleLayerRows } from '../layerTree'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
+import { LibraryModal } from './LibraryModal'
 import type { ImageAsset } from '../assetStorage'
+import { useToast } from './Toast'
 
 function CompositionAccordion() {
   const { t } = useTranslation()
@@ -64,33 +68,34 @@ function CompositionAccordion() {
     <div style={{ borderBottom: '1px solid var(--border)' }}>
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2"
-        style={{ color: 'var(--text2)', background: 'transparent' }}
+        className="w-full flex items-center gap-1.5 px-3"
+        style={{ height: 32, color: 'var(--text2)', background: 'transparent' }}
       >
-        <ChevronRight size={14} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
-        <Settings2 size={14} />
-        <span className="text-xs font-semibold uppercase tracking-widest">{t('layers.composition')}</span>
+        <ChevronRight size={12} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s', color: 'var(--text3)' }} />
+        <Settings2 size={12} />
+        <span className="section-header" style={{ padding: 0 }}>{t('layers.composition')}</span>
       </button>
       {open && (
-        <div className="px-3 pb-3 flex flex-col gap-2">
+        <div className="px-3 pb-2.5 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
-            <span className="text-xs flex-1" style={{ color: 'var(--text2)' }}>{t('layers.background')}</span>
-            <input type="color" value={color} onChange={(e) => scheduleColor(e.target.value)} onBlur={flushColor} className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent" />
-            <span className="text-xs font-mono" style={{ color: 'var(--text2)' }}>{color}</span>
+            <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1 }}>{t('layers.background')}</span>
+            <input type="color" value={color} onChange={(e) => scheduleColor(e.target.value)} onBlur={flushColor} style={{ width: 28, height: 22, borderRadius: 2, cursor: 'pointer', border: '1px solid var(--input-border)', background: 'var(--input)', padding: 2 }} />
+            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text3)' }}>{color}</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs flex-1" style={{ color: 'var(--text2)' }}>{t('layers.duration')}</span>
+            <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1 }}>{t('layers.duration')}</span>
             <input
               type="number"
               min={0.1}
               step={0.1}
               value={parseFloat((totalFrames / fps).toFixed(2))}
               onChange={(e) => setTotalFrames(Math.max(1, Math.round(Number(e.target.value) * fps)))}
-              className="input-base w-20 text-right"
+              className="input-base text-right"
+              style={{ width: 60 }}
             />
-            <span className="text-xs" style={{ color: 'var(--text3)' }}>s</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>s</span>
           </div>
-          <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)' }}>
             {t('layers.framesAtFps', { frames: totalFrames, fps })}
           </div>
         </div>
@@ -164,16 +169,16 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
         position: 'relative',
         display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px 0 2px',
         height: 32, cursor: 'pointer', userSelect: 'none',
-        borderBottom: activeDropHint?.mode === 'below' ? '2px solid #20d5f8' : '1px solid var(--border2)',
-        borderTop: activeDropHint?.mode === 'above' ? '2px solid #20d5f8' : undefined,
+        borderBottom: activeDropHint?.mode === 'below' ? '2px solid var(--accent)' : '1px solid transparent',
+        borderTop: activeDropHint?.mode === 'above' ? '2px solid var(--accent)' : undefined,
         background: isDragging
-          ? 'rgba(32,213,248,0.16)'
-          : activeDropHint?.mode === 'inside' ? 'rgba(32,213,248,0.13)'
-          : selected ? 'rgba(32,213,248,0.12)' : 'transparent',
+          ? 'var(--accent-bg)'
+          : activeDropHint?.mode === 'inside' ? 'var(--accent-bg)'
+          : selected ? 'var(--selected-bg)' : 'transparent',
         borderLeft: activeDropHint?.mode === 'inside'
-          ? `2px solid ${activeDropHint.armed ? '#20d5f8' : '#f59e0b'}`
-          : `2px solid ${selected ? LAYER_TYPE_COLOR[layer.type] : 'transparent'}`,
-        outline: activeDropHint?.mode === 'inside' ? `1px solid ${activeDropHint.armed ? '#20d5f8' : '#f59e0b'}` : undefined,
+          ? `2px solid ${activeDropHint.armed ? 'var(--accent)' : '#f59e0b'}`
+          : `2px solid ${selected ? 'var(--accent)' : 'transparent'}`,
+        outline: activeDropHint?.mode === 'inside' ? `1px solid ${activeDropHint.armed ? 'var(--accent)' : '#f59e0b'}` : undefined,
         outlineOffset: -2,
         transition: transition ?? 'background 0.1s',
         transform: CSS.Transform.toString(transform),
@@ -189,7 +194,7 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
             right: 6,
             top: '50%',
             transform: 'translateY(-50%)',
-            color: activeDropHint.armed ? '#20d5f8' : '#f59e0b',
+            color: activeDropHint.armed ? 'var(--accent)' : '#f59e0b',
             fontSize: 10,
             pointerEvents: 'none',
             background: 'var(--panel)',
@@ -300,8 +305,10 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
 
 export function LayersPanel() {
   const { t } = useTranslation()
+  const toast = useToast()
   const {
-    layers, selectedLayerIds, selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage,
+    layers, selectedLayerIds,
+    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage,
     replaceImageSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
@@ -312,6 +319,7 @@ export function LayersPanel() {
   const [convertModal, setConvertModal] = useState<ConvertGroupModal | null>(null)
   const [showIcons, setShowIcons] = useState(false)
   const [showImages, setShowImages] = useState(false)
+  const [showLibrary, setShowLibrary] = useState(false)
   const [replaceImageLayerId, setReplaceImageLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
@@ -444,41 +452,72 @@ export function LayersPanel() {
     setShapeMenuOpen(false)
   }
 
+  async function exportSelectionToLibrary(kind: 'design' | 'animation', sourceLayer: Layer) {
+    const state = useStore.getState()
+    const ids = state.selectedLayerIds.includes(sourceLayer.id) ? state.selectedLayerIds : [sourceLayer.id]
+    const selected = selectedWithDescendants(state.layers, ids)
+    if (!selected.length) return
+    const roots = rootLayerIds(selected)
+    let itemName = ''
+    try {
+      if (kind === 'design') {
+        itemName = `${sourceLayer.name} design`
+        await saveLibraryItem({
+          name: itemName,
+          kind,
+          layers: selected.map((item) => designLayerAtFrame(item, state.currentFrame, state.totalFrames)),
+          rootLayerIds: roots,
+        })
+      } else {
+        const range = frameRangeFromSelection(selected, state.selectedKeyframes)
+        itemName = `${sourceLayer.name} animation`
+        await saveLibraryItem({
+          name: itemName,
+          kind,
+          layers: selected.map((item) => animationLayerInRange(item, range.start, range.end)),
+          rootLayerIds: roots,
+          frameStart: range.start,
+          frameEnd: range.end,
+          durationFrames: Math.max(1, range.end - range.start),
+        })
+      }
+      toast.success(`Saved "${itemName}" to library`)
+    } catch (err) {
+      toast.error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
   return (
     <div
       className="flex flex-col h-full"
-      style={{ width: 220, background: 'var(--panel-glass)', borderRight: '1px solid var(--border)', flexShrink: 0 }}
+      style={{ width: 220, background: 'var(--panel)', borderRight: '1px solid var(--border)', flexShrink: 0 }}
     >
       <CompositionAccordion />
-      
-      {/* Header */}
-      <div className="px-3 py-2 flex-shrink-0" style={{ borderBottom: '1px solid var(--border)' }}>
-        <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text2)' }}>{t('layers.title')}</span>
-      </div>
 
-      {/* Add layer dropdown */}
-      <div ref={addMenuRef} className="px-2 py-2 flex-shrink-0 relative" style={{ borderBottom: '1px solid var(--border)' }}>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 flex-shrink-0" style={{ height: 32, borderBottom: '1px solid var(--border)' }}>
+        <span className="section-header" style={{ padding: 0 }}>{t('layers.title')}</span>
+        <div ref={addMenuRef} className="relative">
         <button
           type="button"
           onClick={() => {
             setAddMenuOpen((open) => !open)
             setShapeMenuOpen(false)
           }}
-          className="pill-btn w-full justify-center text-xs"
-          style={{ height: 30, padding: '0 8px' }}
+          className="icon-btn"
+          style={{ width: 22, height: 22, minWidth: 22 }}
         >
-          <Plus size={14} />
-          {t('layers.addNew')}
-          <ChevronRight size={13} style={{ transform: addMenuOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
+          <Plus size={13} />
         </button>
         {addMenuOpen && (
           <div
-            className="absolute left-2 right-2 top-[42px] rounded-md p-1.5"
+            className="absolute right-0 top-[26px] rounded p-1"
             style={{
               zIndex: 2300,
+              minWidth: 160,
               background: 'var(--panel)',
               border: '1px solid var(--border)',
-              boxShadow: '0 12px 36px rgba(0,0,0,0.32)',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -510,8 +549,10 @@ export function LayersPanel() {
             <AddMenuItem label={t('layers.text')} icon={Type} onClick={() => { addLayer('text'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.library', { defaultValue: 'Library' })} icon={Library} onClick={() => { setShowLibrary(true); setAddMenuOpen(false) }} />
           </div>
         )}
+        </div>
       </div>
 
       {/* Sortable layer list */}
@@ -557,6 +598,8 @@ export function LayersPanel() {
             { label: t('layers.ungroup'), action: () => ungroupLayer(menu.layer.id) },
             { label: t('layers.moveRoot'), action: () => moveLayerToParent([menu.layer.id], null) },
             { label: t('layers.duplicate'), action: () => useStore.getState().duplicateLayer(menu.layer.id) },
+            { label: t('layers.exportDesign'), action: () => exportSelectionToLibrary('design', menu.layer) },
+            { label: t('layers.exportAnimation'), action: () => exportSelectionToLibrary('animation', menu.layer) },
             ...(menu.layer.type === 'image' ? [{
               label: t('layers.replaceImage'),
               action: () => {
@@ -570,18 +613,18 @@ export function LayersPanel() {
             { label: t('layers.collapseAll'), action: collapseAllGroups },
             { label: t('layers.expandAll'), action: expandAllGroups },
           ].map((item) => (
-            <button key={item.label} onClick={() => { item.action(); setMenu(null) }} className="block w-full text-left px-3 py-2 text-xs" style={{ color: item.danger ? '#ef4444' : 'var(--text)' }}>
+            <button key={item.label} onClick={() => { void item.action(); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-2 text-xs" style={{ color: item.danger ? '#ef4444' : 'var(--text)' }}>
               {item.label}
             </button>
           ))}
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           <div className="px-3 py-1 text-[10px]" style={{ color: 'var(--text3)' }}>{t('layers.moveIntoGroup')}</div>
           {layers.filter((l) => (l.type === 'group' || l.isGroup) && l.id !== menu.layer.id).map((group) => (
-            <button key={group.id} onClick={() => { moveLayerToParent([menu.layer.id], group.id); setMenu(null) }} className="block w-full text-left px-3 py-1.5 text-xs" style={{ color: 'var(--text2)' }}>
+            <button key={group.id} onClick={() => { moveLayerToParent([menu.layer.id], group.id); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-1.5 text-xs" style={{ color: 'var(--text2)' }}>
               {group.name}
             </button>
           ))}
-          <button onClick={() => { selectLayers([]); setMenu(null) }} className="block w-full text-left px-3 py-2 text-xs" style={{ color: 'var(--text3)' }}>{t('layers.clearSelection')}</button>
+          <button onClick={() => { selectLayers([]); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-2 text-xs" style={{ color: 'var(--text3)' }}>{t('layers.clearSelection')}</button>
         </div>
       )}
       {convertModal && (
@@ -620,6 +663,7 @@ export function LayersPanel() {
         </div>
       )}
       {showIcons && <IconPickerModal onClose={() => setShowIcons(false)} onPick={addIconLayer} />}
+      {showLibrary && <LibraryModal onClose={() => setShowLibrary(false)} />}
       {showImages && (
         <ImageLibraryModal
           onClose={() => {

@@ -75,6 +75,15 @@ export function IconPickerModal({ onClose, onPick }: { onClose: () => void; onPi
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
 
+  // ESC handler
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+
   const filteredIcons = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     if (!normalized) return ICON_CHOICES

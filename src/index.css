@@ -1,58 +1,66 @@
 @import "tailwindcss";
 
-/* ── Theme variables ───────────────────────────────────── */
+/* ── Figma-style design system ─────────────────────────── */
 :root {
-  --bg:       #f4f4f5;
-  --bg2:      #e8e8ea;
-  --panel:    #ffffff;
-  --panel2:   #f8f8f9;
-  --input:    #efefef;
-  --border:   #d4d4d8;
-  --border2:  #e4e4e7;
-  --text:     #18181b;
-  --text2:    #52525b;
-  --text3:    #a1a1aa;
-  --accent:   #6366f1;
-  --timeline: #f0f0f2;
-  --topbar:   rgba(255,255,255,0.96);
-  --topbar-border: rgba(24,24,27,0.08);
-  --panel-glass: rgba(255,255,255,0.94);
-  --toolbar: rgba(255,255,255,0.9);
-  --canvas-bg: #eef1f6;
-  --focus-bg: #ffffff;
-  --hover: rgba(24,24,27,0.06);
-  --scrollbar: #c8ccd5;
-  --scrollbar-hover: #aeb4c1;
-  --preview-shadow: 0 0 0 1px rgba(24,24,27,0.12), 0 18px 50px rgba(24,24,27,0.18);
-  --button-border: transparent;
-  --topbar-shadow: none;
+  /* Light mode (Figma light) */
+  --bg:        #f5f5f5;
+  --bg2:       #ebebeb;
+  --panel:     #ffffff;
+  --panel2:    #fafafa;
+  --input:     #ffffff;
+  --border:    #e6e6e6;
+  --border2:   #f0f0f0;
+  --text:      #333333;
+  --text2:     #666666;
+  --text3:     #999999;
+  --accent:    #0d99ff;
+  --accent-bg: rgba(13,153,255,0.12);
+  --timeline:  #f0f0f0;
+  --topbar:    #ffffff;
+  --topbar-border: #e6e6e6;
+  --canvas-bg: #f0f0f0;
+  --focus-bg:  #ffffff;
+  --hover:     rgba(0,0,0,0.06);
+  --selected-bg: rgba(13,153,255,0.1);
+  --scrollbar: #d0d0d0;
+  --scrollbar-hover: #b0b0b0;
+  --preview-shadow: 0 0 0 1px rgba(0,0,0,0.1), 0 4px 20px rgba(0,0,0,0.12);
+  --input-border: #e0e0e0;
+  --section-header: #999999;
+  --separator: rgba(0,0,0,0.08);
+  --tool-active-bg: rgba(13,153,255,0.12);
+  --tool-active-color: #0d99ff;
 }
 
 :root.dark {
-  --bg:       #08090d;
-  --bg2:      #0d1017;
-  --panel:    #11141b;
-  --panel2:   #171b24;
-  --input:    #1b202b;
-  --border:   #2a303c;
-  --border2:  #1d222c;
-  --text:     #f3f6fb;
-  --text2:    #a8b0c2;
-  --text3:    #687084;
-  --accent:   #20d5f8;
-  --timeline: #0b0d12;
-  --topbar:   rgba(13,16,23,0.96);
-  --topbar-border: rgba(255,255,255,0.06);
-  --panel-glass: rgba(17,20,27,0.94);
-  --toolbar: rgba(17,20,27,0.88);
-  --canvas-bg: #0a0d13;
-  --focus-bg: #202633;
-  --hover: rgba(255,255,255,0.06);
-  --scrollbar: #313846;
-  --scrollbar-hover: #495267;
-  --preview-shadow: 0 0 0 1px rgba(255,255,255,0.11), 0 18px 60px rgba(0,0,0,0.58);
-  --button-border: var(--border);
-  --topbar-shadow: 0 1px 0 rgba(255,255,255,0.03), 0 12px 30px rgba(0,0,0,0.22);
+  /* Dark mode (Figma dark) */
+  --bg:        #1e1e1e;
+  --bg2:       #141414;
+  --panel:     #2c2c2c;
+  --panel2:    #383838;
+  --input:     #3c3c3c;
+  --border:    #3c3c3c;
+  --border2:   #444444;
+  --text:      #e8e8e8;
+  --text2:     #a0a0a0;
+  --text3:     #6b6b6b;
+  --accent:    #0d99ff;
+  --accent-bg: rgba(13,153,255,0.15);
+  --timeline:  #1e1e1e;
+  --topbar:    #2c2c2c;
+  --topbar-border: rgba(255,255,255,0.08);
+  --canvas-bg: #1e1e1e;
+  --focus-bg:  #3c3c3c;
+  --hover:     rgba(255,255,255,0.06);
+  --selected-bg: rgba(13,153,255,0.16);
+  --scrollbar: #4a4a4a;
+  --scrollbar-hover: #616161;
+  --preview-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 8px 32px rgba(0,0,0,0.5);
+  --input-border: #525252;
+  --section-header: #6b6b6b;
+  --separator: rgba(255,255,255,0.08);
+  --tool-active-bg: rgba(13,153,255,0.16);
+  --tool-active-color: #0d99ff;
 }
 
 /* ── Base ──────────────────────────────────────────────── */
@@ -62,55 +70,45 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: hidden;
   height: 100vh;
-  font-size: 13px;
+  font-size: 11px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root { height: 100vh; display: flex; flex-direction: column; }
 
-button {
-  border: none;
-}
+button { border: none; background: none; }
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.4; }
 
-button:not(:disabled) {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: default;
-}
-
-:root:not(.dark) button,
-:root:not(.dark) button:hover,
-:root:not(.dark) button:focus-visible {
-  border-color: transparent !important;
-}
-
+/* ── Shell ─────────────────────────────────────────────── */
+/* No gradients — flat Figma-style shell */
 .capcut-shell {
-  background:
-    radial-gradient(circle at 50% -20%, rgba(32,213,248,0.08), transparent 32%),
-    var(--bg);
+  background: var(--bg);
 }
 
+/* ── Top bar ───────────────────────────────────────────── */
 .capcut-topbar {
   background: var(--topbar);
   border-bottom: 1px solid var(--topbar-border);
-  box-shadow: var(--topbar-shadow);
 }
 
+/* ── Icon button (toolbar, panels) ────────────────────── */
+/* Figma: 32×32, 4px radius, flat */
 .icon-btn {
   height: 28px;
   min-width: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border-radius: 8px;
+  gap: 5px;
+  border-radius: 4px;
   color: var(--text2);
   background: transparent;
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+  transition: background 0.1s, color 0.1s;
 }
 
 .icon-btn:hover {
@@ -119,121 +117,246 @@ button:disabled {
 }
 
 .icon-btn.active {
-  color: #071014;
-  background: linear-gradient(135deg, #20d5f8, #65f0ff);
-  box-shadow: 0 0 0 1px rgba(32,213,248,0.55), 0 6px 18px rgba(32,213,248,0.18);
+  color: var(--tool-active-color);
+  background: var(--tool-active-bg);
 }
 
+/* ── Pill button (labeled buttons in topbar) ────────────── */
 .pill-btn {
   height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  border-radius: 8px;
-  padding: 0 10px;
-  font-size: 12px;
+  gap: 5px;
+  border-radius: 4px;
+  padding: 0 8px;
+  font-size: 11px;
   color: var(--text2);
-  background: var(--input);
-  border: 1px solid var(--button-border);
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+  background: transparent;
+  transition: background 0.1s, color 0.1s;
 }
 
 .pill-btn:hover {
   color: var(--text);
-  border-color: rgba(32,213,248,0.45);
+  background: var(--hover);
 }
 
+/* ── Primary button (Export, CTA) ───────────────────────── */
+.primary-btn {
+  background: var(--accent);
+  color: #ffffff;
+  border-radius: 4px;
+  transition: opacity 0.1s;
+}
+
+.primary-btn:hover {
+  opacity: 0.88;
+}
+
+/* ── Add menu item (popup menus) ────────────────────────── */
 .add-menu-item {
   color: var(--text);
   background: transparent;
-  transition: background 0.14s ease, color 0.14s ease, transform 0.14s ease;
+  transition: background 0.1s;
 }
 
 .add-menu-item:hover,
 .add-menu-item:focus-visible {
-  color: var(--text);
   background: var(--hover);
-  transform: translateX(1px);
 }
 
-.add-menu-item:hover svg,
-.add-menu-item:focus-visible svg {
-  color: var(--accent) !important;
+.popover-menu-item {
+  background: transparent;
+  transition: background 0.1s;
+  color: var(--text);
 }
 
+.popover-menu-item:hover,
+.popover-menu-item:focus-visible {
+  background: var(--hover);
+}
+
+/* ── Icon grid (library picker) ─────────────────────────── */
 .icon-grid-item {
   background: var(--input);
   border: 1px solid var(--border);
   color: var(--text2);
-  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease, transform 0.14s ease, box-shadow 0.14s ease;
+  border-radius: 4px;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
 }
 
-.icon-grid-item:hover,
-.icon-grid-item:focus-visible {
+.icon-grid-item:hover {
   color: var(--text);
   background: var(--hover);
-  border-color: rgba(32,213,248,0.55);
-  transform: translateY(-1px);
-  box-shadow: 0 8px 18px rgba(32,213,248,0.12);
-}
-
-.primary-btn {
-  color: #061015;
-  background: linear-gradient(135deg, #20d5f8, #65f0ff);
-  border: 1px solid var(--button-border);
-  box-shadow: 0 10px 26px rgba(32,213,248,0.18);
+  border-color: var(--accent);
 }
 
 /* ── Scrollbars ────────────────────────────────────────── */
-::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--scrollbar); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); background-clip: padding-box; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-hover); }
 
-/* ── No spin arrows on number inputs ──────────────────── */
+/* ── Number input — no spin arrows ─────────────────────── */
 input[type=number] { -moz-appearance: textfield; }
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
 
 /* ── Keyframe diamond ──────────────────────────────────── */
 .kf-diamond {
-  width: 9px; height: 9px;
+  width: 8px; height: 8px;
   background: #f59e0b;
   transform: rotate(45deg);
   border-radius: 1px;
   cursor: pointer;
   position: absolute;
-  top: 50%; margin-top: -4.5px; margin-left: -4.5px;
+  top: 50%; margin-top: -4px; margin-left: -4px;
   transition: background 0.1s;
   z-index: 2;
 }
 .kf-diamond:hover { background: #fbbf24; }
-.kf-diamond.active { background: #60a5fa; }
+.kf-diamond.active { background: var(--accent); }
 
 /* ── Panel base ────────────────────────────────────────── */
 .panel { background: var(--panel); border-color: var(--border); color: var(--text); }
-.panel-header { color: var(--text2); border-color: var(--border); }
+
+/* ── Input base (Figma-style flat input) ────────────────── */
 .input-base {
   background: var(--input);
-  border: 1px solid var(--border);
+  border: 1px solid var(--input-border);
   color: var(--text);
-  border-radius: 8px;
-  padding: 4px 8px;
+  border-radius: 2px;
+  padding: 3px 6px;
   font-size: 11px;
+  font-family: inherit;
   outline: none;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.1s;
+  line-height: 1.4;
 }
-.input-base:focus { border-color: var(--accent); background: var(--focus-bg); }
 
-/* ── Canvas cursor modes ───────────────────────────────── */
+.input-base:focus {
+  border-color: var(--accent);
+  background: var(--focus-bg);
+}
+
+select.input-base {
+  border-radius: 2px;
+}
+
+/* ── Section header (Figma style: small, all-caps, muted) ── */
+.section-header {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--section-header);
+  padding: 10px 12px 4px;
+  user-select: none;
+}
+
+/* ── Property row ───────────────────────────────────────── */
+.prop-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px;
+  min-height: 28px;
+}
+
+.prop-label {
+  font-size: 11px;
+  color: var(--text2);
+  flex-shrink: 0;
+  width: 64px;
+  user-select: none;
+}
+
+/* ── Canvas cursor modes ────────────────────────────────── */
 .cursor-crosshair { cursor: crosshair; }
 .cursor-grab { cursor: grab; }
 .cursor-grabbing { cursor: grabbing; }
 
-/* ── Selection outline pulse ───────────────────────────── */
+/* ── Selection ring ─────────────────────────────────────── */
 @keyframes selectionPulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+  50% { opacity: 0.5; }
 }
 .selection-ring { animation: selectionPulse 2s ease-in-out infinite; }
+
+/* ── Toast slide-in animation ───────────────────────────── */
+@keyframes toastSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Accordion header ──────────────────────────────────── */
+.accordion-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+  background: transparent;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.1s;
+}
+.accordion-header:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.accordion-header .chev {
+  transition: transform 0.15s;
+  color: var(--text3);
+  flex-shrink: 0;
+}
+.accordion-header.open .chev {
+  transform: rotate(90deg);
+}
+
+/* ── Tab bar (properties panel tabs) ───────────────────── */
+.tab-bar-item {
+  transition: color 0.1s, border-color 0.1s;
+}
+
+/* ── Tooltip / popover ──────────────────────────────────── */
+.figma-popover {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.24);
+  padding: 4px;
+}
+
+/* ── Layer row in layers panel ──────────────────────────── */
+.layer-row {
+  display: flex;
+  align-items: center;
+  height: 28px;
+  border-radius: 2px;
+  transition: background 0.08s;
+  cursor: pointer;
+  user-select: none;
+}
+
+.layer-row:hover {
+  background: var(--hover);
+}
+
+.layer-row.selected {
+  background: var(--selected-bg);
+}
+
+/* ── Separator line ─────────────────────────────────────── */
+.figma-sep {
+  height: 1px;
+  background: var(--separator);
+  margin: 0;
+}

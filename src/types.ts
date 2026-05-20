@@ -121,6 +121,8 @@ export interface Layer {
   layoutAlign?: LayoutAlign
   layoutJustify?: LayoutJustify
   gridColumns?: number
+  groupOriginX?: number
+  groupOriginY?: number
   // Fill
   fillType: FillType
   fillColor: string

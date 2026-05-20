@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+
 type ConfirmDialogProps = {
   title: string
   message: string
@@ -16,6 +18,16 @@ type NoticeDialogProps = {
   onClose: () => void
 }
 
+function useEscClose(onClose: () => void) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [onClose])
+}
+
 export function ConfirmDialog({
   title,
   message,
@@ -26,6 +38,7 @@ export function ConfirmDialog({
   onCancel,
   onConfirm,
 }: ConfirmDialogProps) {
+  useEscClose(onCancel)
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"
@@ -59,6 +72,7 @@ export function ConfirmDialog({
 }
 
 export function NoticeDialog({ title, message, buttonLabel, onClose }: NoticeDialogProps) {
+  useEscClose(onClose)
   return (
     <div
       className="fixed inset-0 flex items-center justify-center"

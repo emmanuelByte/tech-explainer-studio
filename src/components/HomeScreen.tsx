@@ -115,7 +115,7 @@ function NewProjectModal({ onClose, onCreate, recentProjects }: {
       <div className="w-[520px] max-w-[calc(100vw-32px)] rounded-md p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-semibold">{t('home.newProject')}</h2>
-          <button onClick={onClose} className="text-lg" style={{ color: 'var(--text2)' }}>x</button>
+          <button onClick={onClose} className="text-lg" style={{ color: 'var(--text2)' }} title={t('common.close')}>x</button>
         </div>
         <label className="block text-xs mb-1" style={{ color: 'var(--text2)' }}>{t('home.projectName')}</label>
         <input className="input-base w-full mb-3" value={name} onChange={(e) => setName(e.target.value)} />
@@ -149,7 +149,7 @@ function NewProjectModal({ onClose, onCreate, recentProjects }: {
 
         <div className="grid grid-cols-2 gap-2 mb-4">
           <div>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text2)' }}>FPS</label>
+            <label className="block text-xs mb-1" style={{ color: 'var(--text2)' }}>{t('common.fps')}</label>
             <select className="input-base w-full" value={fps} onChange={(e) => setFps(Number(e.target.value))}>
               {[24, 30, 60].map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
@@ -160,7 +160,7 @@ function NewProjectModal({ onClose, onCreate, recentProjects }: {
           </div>
         </div>
 
-        <button onClick={create} className="w-full rounded px-3 py-2 text-sm" style={{ background: '#6366f1', color: '#fff' }}>
+        <button onClick={create} className="w-full rounded px-3 py-2 text-sm" style={{ background: '#0d99ff', color: '#fff' }}>
           {t('home.createProject')}
         </button>
       </div>
@@ -324,7 +324,7 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
       }}
     >
       <header className="capcut-topbar flex items-center gap-3 px-5 py-3">
-        <div className="w-3 h-3 rounded-sm" style={{ background: '#20d5f8', boxShadow: '0 0 18px rgba(32,213,248,0.6)' }} />
+        <div className="w-3 h-3 rounded-sm" style={{ background: '#0d99ff', boxShadow: '0 0 18px rgba(32,213,248,0.6)' }} />
         <strong>{t('home.appName')}</strong>
         <button onClick={() => setShowSettings(true)} className="icon-btn ml-2" title={t('common.settings')}><Settings size={16} /></button>
         <div className="flex-1" />
@@ -354,11 +354,11 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
 
         {loading ? (
           <div className="h-[60vh] flex items-center justify-center text-sm" style={{ color: 'var(--text2)' }}>
-            Loading projects...
+            {t('common.loadingProjects')}
           </div>
         ) : filtered.length === 0 ? (
           <div className="h-[60vh] flex flex-col items-center justify-center text-center">
-            <div className="w-32 h-24 mb-4 rounded-md" style={{ background: 'linear-gradient(135deg,#6366f1,#22c55e)', opacity: 0.8 }} />
+            <div className="w-32 h-24 mb-4 rounded-md" style={{ background: 'linear-gradient(135deg,#0d99ff,#22c55e)', opacity: 0.8 }} />
             <div className="text-lg font-semibold mb-3">{t('home.createFirst')}</div>
             <button onClick={() => setShowNew(true)} className="pill-btn primary-btn"><Plus size={14} />{t('home.createFirst')}</button>
           </div>

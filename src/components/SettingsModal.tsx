@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { Moon, Sun, X } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import { useStore } from '../store'
+import { Modal } from './Modal'
 
 export function SettingsModal({ title, children, onClose }: {
   title?: string
@@ -11,55 +12,53 @@ export function SettingsModal({ title, children, onClose }: {
   const { theme, setTheme } = useStore()
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.42)', zIndex: 2500 }}>
-      <div
-        className="w-[520px] max-w-[calc(100vw-32px)] rounded-md overflow-hidden"
-        style={{ background: 'var(--panel)', border: '1px solid var(--border)', color: 'var(--text)', boxShadow: '0 24px 80px rgba(0,0,0,0.32)' }}
-      >
-        <div className="flex items-center justify-between px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <div className="text-base font-semibold">{title ?? t('settings.title')}</div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>{t('settings.editor')}</div>
-          </div>
-          <button onClick={onClose} className="icon-btn" title={t('common.close')}><X size={15} /></button>
-        </div>
+    <Modal title={title ?? t('settings.title')} onClose={onClose} width={520} zIndex={2500}>
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <section>
+          <label style={{ display: 'block', fontSize: 11, marginBottom: 6, color: 'var(--text2)' }}>{t('common.language')}</label>
+          <select
+            className="input-base"
+            style={{ width: '100%' }}
+            value={i18n.language}
+            onChange={(e) => i18n.changeLanguage(e.target.value)}
+          >
+            <option value="en">{t('common.english')}</option>
+            <option value="cs">{t('common.czech')}</option>
+          </select>
+        </section>
 
-        <div className="p-4 flex flex-col gap-4">
-          <section>
-            <label className="block text-xs mb-1" style={{ color: 'var(--text2)' }}>{t('common.language')}</label>
-            <select
-              className="input-base w-full"
-              value={i18n.language}
-              onChange={(e) => i18n.changeLanguage(e.target.value)}
+        <section>
+          <div style={{ fontSize: 11, marginBottom: 6, color: 'var(--text2)' }}>{t('common.theme')}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button
+              onClick={() => setTheme('light')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                height: 32, fontSize: 12, borderRadius: 4,
+                background: theme === 'light' ? 'var(--accent-bg)' : 'var(--input)',
+                color: theme === 'light' ? '#0d99ff' : 'var(--text2)',
+                border: `1px solid ${theme === 'light' ? '#0d99ff' : 'var(--input-border)'}`,
+              }}
             >
-              <option value="en">{t('common.english')}</option>
-              <option value="cs">{t('common.czech')}</option>
-            </select>
-          </section>
+              <Sun size={14} />{t('common.light')}
+            </button>
+            <button
+              onClick={() => setTheme('dark')}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                height: 32, fontSize: 12, borderRadius: 4,
+                background: theme === 'dark' ? 'var(--accent-bg)' : 'var(--input)',
+                color: theme === 'dark' ? '#0d99ff' : 'var(--text2)',
+                border: `1px solid ${theme === 'dark' ? '#0d99ff' : 'var(--input-border)'}`,
+              }}
+            >
+              <Moon size={14} />{t('common.dark')}
+            </button>
+          </div>
+        </section>
 
-          <section>
-            <div className="text-xs mb-1" style={{ color: 'var(--text2)' }}>{t('common.theme')}</div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setTheme('light')}
-                className="pill-btn"
-                style={{ background: theme === 'light' ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: theme === 'light' ? '#20d5f8' : 'var(--text2)' }}
-              >
-                <Sun size={14} />{t('common.light')}
-              </button>
-              <button
-                onClick={() => setTheme('dark')}
-                className="pill-btn"
-                style={{ background: theme === 'dark' ? 'rgba(32,213,248,0.16)' : 'var(--input)', color: theme === 'dark' ? '#20d5f8' : 'var(--text2)' }}
-              >
-                <Moon size={14} />{t('common.dark')}
-              </button>
-            </div>
-          </section>
-
-          {children}
-        </div>
+        {children}
       </div>
-    </div>
+    </Modal>
   )
 }

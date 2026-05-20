@@ -4,13 +4,12 @@ import {
   MoveVertical, Rotate3D, RotateCw, Scaling, StretchHorizontal, StretchVertical,
   Unlink2,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
-import { LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
+import { Layer, LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
 import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
-import { descendantsOf } from '../../layerTree'
 
 const EASINGS: PairEasingType[] = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce', 'custom']
 const LAYOUT_MODES: { value: LayoutMode; label: string }[] = [
@@ -35,6 +34,10 @@ const LAYOUT_JUSTIFIES: { value: LayoutJustify; label: string }[] = [
   { value: 'space-between', label: 'Space between' },
 ]
 
+function formatNumber(value: number, precision: number) {
+  return Number.isInteger(value) ? String(value) : String(parseFloat(value.toFixed(precision)))
+}
+
 function IconNumberField({ label, icon: Icon, value, onChange, unit, step = 1, min, precision = 2 }: {
   label: string
   icon: typeof MoveHorizontal
@@ -45,7 +48,63 @@ function IconNumberField({ label, icon: Icon, value, onChange, unit, step = 1, m
   min?: number
   precision?: number
 }) {
-  const display = Number.isInteger(value) ? String(value) : String(parseFloat(value.toFixed(precision)))
+  const beginInteraction = useStore((s) => s.beginInteraction)
+  const endInteraction = useStore((s) => s.endInteraction)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(formatNumber(value, precision))
+  const timerRef = useRef<number | null>(null)
+  const editingRef = useRef(false)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  useEffect(() => {
+    if (!editingRef.current) setDraft(formatNumber(value, precision))
+  }, [value, precision])
+
+  useEffect(() => () => {
+    if (timerRef.current) window.clearTimeout(timerRef.current)
+  }, [])
+
+  function clamp(v: number) {
+    return min !== undefined ? Math.max(min, v) : v
+  }
+
+  function applyValue(raw: string) {
+    const next = Number(raw)
+    if (!Number.isFinite(next)) return false
+    onChangeRef.current(clamp(parseFloat(next.toFixed(precision))))
+    return true
+  }
+
+  function scheduleValue(raw: string) {
+    if (timerRef.current) window.clearTimeout(timerRef.current)
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null
+      applyValue(raw)
+    }, 180)
+  }
+
+  function startEditing() {
+    if (editingRef.current) return
+    editingRef.current = true
+    setEditing(true)
+    setDraft(formatNumber(value, precision))
+    beginInteraction(true)
+  }
+
+  function stopEditing(commit: boolean) {
+    if (!editingRef.current) return
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (commit) applyValue(draft)
+    else setDraft(formatNumber(value, precision))
+    editingRef.current = false
+    setEditing(false)
+    endInteraction()
+  }
+
   return (
     <label className="min-w-0">
       <div className="flex items-center gap-1 mb-1" style={{ color: 'var(--text3)' }}>
@@ -55,12 +114,24 @@ function IconNumberField({ label, icon: Icon, value, onChange, unit, step = 1, m
       <div className="relative">
         <input
           type="number"
-          value={display}
+          value={editing ? draft : formatNumber(value, precision)}
           min={min}
           step={step}
+          onFocus={startEditing}
           onChange={(e) => {
-            const next = Number(e.target.value)
-            if (Number.isFinite(next)) onChange(next)
+            setDraft(e.target.value)
+            scheduleValue(e.target.value)
+          }}
+          onBlur={() => stopEditing(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.currentTarget.blur()
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              stopEditing(false)
+              e.currentTarget.blur()
+            }
           }}
           className="input-base w-full text-right pr-5"
         />
@@ -93,12 +164,12 @@ function IconAction({ title, icon: Icon, onClick }: {
 
 function PanelGroup({ title, icon: Icon, children }: { title: string; icon: typeof Box; children: React.ReactNode }) {
   return (
-    <section className="mx-2 my-2 rounded-md overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--panel)' }}>
-      <div className="flex items-center gap-1.5 px-2.5 py-2" style={{ borderBottom: '1px solid var(--border)', color: 'var(--text2)' }}>
-        <Icon size={13} />
-        <span className="text-[10px] font-semibold uppercase tracking-widest">{title}</span>
+    <section>
+      <div className="flex items-center gap-1.5 px-3 py-1.5" style={{ borderBottom: '1px solid var(--border)', borderTop: '1px solid var(--border)', color: 'var(--text3)' }}>
+        <Icon size={11} />
+        <span style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
       </div>
-      <div className="p-2 flex flex-col gap-2">
+      <div className="px-3 py-2 flex flex-col gap-2">
         {children}
       </div>
     </section>
@@ -131,6 +202,54 @@ function visibleImageSize(layer: ReturnType<typeof resolveLayerAnimation>['layer
   return {
     width: naturalW * scale,
     height: naturalH * scale,
+  }
+}
+
+function groupOrigin(layer: Layer | null) {
+  if (!layer) return { x: 0, y: 0 }
+  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
+  return {
+    x: layer.groupOriginX ?? first?.props.x ?? 0,
+    y: layer.groupOriginY ?? first?.props.y ?? 0,
+  }
+}
+
+function parentRenderOffset(layer: Layer, layers: Layer[], frame: number) {
+  let x = 0
+  let y = 0
+  const seen = new Set<string>()
+  let parentId = layer.parentId ?? null
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = layers.find((item) => item.id === parentId)
+    if (!parent) break
+    const p = resolveLayerAnimation(parent, frame).transform
+    const origin = groupOrigin(parent)
+    x += p.x - origin.x
+    y += p.y - origin.y
+    parentId = parent.parentId ?? null
+  }
+  return { x, y }
+}
+
+function layerFrameBox(layer: Layer, layers: Layer[], frame: number, canvasW: number, canvasH: number) {
+  const { layer: animatedLayer, transform } = resolveLayerAnimation(layer, frame)
+  const rawWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
+  const rawHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
+  const width = Math.abs(rawWidth * transform.scale * transform.scaleX)
+  const height = Math.abs(rawHeight * transform.scale * transform.scaleY)
+  const parentOffset = parentRenderOffset(layer, layers, frame)
+  const centerX = canvasW / 2 + transform.x + parentOffset.x
+  const centerY = canvasH / 2 + transform.y + parentOffset.y
+  return {
+    left: centerX - width / 2,
+    right: centerX + width / 2,
+    top: centerY - height / 2,
+    bottom: centerY + height / 2,
+    centerX,
+    centerY,
+    width,
+    height,
   }
 }
 
@@ -169,14 +288,12 @@ export function TransformPanel() {
   const canUseLayout = layer.type === 'group' || layer.isGroup
   const layoutMode = layer.layoutMode ?? 'none'
   const parentLayer = layer.parentId ? layers.find((item) => item.id === layer.parentId) : null
-  const parentP = parentLayer ? resolveLayerAnimation(parentLayer, currentFrame).transform : null
-  const relativeX = p.x - (parentP?.x ?? 0)
-  const relativeY = p.y - (parentP?.y ?? 0)
+  const parentOrigin = groupOrigin(parentLayer)
+  const relativeX = p.x - parentOrigin.x
+  const relativeY = p.y - parentOrigin.y
   const animatedLayer = resolveLayerAnimation(layer, currentFrame).layer
   const effectiveW = sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
   const effectiveH = sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
-  const parentW = parentLayer ? (parentLayer.sizeMode === 'fill-canvas' ? canvasW : parentLayer.width) : canvasW
-  const parentH = parentLayer ? (parentLayer.sizeMode === 'fill-canvas' ? canvasH : parentLayer.type === 'line' ? parentLayer.strokeWidth || 2 : parentLayer.height) : canvasH
   const canFit = layer.type === 'text' || layer.autoFit || layer.type === 'group'
   const canLockAspect = layer.type !== 'line'
   const aspectRatio = effectiveH > 0 ? effectiveW / effectiveH : 1
@@ -216,15 +333,10 @@ export function TransformPanel() {
 
   const moveLayerTree = (key: 'x' | 'y', nextValue: number) => {
     const rounded = Math.round(nextValue)
-    const delta = rounded - p[key]
     setLayerAnimatedProperty(layer.id, key, rounded)
-    descendantsOf(layers, layer.id).forEach((child) => {
-      const childP = resolveLayerAnimation(child, currentFrame).transform
-      setLayerAnimatedProperty(child.id, key, Math.round(childP[key] + delta))
-    })
   }
-  const setRelativeX = (value: number) => moveLayerTree('x', (parentP?.x ?? 0) + value)
-  const setRelativeY = (value: number) => moveLayerTree('y', (parentP?.y ?? 0) + value)
+  const setRelativeX = (value: number) => moveLayerTree('x', parentOrigin.x + value)
+  const setRelativeY = (value: number) => moveLayerTree('y', parentOrigin.y + value)
   const setWidth = (value: number) => {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
@@ -251,13 +363,33 @@ export function TransformPanel() {
   const mediaVisual = visibleImageSize(animatedLayer, boxVisualW, boxVisualH)
   const visualW = mediaVisual.width
   const visualH = mediaVisual.height
+  const frameBox = layerFrameBox(layer, layers, currentFrame, canvasW, canvasH)
+  const visualBox = {
+    left: frameBox.centerX - visualW / 2,
+    right: frameBox.centerX + visualW / 2,
+    top: frameBox.centerY - visualH / 2,
+    bottom: frameBox.centerY + visualH / 2,
+    centerX: frameBox.centerX,
+    centerY: frameBox.centerY,
+  }
+  const targetBox = parentLayer
+    ? layerFrameBox(parentLayer, layers, currentFrame, canvasW, canvasH)
+    : { left: 0, right: canvasW, top: 0, bottom: canvasH, centerX: canvasW / 2, centerY: canvasH / 2 }
   const alignX = (mode: 'left' | 'center' | 'right') => {
-    const next = mode === 'left' ? -parentW / 2 + visualW / 2 : mode === 'right' ? parentW / 2 - visualW / 2 : 0
-    setRelativeX(Math.round(next))
+    const delta = mode === 'left'
+      ? targetBox.left - visualBox.left
+      : mode === 'right'
+        ? targetBox.right - visualBox.right
+        : targetBox.centerX - visualBox.centerX
+    moveLayerTree('x', p.x + delta)
   }
   const alignY = (mode: 'top' | 'middle' | 'bottom') => {
-    const next = mode === 'top' ? -parentH / 2 + visualH / 2 : mode === 'bottom' ? parentH / 2 - visualH / 2 : 0
-    setRelativeY(Math.round(next))
+    const delta = mode === 'top'
+      ? targetBox.top - visualBox.top
+      : mode === 'bottom'
+        ? targetBox.bottom - visualBox.bottom
+        : targetBox.centerY - visualBox.centerY
+    moveLayerTree('y', p.y + delta)
   }
 
   return (
@@ -307,8 +439,8 @@ export function TransformPanel() {
             style={{
               height: 24,
               padding: '0 6px',
-              background: sizeMode === mode ? 'rgba(32,213,248,0.16)' : 'var(--input)',
-              color: sizeMode === mode ? '#20d5f8' : 'var(--text2)',
+              background: sizeMode === mode ? 'var(--accent-bg)' : 'var(--input)',
+              color: sizeMode === mode ? 'var(--accent)' : 'var(--text2)',
               opacity: mode === 'fit-content' && !canFit ? 0.45 : 1,
             }}
           >
@@ -329,8 +461,8 @@ export function TransformPanel() {
                   style={{
                     height: 24,
                     padding: '0 6px',
-                    background: layoutMode === mode.value ? 'rgba(32,213,248,0.16)' : 'var(--input)',
-                    color: layoutMode === mode.value ? '#20d5f8' : 'var(--text2)',
+                    background: layoutMode === mode.value ? 'var(--accent-bg)' : 'var(--input)',
+                    color: layoutMode === mode.value ? 'var(--accent)' : 'var(--text2)',
                   }}
                 >
                   {t(`transform.${mode.value}`, { defaultValue: mode.label })}

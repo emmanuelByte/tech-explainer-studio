@@ -290,11 +290,7 @@ function smoothPoint(points: EditablePathPoint[], index: number, closed: boolean
 }
 
 function getMovementLayerIds(layers: Layer[], selectedIds: string[]) {
-  const ids = new Set(selectedIds)
-  selectedIds.forEach((id) => {
-    descendantsOf(layers, id).forEach((child) => ids.add(child.id))
-  })
-  return [...ids]
+  return selectedIds.filter((id) => layers.some((layer) => layer.id === id))
 }
 
 function snapValue(value: number, guides: number[]) {
@@ -318,23 +314,30 @@ function buildSnapGuides(
   canvasH: number,
 ) {
   const selected = new Set(getMovementLayerIds(layers, selectedIds))
+  selectedIds.forEach((id) => {
+    descendantsOf(layers, id).forEach((child) => selected.add(child.id))
+  })
   const xGuides = [0, canvasW / 2, canvasW]
   const yGuides = [0, canvasH / 2, canvasH]
 
   for (const item of layers) {
     if (selected.has(item.id) || !item.visible) continue
-    const { layer, transform } = resolveLayerAnimation(item, frame)
-    const rawW = layer.sizeMode === 'fill-canvas' ? canvasW : layer.width
-    const rawH = layer.sizeMode === 'fill-canvas' ? canvasH : layer.type === 'line' ? (layer.strokeWidth || 2) : layer.height
-    const w = rawW * transform.scale * transform.scaleX
-    const boxH = rawH * transform.scale * transform.scaleY
-    const cx = canvasW / 2 + transform.x
-    const cy = canvasH / 2 + transform.y
-    xGuides.push(cx - w / 2, cx, cx + w / 2)
-    yGuides.push(cy - boxH / 2, cy, cy + boxH / 2)
+    const box = getLayerBox(item, layers, frame, canvasW, canvasH)
+    xGuides.push(box.left, box.centerCx, box.left + box.width)
+    yGuides.push(box.top, box.centerCy, box.top + box.height)
   }
 
   return { xGuides, yGuides }
+}
+
+function canvasRect(canvasW: number, canvasH: number): BoxRect {
+  return {
+    id: 'canvas',
+    left: 0,
+    top: 0,
+    right: canvasW,
+    bottom: canvasH,
+  }
 }
 
 function snapMovingBox(
@@ -378,14 +381,41 @@ function snapMovingBox(
   }
 }
 
-function getLayerBox(layer: Layer, frame: number, canvasW: number, canvasH: number): LayerBox {
+function groupOrigin(layer: Layer) {
+  const first = [...layer.keyframes].sort((a, b) => a.frame - b.frame)[0]
+  return {
+    x: layer.groupOriginX ?? first?.props.x ?? 0,
+    y: layer.groupOriginY ?? first?.props.y ?? 0,
+  }
+}
+
+function parentRenderOffset(layer: Layer, layers: Layer[], frame: number) {
+  let x = 0
+  let y = 0
+  const seen = new Set<string>()
+  let parentId = layer.parentId ?? null
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = layers.find((item) => item.id === parentId)
+    if (!parent) break
+    const p = resolveLayerAnimation(parent, frame).transform
+    const origin = groupOrigin(parent)
+    x += p.x - origin.x
+    y += p.y - origin.y
+    parentId = parent.parentId ?? null
+  }
+  return { x, y }
+}
+
+function getLayerBox(layer: Layer, layers: Layer[], frame: number, canvasW: number, canvasH: number): LayerBox {
   const { layer: animatedLayer, transform } = resolveLayerAnimation(layer, frame)
   const rawWidth = animatedLayer.sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
   const rawHeight = animatedLayer.sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height
-  const width = rawWidth * transform.scale * transform.scaleX
-  const height = rawHeight * transform.scale * transform.scaleY
-  const centerCx = canvasW / 2 + transform.x
-  const centerCy = canvasH / 2 + transform.y
+  const width = Math.abs(rawWidth * transform.scale * transform.scaleX)
+  const height = Math.abs(rawHeight * transform.scale * transform.scaleY)
+  const parentOffset = parentRenderOffset(layer, layers, frame)
+  const centerCx = canvasW / 2 + transform.x + parentOffset.x
+  const centerCy = canvasH / 2 + transform.y + parentOffset.y
   return {
     layer,
     animatedLayer,
@@ -424,6 +454,30 @@ function boxesToRect(boxes: LayerBox[], id: string): BoxRect | null {
   const right = Math.max(...boxes.map((box) => box.left + box.width))
   const bottom = Math.max(...boxes.map((box) => box.top + box.height))
   return { id, left, top, right, bottom }
+}
+
+function isActiveLayer(layer: Layer, frame: number) {
+  return layer.visible && frame >= (layer.startFrame ?? 0) && frame <= (layer.endFrame ?? Infinity)
+}
+
+function buildMeasurementBoxes(layers: Layer[], movingIds: string[], frame: number, canvasW: number, canvasH: number) {
+  const excluded = new Set(movingIds)
+  movingIds.forEach((id) => {
+    descendantsOf(layers, id).forEach((child) => excluded.add(child.id))
+  })
+  const parentIds = new Set(
+    movingIds
+      .map((id) => layers.find((item) => item.id === id)?.parentId ?? null)
+      .filter((id): id is string => Boolean(id)),
+  )
+
+  return layers
+    .filter((item) => (
+      !excluded.has(item.id)
+      && isActiveLayer(item, frame)
+      && (item.type !== 'group' && !item.isGroup || parentIds.has(item.id))
+    ))
+    .map((item) => boxToRect(getLayerBox(item, layers, frame, canvasW, canvasH)))
 }
 
 function overlapAmount(a1: number, a2: number, b1: number, b2: number) {
@@ -634,6 +688,17 @@ function applyLayerTransformPreviews(container: HTMLElement | null, updates: Arr
   })
 }
 
+function clearLayerTransformPreviews(container: HTMLElement | null, layers: Layer[], frame: number) {
+  if (!container) return
+  container.querySelectorAll<HTMLElement>('[data-drag-preview="true"]').forEach((element) => {
+    const layer = layers.find((item) => item.id === element.dataset.layerId)
+    if (layer) {
+      element.style.transform = buildTransform(resolveLayerAnimation(layer, frame).transform)
+    }
+    delete element.dataset.dragPreview
+  })
+}
+
 function textRuns(layer: Layer) {
   const spans = (layer.textSpans ?? [])
     .filter((span) => span.end > 0 && span.start < layer.text.length)
@@ -724,7 +789,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       width,
       height,
       fillType: closed ? 'solid' : 'none',
-      fillColor: closed ? '#6366f1' : 'transparent',
+      fillColor: closed ? '#0d99ff' : 'transparent',
       strokeEnabled: true,
       strokeColor: '#ffffff',
       strokeWidth: 4,
@@ -768,7 +833,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const targetLayer = useStore.getState().layers.find((item) => item.id === selectedLayerIds[0])
       if (!targetLayer || targetLayer.type !== 'path') return
       const point = getCanvasPoint(e.clientX, e.clientY)
-      const box = getLayerBox(targetLayer, currentFrame, canvasW, canvasH)
+      const box = getLayerBox(targetLayer, layers, currentFrame, canvasW, canvasH)
       const local = {
         x: ((point.x - box.left) / Math.max(1, box.width)) * targetLayer.width,
         y: ((point.y - box.top) / Math.max(1, box.height)) * targetLayer.height,
@@ -850,20 +915,10 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         right: snapped.cx + d.startBoxW / 2,
         bottom: snapped.cy + d.startBoxH / 2,
       }
-      const movingSet = new Set(moveLayerIds)
-      const measurementBoxes = layers
-        .filter((item) => (
-          !movingSet.has(item.id)
-          && item.visible
-          && item.type !== 'group'
-          && !item.isGroup
-          && currentFrame >= (item.startFrame ?? 0)
-          && currentFrame <= (item.endFrame ?? Infinity)
-        ))
-        .map((item) => boxToRect(getLayerBox(item, currentFrame, canvasW, canvasH)))
+      const measurementBoxes = buildMeasurementBoxes(layers, moveLayerIds, currentFrame, canvasW, canvasH)
       scheduleGuideUpdate(
         buildSpacingGuides(movingRect, measurementBoxes),
-        buildAlignmentGuides(movingRect, measurementBoxes),
+        buildAlignmentGuides(movingRect, [...measurementBoxes, canvasRect(canvasW, canvasH)]),
         { dx: snappedDx, dy: snappedDy },
       )
       const moveUpdates = movingLayers.flatMap((movingLayer) => {
@@ -968,6 +1023,13 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const drag = dragRef.current
     if (drag?.type === 'move' && drag.pendingMoveUpdates?.length) {
       addKeyframes(drag.pendingMoveUpdates, currentFrame)
+      window.requestAnimationFrame(() => {
+        const state = useStore.getState()
+        clearLayerTransformPreviews(containerRef.current, state.layers, state.currentFrame)
+      })
+    } else {
+      const state = useStore.getState()
+      clearLayerTransformPreviews(containerRef.current, state.layers, state.currentFrame)
     }
     if (drag) endInteraction()
     dragRef.current = null
@@ -978,7 +1040,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       if (!moved) {
         const boxes = layers
           .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
-          .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+          .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
         const hit = boxes.find((box) => pointInBox(state.currentX, state.currentY, box))
         selectLayer(hit?.layer.id ?? null, state.additive)
       }
@@ -1040,29 +1102,19 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           return
         }
         const movingIds = getMovementLayerIds(state.layers, selectedIds)
-        const movingSet = new Set(movingIds)
         const activeBoxes = movingIds
           .map((id) => state.layers.find((item) => item.id === id))
           .filter((item): item is Layer => Boolean(item))
-          .map((item) => getLayerBox(item, state.currentFrame, canvasW, canvasH))
+          .map((item) => getLayerBox(item, state.layers, state.currentFrame, canvasW, canvasH))
         const movingRect = boxesToRect(activeBoxes, 'keyboard-selection')
         if (!movingRect) {
           clearGuideUpdate()
           return
         }
-        const measurementBoxes = state.layers
-          .filter((item) => (
-            !movingSet.has(item.id)
-            && item.visible
-            && item.type !== 'group'
-            && !item.isGroup
-            && state.currentFrame >= (item.startFrame ?? 0)
-            && state.currentFrame <= (item.endFrame ?? Infinity)
-          ))
-          .map((item) => boxToRect(getLayerBox(item, state.currentFrame, canvasW, canvasH)))
+        const measurementBoxes = buildMeasurementBoxes(state.layers, movingIds, state.currentFrame, canvasW, canvasH)
         scheduleGuideUpdate(
           buildSpacingGuides(movingRect, measurementBoxes),
-          buildAlignmentGuides(movingRect, measurementBoxes),
+          buildAlignmentGuides(movingRect, [...measurementBoxes, canvasRect(canvasW, canvasH)]),
         )
         keyboardSpacingTimer.current = window.setTimeout(() => {
           clearGuideUpdate()
@@ -1088,7 +1140,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const selectedBoxes = selectedLayerIds
     .map((id) => layers.find((l) => l.id === id))
     .filter((item): item is Layer => Boolean(item))
-    .map((selectedLayer) => getLayerBox(selectedLayer, currentFrame, canvasW, canvasH))
+    .map((selectedLayer) => getLayerBox(selectedLayer, layers, currentFrame, canvasW, canvasH))
   const primaryBox = selectedBoxes[0]
   if (displayScale === 0) return null
 
@@ -1129,7 +1181,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const bottom = Math.max(state.startY, state.currentY)
     const selected = layers
       .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
-      .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+      .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
       .filter((box) => rectsIntersect({ left, top, right, bottom }, { left: box.left, top: box.top, right: box.left + box.width, bottom: box.top + box.height }))
       .map((box) => box.layer.id)
     const nextSelection = state.additive ? Array.from(new Set([...state.baseSelection, ...selected])) : selected
@@ -1197,7 +1249,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const childIds = new Set(descendantsOf(layers, selectedGroup.id).map((child) => child.id))
       const childHit = [...layers].reverse()
         .filter((item) => childIds.has(item.id) && item.visible && item.type !== 'group' && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
-        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
         .find((box) => pointInBox(point.x, point.y, box))
       if (childHit) {
         e.preventDefault()
@@ -1210,7 +1262,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
     const boxes = [...layers].reverse()
       .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
-      .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+      .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
     const hit = boxes.find((box) => pointInBox(point.x, point.y, box))
     if (hit?.layer.type === 'text') {
       e.preventDefault()
@@ -1231,7 +1283,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const childIds = new Set(descendantsOf(layers, layer.id).map((child) => child.id))
       const childHit = [...layers].reverse()
         .filter((item) => childIds.has(item.id) && item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
-        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
         .find((box) => pointInBox(point.x, point.y, box))
       if (childHit && !childHit.layer.locked) {
         selectLayer(childHit.layer.id)
@@ -1242,7 +1294,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         const childMoveBoxes = childMoveIds
           .map((id) => layers.find((item) => item.id === id))
           .filter((item): item is Layer => Boolean(item))
-          .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+          .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
         dragRef.current = {
           type: 'move',
           startMx: e.clientX,
@@ -1273,7 +1325,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       ? moveIds
         .map((id) => layers.find((item) => item.id === id))
         .filter((item): item is Layer => Boolean(item))
-        .map((item) => getLayerBox(item, currentFrame, canvasW, canvasH))
+        .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
       : selectedBoxes
     dragRef.current = {
       type,
@@ -1315,7 +1367,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           width: isEdge ? 6 / displayScale : 8 / displayScale,
           height: isEdge ? 6 / displayScale : 8 / displayScale,
           background: '#fff',
-          border: `${1.5 / displayScale}px solid #6366f1`,
+          border: `${1.5 / displayScale}px solid #0d99ff`,
           borderRadius: type === 'rotate' ? '50%' : 2,
           cursor,
           zIndex: 10,
@@ -1411,8 +1463,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
               top: Math.min(marquee.startY, marquee.currentY),
               width: Math.abs(marquee.currentX - marquee.startX),
               height: Math.abs(marquee.currentY - marquee.startY),
-              background: 'rgba(32,213,248,0.12)',
-              border: `${1 / displayScale}px solid #20d5f8`,
+              background: 'rgba(13,153,255,0.12)',
+              border: `${1 / displayScale}px solid #0d99ff`,
               boxSizing: 'border-box',
               pointerEvents: 'none',
               zIndex: 20,
@@ -1433,7 +1485,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   false,
                 )}
                 fill="none"
-                stroke="#20d5f8"
+                stroke="#0d99ff"
                 strokeWidth={2 / displayScale}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -1447,7 +1499,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                 cy={point.y}
                 r={index === 0 ? 5 / displayScale : 4 / displayScale}
                 fill={index === 0 && penPoints.length >= 3 ? '#f59e0b' : '#fff'}
-                stroke="#20d5f8"
+                stroke="#0d99ff"
                 strokeWidth={1.5 / displayScale}
               />
             ))}
@@ -1480,7 +1532,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         {spacingGuides.length > 0 && (
           <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 28 }}>
             {spacingGuides.map((guide, index) => {
-              const color = guide.matched ? '#22c55e' : '#20d5f8'
+              const color = guide.matched ? '#22c55e' : '#0d99ff'
               const labelStyle: React.CSSProperties = {
                 position: 'absolute',
                 left: guide.axis === 'x' ? (guide.start + guide.end) / 2 : guide.cross,
@@ -1537,7 +1589,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             height: boxH,
             transform: isMultiSelection ? undefined : `rotate(${p.rotateZ}deg)`,
             transformOrigin: 'center',
-            border: `${1.5 / displayScale}px solid #6366f1`,
+            border: `${1.5 / displayScale}px solid #0d99ff`,
             ...selectionShape,
             pointerEvents: currentTool === 'pen' ? 'none' : 'all',
             cursor: layer.locked ? 'not-allowed' : perspectiveHeld.current ? 'grab' : 'move',
@@ -1585,7 +1637,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                         y1={point.y}
                         x2={point.in.x}
                         y2={point.in.y}
-                        stroke="#20d5f8"
+                        stroke="#0d99ff"
                         strokeWidth={1.4 / displayScale}
                         strokeDasharray={`${4 / displayScale} ${3 / displayScale}`}
                       />
@@ -1594,7 +1646,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                         cy={point.in.y}
                         r={4.5 / displayScale}
                         fill="#fff"
-                        stroke="#20d5f8"
+                        stroke="#0d99ff"
                         strokeWidth={1.5 / displayScale}
                         style={{ pointerEvents: 'all', cursor: 'grab' }}
                         onMouseDown={(e) => startPathDrag(e, 'in', index)}
@@ -1608,7 +1660,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                         y1={point.y}
                         x2={point.out.x}
                         y2={point.out.y}
-                        stroke="#20d5f8"
+                        stroke="#0d99ff"
                         strokeWidth={1.4 / displayScale}
                         strokeDasharray={`${4 / displayScale} ${3 / displayScale}`}
                       />
@@ -1617,7 +1669,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                         cy={point.out.y}
                         r={4.5 / displayScale}
                         fill="#fff"
-                        stroke="#20d5f8"
+                        stroke="#0d99ff"
                         strokeWidth={1.5 / displayScale}
                         style={{ pointerEvents: 'all', cursor: 'grab' }}
                         onMouseDown={(e) => startPathDrag(e, 'out', index)}
@@ -1629,7 +1681,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                     cy={point.y}
                     r={5 / displayScale}
                     fill="#fff"
-                    stroke={point.in || point.out ? '#f59e0b' : '#6366f1'}
+                    stroke={point.in || point.out ? '#f59e0b' : '#0d99ff'}
                     strokeWidth={1.8 / displayScale}
                     style={{ pointerEvents: 'all', cursor: 'move' }}
                     onMouseDown={(e) => startPathDrag(e, 'anchor', index)}
@@ -1761,12 +1813,12 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                 transform: 'translateX(-50%)',
                 pointerEvents: 'all',
               }}>
-                <div style={{ width: 1 / displayScale, height: 14 / displayScale, background: '#6366f1', margin: '0 auto' }} />
+                <div style={{ width: 1 / displayScale, height: 14 / displayScale, background: '#0d99ff', margin: '0 auto' }} />
                 <div onMouseDown={(e) => onHandleMouseDown(e, 'rotate')}
                   style={{
                     width: 8 / displayScale, height: 8 / displayScale,
                     background: '#fff',
-                    border: `${1.5 / displayScale}px solid #6366f1`,
+                    border: `${1.5 / displayScale}px solid #0d99ff`,
                     borderRadius: '50%',
                     cursor: 'alias',
                     position: 'relative',

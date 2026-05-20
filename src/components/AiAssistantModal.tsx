@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, LoaderCircle, Sparkles, X } from 'lucide-react'
 import { useStore } from '../store'
@@ -199,6 +199,15 @@ export function AiAssistantModal({ onClose }: { onClose: () => void }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
 
+  // ESC handler
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); onClose() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
   const selectedLabel = useMemo(() => {
     if (!selectedLayerIds.length) return t('ai.noSelection')
     return layers.filter((layer) => selectedLayerIds.includes(layer.id)).map((layer) => layer.name).join(', ')
@@ -253,7 +262,7 @@ export function AiAssistantModal({ onClose }: { onClose: () => void }) {
     >
       <div className="flex items-center justify-between px-3 py-2" style={{ borderBottom: '1px solid var(--border)' }}>
         <div className="flex items-center gap-2">
-          <Sparkles size={15} style={{ color: '#20d5f8' }} />
+          <Sparkles size={15} style={{ color: '#0d99ff' }} />
           <div>
             <div className="text-xs font-semibold">{t('ai.title')}</div>
             <div className="text-[10px]" style={{ color: 'var(--text3)' }}>{selectedLabel}</div>
@@ -290,7 +299,7 @@ export function AiAssistantModal({ onClose }: { onClose: () => void }) {
             <span>{error}</span>
           </div>
         )}
-        {message && <div className="rounded-md p-2 text-xs" style={{ background: 'rgba(32,213,248,0.1)', color: 'var(--text2)' }}>{message}</div>}
+        {message && <div className="rounded-md p-2 text-xs" style={{ background: 'var(--accent-bg)', color: 'var(--text2)' }}>{message}</div>}
 
         <button
           onClick={runAi}

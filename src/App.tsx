@@ -6,6 +6,7 @@ import {
   Settings, Sparkles, Sun, Triangle, Type, Undo2,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { Modal } from './components/Modal'
 import { LayersPanel } from './components/LayersPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { PropertiesPanel } from './components/PropertiesPanel'
@@ -141,44 +142,46 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
   }, [projectId])
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.55)', zIndex: 3000 }}>
-      <div className="w-[720px] max-w-[calc(100vw-32px)] rounded-lg p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 24px 80px rgba(0,0,0,0.5)' }}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold">{t('topbar.history')}</h2>
-          <button onClick={onClose} style={{ color: 'var(--text2)' }}>x</button>
+    <Modal title={t('topbar.history')} onClose={onClose} width={720} zIndex={3000}>
+      <div style={{ padding: 16, display: 'grid', gridTemplateColumns: '260px 1fr', gap: 16, minHeight: 280 }}>
+        <div style={{ overflow: 'auto', borderRight: '1px solid var(--border)', paddingRight: 12 }}>
+          {snapshots.length === 0 && <div style={{ fontSize: 11, color: 'var(--text3)' }}>{t('topbar.noManualSaves')}</div>}
+          {snapshots.map((snapshot) => (
+            <button
+              key={snapshot.id}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '8px 10px', borderRadius: 4, fontSize: 11, marginBottom: 2,
+                background: active?.id === snapshot.id ? 'var(--selected-bg)' : 'transparent',
+                color: 'var(--text)',
+              }}
+              onClick={() => setActive(snapshot)}
+            >
+              <div>{snapshot.label}</div>
+              <div style={{ color: 'var(--text3)', marginTop: 2 }}>{new Date(snapshot.timestamp).toLocaleString()}</div>
+            </button>
+          ))}
         </div>
-        <div className="grid grid-cols-[260px_1fr] gap-4 min-h-[280px]">
-          <div className="overflow-auto" style={{ borderRight: '1px solid var(--border)' }}>
-            {snapshots.length === 0 && <div className="text-xs" style={{ color: 'var(--text3)' }}>{t('topbar.noManualSaves')}</div>}
-            {snapshots.map((snapshot) => (
-              <button
-                key={snapshot.id}
-                className="block w-full text-left px-2 py-2 rounded text-xs"
-                style={{ background: active?.id === snapshot.id ? 'rgba(99,102,241,0.16)' : 'transparent' }}
-                onClick={() => setActive(snapshot)}
-              >
-                <div>{snapshot.label}</div>
-                <div style={{ color: 'var(--text3)' }}>{new Date(snapshot.timestamp).toLocaleString()}</div>
-              </button>
-            ))}
-          </div>
-          <div>
-            {active ? (
-              <>
-                <div className="aspect-video rounded mb-3 flex items-center justify-center" style={{ background: 'var(--canvas-bg)', border: '1px solid var(--border)' }}>
-                  <div className="text-xs" style={{ color: 'var(--text2)' }}>
-                    {active.project.canvas.width} x {active.project.canvas.height} · {active.project.layers.length} layers
-                  </div>
+        <div>
+          {active ? (
+            <>
+              <div className="aspect-video rounded mb-3 flex items-center justify-center" style={{ background: 'var(--canvas-bg)', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text2)' }}>
+                  {active.project.canvas.width} × {active.project.canvas.height} · {active.project.layers.length} layers
                 </div>
-                <button onClick={() => void onRestore(active)} className="rounded px-3 py-2 text-sm" style={{ background: '#6366f1', color: '#fff' }}>
-                  {t('topbar.restoreVersion')}
-                </button>
-              </>
-            ) : null}
-          </div>
+              </div>
+              <button
+                onClick={() => void onRestore(active)}
+                className="primary-btn"
+                style={{ height: 30, padding: '0 14px', fontSize: 12 }}
+              >
+                {t('topbar.restoreVersion')}
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -201,28 +204,49 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
 
   return (
     <header
-      className="capcut-topbar flex items-center gap-2 px-3 py-1.5 flex-shrink-0"
-      style={{ minHeight: 44, zIndex: 5 }}
+      className="capcut-topbar flex items-center flex-shrink-0"
+      style={{ minHeight: 40, zIndex: 5, gap: 0, padding: '0 8px' }}
     >
-      <button onClick={onGoHome} className="pill-btn" title={t('topbar.home')}><Home size={14} />{t('topbar.home')}</button>
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-      <button onClick={undo} disabled={_past.length === 0} title={`${t('topbar.undo')} (Ctrl+Z)`} className="icon-btn disabled:opacity-30"><Undo2 size={15} /></button>
-      <button onClick={redo} disabled={_future.length === 0} title={`${t('topbar.redo')} (Ctrl+Shift+Z)`} className="icon-btn disabled:opacity-30"><Redo2 size={15} /></button>
-      <div className="w-px h-4 mx-1" style={{ background: 'var(--border)' }} />
-      {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
+      {/* Left: Home + Undo/Redo */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={onGoHome} className="icon-btn" title={t('topbar.home')}><Home size={14} /></button>
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <button onClick={undo} disabled={_past.length === 0} title={`${t('topbar.undo')} (Ctrl+Z)`} className="icon-btn"><Undo2 size={14} /></button>
+        <button onClick={redo} disabled={_future.length === 0} title={`${t('topbar.redo')} (Ctrl+Shift+Z)`} className="icon-btn"><Redo2 size={14} /></button>
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        {/* Tools */}
+        {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
+      </div>
 
-      <div className="flex-1 flex items-center justify-center gap-3 min-w-0">
+      {/* Center: Project name + save */}
+      <div className="flex-1 flex items-center justify-center gap-2 min-w-0 px-3">
         <ProjectTitle />
         <SaveIndicator status={saveStatus} onRetry={onForceSave} />
       </div>
 
-      <button onClick={() => setShowHistory(true)} className="pill-btn"><History size={14} />{t('topbar.history')}</button>
-      <button onClick={onOpenAi} className="pill-btn"><Sparkles size={14} />{t('topbar.ai')}</button>
-      <button onClick={exportProject} className="pill-btn"><FileJson size={14} />{t('topbar.project')}</button>
-      <button onClick={() => setAutoKeyframe(!autoKeyframe)} title={t('topbar.autoKeyframe')} className={`icon-btn ${autoKeyframe ? 'active' : ''}`} style={autoKeyframe ? { background: '#ef4444', color: '#fff' } : undefined}><CircleDot size={15} /></button>
-      <button onClick={() => setShowSettings(true)} className="icon-btn" title={t('common.settings')}><Settings size={15} /></button>
-      <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title={t('topbar.toggleTheme')}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}</button>
-      <button onClick={onExportMp4} className="pill-btn primary-btn ml-1"><Download size={14} />{t('topbar.exportMp4')}</button>
+      {/* Right: Actions */}
+      <div className="flex items-center gap-1 flex-shrink-0">
+        <button onClick={() => setShowHistory(true)} className="icon-btn" title={t('topbar.history')}><History size={14} /></button>
+        <button onClick={onOpenAi} className="icon-btn" title={t('topbar.ai')}><Sparkles size={14} /></button>
+        <button onClick={exportProject} className="icon-btn" title={t('topbar.project')}><FileJson size={14} /></button>
+        <button
+          onClick={() => setAutoKeyframe(!autoKeyframe)}
+          title={t('topbar.autoKeyframe')}
+          className="icon-btn"
+          style={autoKeyframe ? { background: 'rgba(239,68,68,0.15)', color: '#ef4444' } : undefined}
+        >
+          <CircleDot size={14} />
+        </button>
+        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
+        <button onClick={() => setShowSettings(true)} className="icon-btn" title={t('common.settings')}><Settings size={14} /></button>
+        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title={t('topbar.toggleTheme')}>
+          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+        </button>
+        <button onClick={onExportMp4} className="primary-btn" style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
+          <Download size={13} />{t('topbar.exportMp4')}
+        </button>
+      </div>
+
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onRestore={async (snapshot) => { useStore.getState().loadProject(snapshot.project); await upsertProject(snapshot.project); setShowHistory(false) }} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
     </header>
@@ -230,6 +254,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
 }
 
 function EditorScreen({ projectId }: { projectId: string }) {
+  const { t } = useTranslation()
   const [showExport, setShowExport] = useState(false)
   const [showAi, setShowAi] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
@@ -324,7 +349,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
   })
 
   function goHome() {
-    if (saveStatus !== 'saved' && !confirm('You have unsaved changes. Leave the editor?')) return
+    if (saveStatus !== 'saved' && !confirm(t('topbar.unsavedLeaveConfirm'))) return
     pushRoute({ name: 'home' })
   }
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
+import { Modal } from './Modal'
 
 export function ExportModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
@@ -17,39 +18,50 @@ export function ExportModal({ onClose }: { onClose: () => void }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  return (
-    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={onClose}>
-      <div className="rounded-xl p-6 max-w-xl w-full mx-4" onClick={(e) => e.stopPropagation()}
-        style={{ background: 'var(--panel)', border: '1px solid var(--border)', boxShadow: '0 20px 60px rgba(0,0,0,0.4)' }}
+  const footer = (
+    <>
+      <button
+        onClick={onClose}
+        style={{
+          height: 30, padding: '0 12px', fontSize: 12, borderRadius: 4,
+          background: 'var(--input)', color: 'var(--text2)',
+          border: '1px solid var(--input-border)',
+        }}
       >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('exportModal.title')}</h2>
-          <button onClick={onClose} className="text-lg leading-none" style={{ color: 'var(--text3)' }}>×</button>
-        </div>
-        <p className="text-xs mb-3" style={{ color: 'var(--text2)' }}>
+        {t('common.close')}
+      </button>
+      <button
+        onClick={copyCmd}
+        className="primary-btn"
+        style={{
+          height: 30, padding: '0 14px', fontSize: 12,
+          background: copied ? '#22c55e' : 'var(--accent)',
+        }}
+      >
+        {copied ? `✓ ${t('common.copied')}` : t('common.copyCommand')}
+      </button>
+    </>
+  )
+
+  return (
+    <Modal title={t('exportModal.title')} onClose={onClose} width={560} footer={footer} zIndex={2500}>
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <p style={{ fontSize: 11, color: 'var(--text2)', margin: 0, lineHeight: 1.5 }}>
           {t('exportModal.help')}
         </p>
-        <div className="rounded-lg p-3 mb-4 font-mono text-xs break-all" style={{ background: 'var(--bg2)', color: '#a5f3fc', border: '1px solid var(--border)' }}>
+        <div style={{
+          padding: 12, fontFamily: 'monospace', fontSize: 11,
+          wordBreak: 'break-all', background: 'var(--bg2)',
+          color: 'var(--accent)', border: '1px solid var(--border)', borderRadius: 4,
+        }}>
           {cmd}
         </div>
-        <div className="flex gap-2 mb-4">
-          {[`${w}×${h}`, `${fps} fps`, `${(totalFrames / fps).toFixed(1)}s`].map((t) => (
-            <span key={t} className="text-xs rounded px-2 py-0.5" style={{ background: 'var(--input)', color: 'var(--text2)' }}>{t}</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[`${w}×${h}`, `${fps} fps`, `${(totalFrames / fps).toFixed(1)}s`].map((s) => (
+            <span key={s} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--input-border)' }}>{s}</span>
           ))}
         </div>
-        <div className="flex gap-2">
-          <button onClick={copyCmd} className="flex-1 text-xs rounded px-4 py-2 font-semibold transition-colors"
-            style={{ background: copied ? '#22c55e' : '#6366f1', color: '#fff' }}
-          >
-            {copied ? `✓ ${t('common.copied')}` : t('common.copyCommand')}
-          </button>
-          <button onClick={onClose} className="text-xs rounded px-4 py-2 transition-colors"
-            style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
-          >
-            {t('common.close')}
-          </button>
-        </div>
       </div>
-    </div>
+    </Modal>
   )
 }

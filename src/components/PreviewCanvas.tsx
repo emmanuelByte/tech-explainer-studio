@@ -39,6 +39,7 @@ export function PreviewCanvas() {
   const panStart = useRef({ mx: 0, my: 0, px: 0, py: 0, zoom: 1 })
   const panPreview = useRef<{ zoom: number; x: number; y: number } | null>(null)
   const panFrame = useRef<number | null>(null)
+  const wheelPanCommit = useRef<number | null>(null)
   const spaceHeld = useRef(false)
   const [isPanningUi, setIsPanningUi] = useState(false)
 
@@ -84,6 +85,18 @@ export function PreviewCanvas() {
     panFrame.current = null
   }
 
+  function clearWheelPanCommit() {
+    if (wheelPanCommit.current === null) return
+    window.clearTimeout(wheelPanCommit.current)
+    wheelPanCommit.current = null
+  }
+
+  function deltaToPixels(e: WheelEvent, value: number) {
+    if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) return value * 16
+    if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) return value * 80
+    return value
+  }
+
   function zoomAtPoint(nextZoom: number, clientX: number, clientY: number) {
     const stage = playerWrapperRef.current
     if (!stage) {
@@ -114,10 +127,34 @@ export function PreviewCanvas() {
     zoomAtPoint(nextZoom, rect.left + rect.width / 2, rect.top + rect.height / 2)
   }
 
-  // Zoom to cursor on Ctrl+Wheel or Shift+Wheel
+  // Touchpad/mouse wheel: two-finger scroll pans, Shift/Ctrl/trackpad pinch zooms to cursor.
   const handleWheel = useCallback((e: WheelEvent) => {
-    if (!e.ctrlKey && !e.shiftKey) return
     e.preventDefault()
+    const isZoomGesture = e.ctrlKey || e.metaKey || e.shiftKey
+    if (!isZoomGesture) {
+      const state = useStore.getState()
+      const currentPreview = panPreview.current
+      const baseX = currentPreview?.x ?? state.editorPanX
+      const baseY = currentPreview?.y ?? state.editorPanY
+      const baseZoom = currentPreview?.zoom ?? state.editorZoom
+      const nextX = baseX - deltaToPixels(e, e.deltaX)
+      const nextY = baseY - deltaToPixels(e, e.deltaY)
+      setPanTransition(false)
+      schedulePanPreview(baseZoom, nextX, nextY)
+      clearWheelPanCommit()
+      wheelPanCommit.current = window.setTimeout(() => {
+        wheelPanCommit.current = null
+        cancelPanPreviewFrame()
+        applyPanTransform(baseZoom, nextX, nextY)
+        panPreview.current = null
+        setEditorViewport(baseZoom, nextX, nextY)
+        requestAnimationFrame(() => setPanTransition(true))
+      }, 70)
+      return
+    }
+
+    clearWheelPanCommit()
+    panPreview.current = null
     const z = useStore.getState().editorZoom
     const currentPan = { x: useStore.getState().editorPanX, y: useStore.getState().editorPanY }
     const dominantDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
@@ -151,6 +188,7 @@ export function PreviewCanvas() {
     el.addEventListener('wheel', handleWheel, { passive: false })
     return () => {
       el.removeEventListener('wheel', handleWheel)
+      clearWheelPanCommit()
       cancelPanPreviewFrame()
     }
   }, [handleWheel])
@@ -243,17 +281,17 @@ export function PreviewCanvas() {
 
   return (
     <div className="flex flex-col flex-1 min-w-0" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
-      {/* Toolbar strip */}
+      {/* Toolbar strip — Figma-style: minimal, flat */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 flex-wrap flex-shrink-0"
-        style={{ background: 'var(--toolbar)', borderBottom: '1px solid var(--border)' }}
+        className="flex items-center flex-shrink-0"
+        style={{ height: 40, padding: '0 10px', gap: 4, background: 'var(--panel)', borderBottom: '1px solid var(--border)' }}
       >
         {/* Preset selector */}
         <select
           value={canvasPreset.name}
           onChange={(e) => setCanvasPreset(e.target.value)}
           className="input-base"
-          style={{ minWidth: 120 }}
+          style={{ minWidth: 110, height: 26 }}
         >
           {CANVAS_PRESETS.map((p) => (
             <option key={p.name} value={p.name}>{p.name}</option>
@@ -264,44 +302,43 @@ export function PreviewCanvas() {
           <div className="flex items-center gap-1">
             <input type="number" value={customWidth}
               onChange={(e) => setCustomDimension('customWidth', Number(e.target.value))}
-              className="input-base w-16"
+              className="input-base"
+              style={{ width: 56, height: 26 }}
             />
-            <span style={{ color: 'var(--text3)', fontSize: 11 }}>×</span>
+            <span style={{ color: 'var(--text3)', fontSize: 10 }}>×</span>
             <input type="number" value={customHeight}
               onChange={(e) => setCustomDimension('customHeight', Number(e.target.value))}
-              className="input-base w-16"
+              className="input-base"
+              style={{ width: 56, height: 26 }}
             />
           </div>
         ) : (
-          <span className="flex items-center gap-1" style={{ color: 'var(--text3)', fontSize: 11 }}><Clapperboard size={13} />{canvasW} × {canvasH}</span>
+          <span style={{ color: 'var(--text3)', fontSize: 11 }}>{canvasW} × {canvasH}</span>
         )}
 
         <div className="flex-1" />
 
-        {/* Zoom controls */}
-        <ZoomButton title={t('preview.zoomOut')} onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={14} /></ZoomButton>
+        {/* Zoom controls — Figma-style */}
+        <ZoomButton title={t('preview.zoomOut')} onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={13} /></ZoomButton>
         <button
           onClick={resetZoom}
-          className="pill-btn"
-          style={{ minWidth: 54 }}
           title={t('preview.resetZoom')}
+          style={{
+            height: 26, minWidth: 52, padding: '0 6px',
+            fontSize: 11, color: 'var(--text2)',
+            background: 'transparent', borderRadius: 3,
+            border: '1px solid var(--input-border)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
         >
           {Math.round(zoom * 100)}%
         </button>
-        <ZoomButton title={t('preview.zoomIn')} onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={14} /></ZoomButton>
-        <button
-          onClick={fitToScreen}
-          className="pill-btn"
-          title={t('preview.fitToScreen')}
-        >
-          <Maximize2 size={13} />{t('preview.fit')}
+        <ZoomButton title={t('preview.zoomIn')} onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={13} /></ZoomButton>
+        <button onClick={fitToScreen} className="icon-btn" title={t('preview.fitToScreen')} style={{ width: 26, height: 26, minWidth: 26 }}>
+          <Maximize2 size={13} />
         </button>
-        <button
-          onClick={resetZoom}
-          className="pill-btn"
-          title={t('preview.actualSize')}
-        >
-          <Scan size={13} />1:1
+        <button onClick={resetZoom} className="icon-btn" title={t('preview.actualSize')} style={{ width: 26, height: 26, minWidth: 26 }}>
+          <Scan size={13} />
         </button>
       </div>
 
@@ -331,7 +368,7 @@ export function PreviewCanvas() {
               width: canvasW,
               height: canvasH,
               boxShadow: 'var(--preview-shadow)',
-              borderRadius: 6,
+              borderRadius: 2,
               overflow: 'hidden',
               flexShrink: 0,
               pointerEvents: 'all',
@@ -431,7 +468,7 @@ function Minimap({ layers, canvasW, canvasH, pan, zoom, outerRef }: {
           top: vpY * scale,
           width: vpW * scale,
           height: vpH * scale,
-          border: '1px solid #6366f1',
+          border: '1px solid #0d99ff',
           pointerEvents: 'none',
         }}
       />
