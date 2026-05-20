@@ -979,7 +979,12 @@ export const useStore = create<Store>()(
             if (byProp.size) {
               nextLayer = { ...nextLayer, propertyKeyframes: { ...(nextLayer.propertyKeyframes ?? {}) } }
               byProp.forEach((frames, key) => {
-                nextLayer.propertyKeyframes![key] = (nextLayer.propertyKeyframes?.[key] ?? []).filter((kf) => !frames.has(kf.frame))
+                const propertyFrames = nextLayer.propertyKeyframes?.[key] ?? []
+                const removedFromProperty = new Set(propertyFrames.filter((kf) => frames.has(kf.frame)).map((kf) => kf.frame))
+                nextLayer.propertyKeyframes![key] = propertyFrames.filter((kf) => !frames.has(kf.frame))
+                frames.forEach((frame) => {
+                  if (!removedFromProperty.has(frame)) nextLayer = removeTransformPropertyChange(nextLayer, key, frame)
+                })
               })
             }
             return nextLayer
@@ -1022,14 +1027,30 @@ export const useStore = create<Store>()(
             if (byProp.size) {
               nextLayer.propertyKeyframes = { ...(nextLayer.propertyKeyframes ?? {}) }
               byProp.forEach((frames, key) => {
-                const movedFrames = new Set([...frames].map((frame) => frame + appliedDelta))
-                const moved = (layer.propertyKeyframes?.[key] ?? [])
+                const propertyFrames = layer.propertyKeyframes?.[key] ?? []
+                const selectedPropertyFrames = new Set(propertyFrames.filter((kf) => frames.has(kf.frame)).map((kf) => kf.frame))
+                const movedFrames = new Set([...selectedPropertyFrames].map((frame) => frame + appliedDelta))
+                const moved = propertyFrames
                   .filter((kf) => frames.has(kf.frame))
                   .map((kf) => ({ ...kf, frame: kf.frame + appliedDelta }))
                 nextLayer.propertyKeyframes![key] = [
-                  ...(layer.propertyKeyframes?.[key] ?? []).filter((kf) => !frames.has(kf.frame) && !movedFrames.has(kf.frame)),
+                  ...propertyFrames.filter((kf) => !frames.has(kf.frame) && !movedFrames.has(kf.frame)),
                   ...moved,
                 ].sort((a, b) => a.frame - b.frame)
+                frames.forEach((frame) => {
+                  if (selectedPropertyFrames.has(frame) || !(key in DEFAULT_TRANSFORM)) return
+                  const source = nextLayer.keyframes.find((kf) => kf.frame === frame)
+                  if (!source) return
+                  const destination = frame + appliedDelta
+                  const value = source.props[key as keyof TransformProps]
+                  const easing = source.easing
+                  nextLayer = removeTransformPropertyChange(nextLayer, key, frame)
+                  const current = interpolateProps(destination, nextLayer.keyframes)
+                  nextLayer = upsertTransformKeyframe(nextLayer, destination, {
+                    ...current,
+                    [key]: value,
+                  } as TransformProps, easing)
+                })
               })
             }
 
