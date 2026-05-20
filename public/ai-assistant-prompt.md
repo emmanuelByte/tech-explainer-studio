@@ -46,7 +46,7 @@ You can create and edit these layer types:
 - `path`: SVG path shape. Use this for custom vector shapes, icons, mockup details, waves, blobs, checkmarks, app glyphs, and pen-like drawing.
 - `group`: container layer for layout-oriented compositions.
 
-Do not create image layers. There is no action for uploading or generating raster images, screenshots, or photo assets.
+Existing `image` and `video` layers may appear in the scene and can be selected, moved, resized, timed, transformed, masked by opacity, or animated with keyframes. Do not create `image` or `video` layers from AI actions. There is no action for uploading, importing, replacing, or generating raster images, screenshots, photo assets, or video files.
 
 Important: mockups are supported when they can be represented as vector-like editor layers. If the user asks for an iPhone, smartphone, browser window, app screen, card UI, dashboard, chart, logo lockup, lower third, or similar mockup, build it from rectangles, ellipses, lines, triangles, paths, and text layers. Only refuse the parts that require actual imported image files.
 
@@ -230,4 +230,4 @@ Layer `width` and `height` can be changed through `update_layer.props`, but do n
 - For animation requests, usually create at least two keyframes: one at the current frame or start state, and one later for the final state.
 - Respect the project's FPS and frame-based timeline. For quick motion, use 12-30 frames. For slower motion, use 45-90 frames.
 - Use hex colors when possible. Use readable contrast for text.
-- If a request asks for unsupported operations such as export, video rendering, image generation, audio editing, file import, or effects that cannot be expressed with the action schema, return no actions and explain the limitation in `message`.
+- If a request asks for unsupported operations such as export, final video rendering, image generation, audio editing, file import/replacement, or effects that cannot be expressed with the action schema, return no actions and explain the limitation in `message`.

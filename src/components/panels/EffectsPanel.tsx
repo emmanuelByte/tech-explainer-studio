@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { TransformProps } from '../../types'
-import { SectionHeader } from './TransformPanel'
-import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
+import { Section, Row, NumField, ToggleRow } from './_panelKit'
 
 type SliderField = {
   propKey: keyof TransformProps
@@ -13,11 +12,12 @@ type SliderField = {
   max: number
   step: number
   unit?: string
+  sensitivity?: number
 }
 
 const EFFECT_FIELDS: SliderField[] = [
-  { propKey: 'blur', label: 'Blur', min: 0, max: 100, step: 0.5, unit: 'px' },
-  { propKey: 'backdropBlur', label: 'Backdrop Blur', min: 0, max: 100, step: 0.5, unit: 'px' },
+  { propKey: 'blur', label: 'Blur', min: 0, max: 100, step: 0.5, unit: 'px', sensitivity: 0.5 },
+  { propKey: 'backdropBlur', label: 'Backdrop Blur', min: 0, max: 100, step: 0.5, unit: 'px', sensitivity: 0.5 },
   { propKey: 'brightness', label: 'Brightness', min: 0, max: 200, step: 1, unit: '%' },
   { propKey: 'contrast', label: 'Contrast', min: 0, max: 200, step: 1, unit: '%' },
   { propKey: 'grayscale', label: 'Grayscale', min: 0, max: 100, step: 1, unit: '%' },
@@ -30,29 +30,45 @@ const SHADOW_FIELDS: SliderField[] = [
   { propKey: 'shadowSpread', label: 'Spread', min: -50, max: 100, step: 1, unit: 'px' },
 ]
 
-function SliderRow({ label, value, min, max, step, unit, onChange }: Omit<SliderField, 'propKey'> & {
-  value: number; onChange: (v: number) => void
+/** Slider + numeric input combo for effect parameters */
+function EffectField({
+  label, value, min, max, step, unit, sensitivity, onChange,
+  leading,
+}: Omit<SliderField, 'propKey'> & {
+  value: number
+  onChange: (v: number) => void
+  leading: string
 }) {
   const { beginInteraction, endInteraction } = useStore()
   return (
-    <div className="px-3 py-1">
-      <div className="flex items-center justify-between mb-0.5">
-        <ScrubField label={label} value={value} min={min} max={max} step={step} sensitivity={step} unit={unit} onChange={onChange} />
-      </div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <Row label={label}>
+        <NumField
+          leading={leading}
+          value={value}
+          min={min}
+          max={max}
+          step={step}
+          precision={step < 1 ? 1 : 0}
+          sensitivity={sensitivity ?? step}
+          unit={unit}
+          onChange={onChange}
+        />
+      </Row>
       <input
-        type="range" min={min} max={max} step={step} value={value}
+        type="range"
+        className="figma-range"
+        min={min} max={max} step={step} value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         onPointerDown={() => beginInteraction(true)}
         onPointerUp={() => endInteraction()}
         onBlur={() => endInteraction()}
-        className="w-full"
-        style={{ accentColor: 'var(--accent)' }}
       />
     </div>
   )
 }
 
-function DebouncedColorInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+function DebouncedColor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   const [local, setLocal] = useState(value)
   const timer = useRef<number | null>(null)
   const active = useRef(false)
@@ -64,10 +80,7 @@ function DebouncedColorInput({ value, onChange }: { value: string; onChange: (va
 
   function schedule(next: string) {
     setLocal(next)
-    if (!active.current) {
-      active.current = true
-      beginInteraction(true)
-    }
+    if (!active.current) { active.current = true; beginInteraction(true) }
     if (timer.current) window.clearTimeout(timer.current)
     timer.current = window.setTimeout(() => {
       onChange(next)
@@ -76,14 +89,27 @@ function DebouncedColorInput({ value, onChange }: { value: string; onChange: (va
     }, 120)
   }
 
-  function flush() {
-    if (timer.current) window.clearTimeout(timer.current)
-    onChange(local)
-    if (active.current) endInteraction()
-    active.current = false
-  }
-
-  return <input type="color" value={local} onChange={(e) => schedule(e.target.value)} onBlur={flush} className="w-8 h-7 cursor-pointer border-0 bg-transparent" />
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+      <input
+        type="color"
+        value={local}
+        onChange={(e) => schedule(e.target.value)}
+        style={{
+          width: 24, height: 22, borderRadius: 3, cursor: 'pointer',
+          border: '1px solid var(--input-border)', background: 'var(--input)', padding: 1,
+          flexShrink: 0,
+        }}
+      />
+      <input
+        type="text"
+        value={local}
+        onChange={(e) => schedule(e.target.value)}
+        className="input-base"
+        style={{ flex: 1, height: 22, fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', minWidth: 0 }}
+      />
+    </div>
+  )
 }
 
 export function EffectsPanel() {
@@ -95,55 +121,62 @@ export function EffectsPanel() {
   const p = resolveLayerAnimation(layer, currentFrame).transform
 
   function handleChange(key: keyof TransformProps, value: number) {
-    setLayerAnimatedProperty(layer!.id, key, value)
+    setLayerAnimatedProperty(layer!.id, key as never, value)
   }
 
+  const safeShadowColor = layer.shadowColor?.startsWith('rgba') ? '#000000' : (layer.shadowColor ?? '#000000')
+
   return (
-    <div className="flex flex-col gap-0">
-      <SectionHeader label={t('effects.filters')} />
-      {EFFECT_FIELDS.map((f) => (
-        <SliderRow
-          key={f.propKey}
-          label={t(`effects.${f.propKey}`, { defaultValue: f.label })} min={f.min} max={f.max} step={f.step} unit={f.unit}
-          value={p[f.propKey] as number}
-          onChange={(v) => handleChange(f.propKey, v)}
-        />
-      ))}
-
-      <SectionHeader label={t('effects.shadow')} />
-      <div className="px-3 pb-1">
-        <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
-          <input
-            type="checkbox"
-            checked={layer.shadowEnabled}
-            onChange={(e) => updateLayerProp(layer.id, 'shadowEnabled', e.target.checked)}
-            className="accent-[#0d99ff]"
+    <div>
+      {/* Filters */}
+      <Section title={t('effects.filters')}>
+        {EFFECT_FIELDS.map((f) => (
+          <EffectField
+            key={f.propKey}
+            label={t(`effects.${f.propKey}`, { defaultValue: f.label })}
+            leading={f.propKey.charAt(0).toUpperCase()}
+            min={f.min}
+            max={f.max}
+            step={f.step}
+            unit={f.unit}
+            sensitivity={f.sensitivity}
+            value={p[f.propKey] as number}
+            onChange={(v) => handleChange(f.propKey, v)}
           />
-          {t('effects.enableShadow')}
-        </label>
-      </div>
+        ))}
+      </Section>
 
-      {layer.shadowEnabled && (
-        <>
-          <div className="flex items-center gap-2 px-3 pb-2">
-            <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('effects.color')}</span>
-            <DebouncedColorInput
-              value={layer.shadowColor.startsWith('rgba')
-                ? '#000000'
-                : layer.shadowColor}
-              onChange={(value) => updateLayerProp(layer.id, 'shadowColor', value)}
-            />
-          </div>
-          {SHADOW_FIELDS.map((f) => (
-            <SliderRow
-              key={f.propKey}
-              label={t(`effects.${f.propKey}`, { defaultValue: f.label })} min={f.min} max={f.max} step={f.step} unit={f.unit}
-              value={p[f.propKey] as number}
-              onChange={(v) => handleChange(f.propKey, v)}
-            />
-          ))}
-        </>
-      )}
+      {/* Shadow */}
+      <Section title={t('effects.shadow')} defaultOpen={!!layer.shadowEnabled}>
+        <ToggleRow
+          label={t('effects.enableShadow')}
+          checked={!!layer.shadowEnabled}
+          onChange={(v) => updateLayerProp(layer.id, 'shadowEnabled', v)}
+        />
+        {layer.shadowEnabled && (
+          <>
+            <Row label={t('effects.color')}>
+              <DebouncedColor
+                value={safeShadowColor}
+                onChange={(value) => updateLayerProp(layer.id, 'shadowColor', value)}
+              />
+            </Row>
+            {SHADOW_FIELDS.map((f) => (
+              <EffectField
+                key={f.propKey}
+                label={t(`effects.${f.propKey}`, { defaultValue: f.label })}
+                leading={f.propKey.includes('X') ? 'X' : f.propKey.includes('Y') ? 'Y' : f.propKey.charAt(f.propKey.length - 1).toUpperCase()}
+                min={f.min}
+                max={f.max}
+                step={f.step}
+                unit={f.unit}
+                value={p[f.propKey] as number}
+                onChange={(v) => handleChange(f.propKey, v)}
+              />
+            ))}
+          </>
+        )}
+      </Section>
     </div>
   )
 }

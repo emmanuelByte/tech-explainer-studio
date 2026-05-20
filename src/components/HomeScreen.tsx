@@ -395,7 +395,7 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
                   </div>
                   <div className="text-xs mt-1" style={{ color: 'var(--text2)' }}>{project.presetName} {project.canvasWidth}x{project.canvasHeight}</div>
                   <div className="text-xs mt-1" style={{ color: 'var(--text3)' }}>
-                    {relativeTime(project.updatedAt, t)} · {Math.round(project.duration / project.fps)}s · {project.fps}fps · {project.layerCount} {t('home.layers')}
+                    {relativeTime(project.updatedAt, t)} · {Math.round(project.duration / project.fps)}s · {project.fps}fps · {t('topbar.layersCount', { count: project.layerCount })}
                   </div>
                 </div>
               </div>

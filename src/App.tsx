@@ -15,6 +15,7 @@ import { ExportModal } from './components/ExportModal'
 import { AiAssistantModal } from './components/AiAssistantModal'
 import { HomeScreen } from './components/HomeScreen'
 import { SettingsModal } from './components/SettingsModal'
+import { SelectionTracker } from './components/SelectionTracker'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
@@ -84,6 +85,13 @@ function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () =>
       {status === 'failed' && <button onClick={onRetry} className="underline ml-1">{t('topbar.retry')}</button>}
     </div>
   )
+}
+
+/** Thin vertical separator shown only when something is selected. */
+function SelectionDivider() {
+  const hasSelection = useStore((s) => s.selectedLayerIds.length > 0 || s.selectedKeyframes.length > 0)
+  if (!hasSelection) return null
+  return <div style={{ width: 1, height: 14, background: 'var(--border)', flexShrink: 0, opacity: 0.7 }} />
 }
 
 function ProjectTitle() {
@@ -218,9 +226,11 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
         {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
       </div>
 
-      {/* Center: Project name + save */}
-      <div className="flex-1 flex items-center justify-center gap-2 min-w-0 px-3">
+      {/* Center: Project name + selection breadcrumb + save */}
+      <div className="flex-1 flex items-center justify-center gap-3 min-w-0 px-3">
         <ProjectTitle />
+        <SelectionDivider />
+        <SelectionTracker />
         <SaveIndicator status={saveStatus} onRetry={onForceSave} />
       </div>
 
@@ -322,6 +332,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
     storeState.editorZoom,
     storeState.editorPanX,
     storeState.editorPanY,
+    storeState.showOutsideCanvas,
     storeState.selectedLayerIds,
     storeState.activeInteractionCount,
   ])

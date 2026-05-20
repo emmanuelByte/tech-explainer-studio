@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Player, PlayerRef } from '@remotion/player'
-import { Clapperboard, Maximize2, Minus, Plus, Scan } from 'lucide-react'
+import { Eye, Maximize2, Minus, Plus, Scan } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { EditorComposition } from '../remotion/Composition'
 import { Layer, CANVAS_PRESETS } from '../types'
 import { CanvasOverlay } from './CanvasOverlay'
+
+const MIN_ZOOM = 0.1
+const MAX_ZOOM = 5
 
 function ZoomButton({ children, onClick, title }: { children: React.ReactNode; onClick: () => void; title: string }) {
   return (
@@ -25,7 +28,7 @@ export function PreviewCanvas() {
     layers, currentFrame, totalFrames, fps,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
     setCanvasPreset, setCustomDimension, currentTool,
-    editorZoom, editorPanX, editorPanY, setEditorViewport,
+    editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas,
   } = useStore()
 
   const playerRef = useRef<PlayerRef>(null)
@@ -54,13 +57,18 @@ export function PreviewCanvas() {
     if (player.getCurrentFrame() !== currentFrame) player.seekTo(currentFrame)
   }, [currentFrame])
 
-  function setZoomPan(nextZoom: number, nextPan = pan) {
-    setEditorViewport(Math.max(0.1, Math.min(5, nextZoom)), nextPan.x, nextPan.y)
+  function clampZoom(value: number) {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value))
+  }
+
+  function setZoomPan(nextZoom: number, nextPan = pan, animated = true) {
+    setPanTransition(animated)
+    setEditorViewport(clampZoom(nextZoom), nextPan.x, nextPan.y)
   }
 
   function setPanTransition(enabled: boolean) {
     if (!transformRef.current) return
-    transformRef.current.style.transition = enabled ? 'transform 0.08s ease' : 'none'
+    transformRef.current.style.transition = enabled ? 'transform 0.16s cubic-bezier(0.2, 0, 0, 1)' : 'none'
   }
 
   function applyPanTransform(nextZoom: number, nextX: number, nextY: number) {
@@ -91,6 +99,20 @@ export function PreviewCanvas() {
     wheelPanCommit.current = null
   }
 
+  function commitViewportPreview(delay = 70) {
+    clearWheelPanCommit()
+    wheelPanCommit.current = window.setTimeout(() => {
+      wheelPanCommit.current = null
+      const preview = panPreview.current
+      if (!preview) return
+      cancelPanPreviewFrame()
+      applyPanTransform(preview.zoom, preview.x, preview.y)
+      panPreview.current = null
+      setEditorViewport(preview.zoom, preview.x, preview.y)
+      requestAnimationFrame(() => setPanTransition(true))
+    }, delay)
+  }
+
   function deltaToPixels(e: WheelEvent, value: number) {
     if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) return value * 16
     if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) return value * 80
@@ -98,23 +120,29 @@ export function PreviewCanvas() {
   }
 
   function zoomAtPoint(nextZoom: number, clientX: number, clientY: number) {
+    clearWheelPanCommit()
+    panPreview.current = null
     const stage = playerWrapperRef.current
     if (!stage) {
       setZoomPan(nextZoom)
       return
     }
+    const state = useStore.getState()
+    const baseZoom = state.editorZoom
+    const basePan = { x: state.editorPanX, y: state.editorPanY }
     const rect = stage.getBoundingClientRect()
     const currentCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-    const baseCenter = { x: currentCenter.x - pan.x, y: currentCenter.y - pan.y }
+    const baseCenter = { x: currentCenter.x - basePan.x, y: currentCenter.y - basePan.y }
     const localOffset = {
-      x: (clientX - currentCenter.x) / zoom,
-      y: (clientY - currentCenter.y) / zoom,
+      x: (clientX - currentCenter.x) / baseZoom,
+      y: (clientY - currentCenter.y) / baseZoom,
     }
+    const clampedZoom = clampZoom(nextZoom)
     const desiredCenter = {
-      x: clientX - localOffset.x * nextZoom,
-      y: clientY - localOffset.y * nextZoom,
+      x: clientX - localOffset.x * clampedZoom,
+      y: clientY - localOffset.y * clampedZoom,
     }
-    setZoomPan(nextZoom, { x: desiredCenter.x - baseCenter.x, y: desiredCenter.y - baseCenter.y })
+    setZoomPan(clampedZoom, { x: desiredCenter.x - baseCenter.x, y: desiredCenter.y - baseCenter.y })
   }
 
   function zoomAtCanvasCenter(nextZoom: number) {
@@ -141,45 +169,40 @@ export function PreviewCanvas() {
       const nextY = baseY - deltaToPixels(e, e.deltaY)
       setPanTransition(false)
       schedulePanPreview(baseZoom, nextX, nextY)
-      clearWheelPanCommit()
-      wheelPanCommit.current = window.setTimeout(() => {
-        wheelPanCommit.current = null
-        cancelPanPreviewFrame()
-        applyPanTransform(baseZoom, nextX, nextY)
-        panPreview.current = null
-        setEditorViewport(baseZoom, nextX, nextY)
-        requestAnimationFrame(() => setPanTransition(true))
-      }, 70)
+      commitViewportPreview(55)
       return
     }
 
-    clearWheelPanCommit()
-    panPreview.current = null
-    const z = useStore.getState().editorZoom
-    const currentPan = { x: useStore.getState().editorPanX, y: useStore.getState().editorPanY }
+    const state = useStore.getState()
+    const currentPreview = panPreview.current
+    const baseZoom = currentPreview?.zoom ?? state.editorZoom
+    const basePan = {
+      x: currentPreview?.x ?? state.editorPanX,
+      y: currentPreview?.y ?? state.editorPanY,
+    }
     const dominantDelta = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX
     const fallbackDelta = 'wheelDelta' in e ? -(e as WheelEvent & { wheelDelta: number }).wheelDelta : 0
-    const wheelDelta = dominantDelta || fallbackDelta
-    const direction = wheelDelta < 0 ? 1 : -1
-    const factor = direction > 0 ? 1.1 : 0.9
-    const newZ = Math.max(0.1, Math.min(5, z * factor))
+    const wheelDelta = deltaToPixels(e, dominantDelta || fallbackDelta)
+    const newZ = clampZoom(baseZoom * Math.exp(-wheelDelta * 0.0014))
     const stage = playerWrapperRef.current
     if (!stage) {
-      setEditorViewport(newZ, currentPan.x, currentPan.y)
+      setEditorViewport(newZ, basePan.x, basePan.y)
       return
     }
     const rect = stage.getBoundingClientRect()
     const currentCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
-    const baseCenter = { x: currentCenter.x - currentPan.x, y: currentCenter.y - currentPan.y }
+    const baseCenter = { x: currentCenter.x - basePan.x, y: currentCenter.y - basePan.y }
     const localOffset = {
-      x: (e.clientX - currentCenter.x) / z,
-      y: (e.clientY - currentCenter.y) / z,
+      x: (e.clientX - currentCenter.x) / baseZoom,
+      y: (e.clientY - currentCenter.y) / baseZoom,
     }
     const desiredCenter = {
       x: e.clientX - localOffset.x * newZ,
       y: e.clientY - localOffset.y * newZ,
     }
-    setEditorViewport(newZ, desiredCenter.x - baseCenter.x, desiredCenter.y - baseCenter.y)
+    setPanTransition(false)
+    schedulePanPreview(newZ, desiredCenter.x - baseCenter.x, desiredCenter.y - baseCenter.y)
+    commitViewportPreview(65)
   }, [setEditorViewport])
 
   useEffect(() => {
@@ -318,6 +341,25 @@ export function PreviewCanvas() {
 
         <div className="flex-1" />
 
+        <button
+          onClick={() => setShowOutsideCanvas(!showOutsideCanvas)}
+          className={`icon-btn ${showOutsideCanvas ? 'active' : ''}`}
+          title={showOutsideCanvas ? t('preview.hideOutsideCanvas') : t('preview.showOutsideCanvas')}
+          style={{
+            height: 22,
+            minWidth: 92,
+            padding: '0 7px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 5,
+            fontSize: 11,
+            color: showOutsideCanvas ? 'var(--accent)' : 'var(--text2)',
+          }}
+        >
+          <Eye size={12} />
+          <span>{t('preview.outsideCanvas')}</span>
+        </button>
+
         {/* Zoom controls — Figma-style */}
         <button onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))} className="icon-btn" title={t('preview.zoomOut')} style={{ width: 22, height: 22, minWidth: 22 }}>
           <Minus size={12} />
@@ -374,7 +416,7 @@ export function PreviewCanvas() {
               height: canvasH,
               boxShadow: 'var(--preview-shadow)',
               borderRadius: 2,
-              overflow: 'hidden',
+              overflow: showOutsideCanvas ? 'visible' : 'hidden',
               flexShrink: 0,
               pointerEvents: 'all',
             }}
@@ -382,12 +424,13 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor }}
+              inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}
               compositionHeight={canvasH}
-              style={{ width: '100%', height: '100%' }}
+              overflowVisible={showOutsideCanvas}
+              style={{ width: '100%', height: '100%', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
               controls={false}
               loop={false}
               acknowledgeRemotionLicense

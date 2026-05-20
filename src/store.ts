@@ -522,6 +522,7 @@ interface Actions {
   removePropertyKeyframe: (layerId: string, key: AnimatableProperty, frame: number) => void
   movePropertyKeyframe: (layerId: string, key: AnimatableProperty, fromFrame: number, toFrame: number) => void
   updatePropertyKeyframeEasing: (layerId: string, key: AnimatableProperty, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
+  duplicateKeyframe: (layerId: string, frame: number, propKey?: AnimatableProperty, targetFrame?: number) => void
   reorderLayers: (from: number, to: number) => void
   // Keyframes
   addKeyframe: (layerId: string, frame: number, props: TransformProps, easing?: string) => void
@@ -547,7 +548,7 @@ interface Actions {
   collapseAllGroups: () => void
   expandAllGroups: () => void
   // Playback
-  setCurrentFrame: (frame: number) => void
+  setCurrentFrame: (frame: number, options?: { preserveKeyframeSelection?: boolean }) => void
   setTotalFrames: (frames: number) => void
   setPlaying: (playing: boolean) => void
   setPlaybackRate: (rate: number) => void
@@ -564,6 +565,7 @@ interface Actions {
   setShowAllSubtracks: (show: boolean) => void
   setShowValueGraph: (show: boolean) => void
   setEditorViewport: (zoom: number, panX: number, panY: number) => void
+  setShowOutsideCanvas: (show: boolean) => void
   setEditingTextLayerId: (id: string | null) => void
   setTextSelection: (selection: { layerId: string; start: number; end: number } | null) => void
   updateTextSelectionStyle: (layerId: string, style: Partial<Pick<Layer, 'fontFamily' | 'fontSize' | 'fontWeight' | 'textColor' | 'letterSpacing'>>) => void
@@ -625,6 +627,7 @@ export const useStore = create<Store>()(
       editorZoom: 1,
       editorPanX: 0,
       editorPanY: 0,
+      showOutsideCanvas: false,
       editingTextLayerId: null,
       textSelection: null,
       activeInteractionCount: 0,
@@ -663,6 +666,7 @@ export const useStore = create<Store>()(
           editorZoom: project.editor.zoom ?? 1,
           editorPanX: project.editor.panX ?? 0,
           editorPanY: project.editor.panY ?? 0,
+          showOutsideCanvas: project.editor.showOutsideCanvas ?? false,
           editingTextLayerId: null,
           textSelection: null,
           activeInteractionCount: 0,
@@ -934,7 +938,7 @@ export const useStore = create<Store>()(
               ? s.selectedKeyframes.filter((kf) => !(kf.layerId === selection.layerId && kf.frame === selection.frame && kf.propKey === selection.propKey))
               : [...s.selectedKeyframes, selection]
             : [selection]
-          return { selectedKeyframes, selectedLayerIds: [selection.layerId] }
+          return { selectedKeyframes, selectedLayerIds: [selection.layerId], currentFrame: selection.frame }
         })
       },
 
@@ -1016,6 +1020,7 @@ export const useStore = create<Store>()(
             return nextLayer
           }),
           selectedKeyframes: s.selectedKeyframes.map((kf) => ({ ...kf, frame: kf.frame + appliedDelta })),
+          currentFrame: Math.max(0, Math.min(s.totalFrames - 1, s.currentFrame + appliedDelta)),
         }))
       },
 
@@ -1030,7 +1035,62 @@ export const useStore = create<Store>()(
       },
 
       setLayerAnimatedProperty: (id, key, value) => {
-        const { autoKeyframe, currentFrame } = get()
+        const { autoKeyframe, currentFrame, selectedKeyframes } = get()
+        const selectedKeyframe = selectedKeyframes.length === 1 && selectedKeyframes[0].layerId === id
+          ? selectedKeyframes[0]
+          : null
+
+        if (selectedKeyframe && !selectedKeyframe.propKey && key in DEFAULT_TRANSFORM && typeof value === 'number') {
+          if (get().activeInteractionCount === 0) get()._snapshot()
+          set((s) => {
+            const targetLayer = s.layers.find((layer) => layer.id === id)
+            const layers = s.layers.map((layer) => {
+              if (layer.id !== id) return layer
+              const target = key === 'x' || key === 'y' ? ensureGroupOrigin(layer) : layer
+              const existing = target.keyframes.find((kf) => kf.frame === selectedKeyframe.frame)
+              if (!existing) return target
+              return {
+                ...target,
+                keyframes: target.keyframes.map((kf) =>
+                  kf.frame === selectedKeyframe.frame
+                    ? { ...kf, props: { ...DEFAULT_TRANSFORM, ...kf.props, [key]: value } as TransformProps }
+                    : kf
+                ),
+              }
+            })
+            const skipAutoFitIds = (key === 'x' || key === 'y') && targetLayer && isGroupLayer(targetLayer)
+              ? new Set([id])
+              : new Set<string>()
+            return { layers: normalizeLayerTree(s, layers, id, false, skipAutoFitIds) }
+          })
+          return
+        }
+
+        if (selectedKeyframe?.propKey === key) {
+          if (get().activeInteractionCount === 0) get()._snapshot()
+          set((s) => ({
+            layers: normalizeLayerTree(
+              s,
+              s.layers.map((layer) => {
+                if (layer.id !== id) return layer
+                const frames = layer.propertyKeyframes?.[key]
+                if (!frames?.some((kf) => kf.frame === selectedKeyframe.frame)) return layer
+                return {
+                  ...layer,
+                  propertyKeyframes: {
+                    ...(layer.propertyKeyframes ?? {}),
+                    [key]: frames.map((kf) =>
+                      kf.frame === selectedKeyframe.frame ? { ...kf, value } : kf
+                    ),
+                  },
+                }
+              }),
+              id
+            ),
+          }))
+          return
+        }
+
         if (autoKeyframe) {
           if (key in DEFAULT_TRANSFORM && typeof value === 'number') {
             if (get().activeInteractionCount === 0) get()._snapshot()
@@ -1129,6 +1189,62 @@ export const useStore = create<Store>()(
               },
             }
           }),
+        }))
+      },
+
+      duplicateKeyframe: (layerId, frame, propKey, targetFrame = get().currentFrame) => {
+        const { layers, totalFrames } = get()
+        const layer = layers.find((item) => item.id === layerId)
+        if (!layer) return
+        const usedFrames = new Set(
+          propKey
+            ? (layer.propertyKeyframes?.[propKey] ?? []).map((kf) => kf.frame)
+            : layer.keyframes.map((kf) => kf.frame)
+        )
+        if (!usedFrames.has(frame)) return
+
+        let destination = Math.max(0, Math.min(totalFrames - 1, Math.round(targetFrame)))
+        if (destination === frame || usedFrames.has(destination)) {
+          destination = frame + 1
+          while (destination < totalFrames && usedFrames.has(destination)) destination += 1
+          if (destination >= totalFrames) {
+            destination = frame - 1
+            while (destination >= 0 && usedFrames.has(destination)) destination -= 1
+          }
+        }
+        if (destination < 0 || destination >= totalFrames || destination === frame) return
+
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((item) => {
+            if (item.id !== layerId) return item
+            if (propKey) {
+              const source = item.propertyKeyframes?.[propKey]?.find((kf) => kf.frame === frame)
+              if (!source) return item
+              return {
+                ...item,
+                propertyKeyframes: {
+                  ...(item.propertyKeyframes ?? {}),
+                  [propKey]: [
+                    ...(item.propertyKeyframes?.[propKey] ?? []).filter((kf) => kf.frame !== destination),
+                    { ...source, id: uid(), frame: destination },
+                  ].sort((a, b) => a.frame - b.frame),
+                },
+              }
+            }
+            const source = item.keyframes.find((kf) => kf.frame === frame)
+            if (!source) return item
+            return {
+              ...item,
+              keyframes: [
+                ...item.keyframes.filter((kf) => kf.frame !== destination),
+                { ...source, frame: destination, props: { ...source.props } },
+              ].sort((a, b) => a.frame - b.frame),
+            }
+          }),
+          selectedKeyframes: [{ layerId, frame: destination, propKey }],
+          selectedLayerIds: [layerId],
+          currentFrame: destination,
         }))
       },
 
@@ -1490,7 +1606,10 @@ export const useStore = create<Store>()(
         }))
       },
 
-      setCurrentFrame: (frame) => set({ currentFrame: frame }),
+      setCurrentFrame: (frame, options) => set((s) => ({
+        currentFrame: frame,
+        selectedKeyframes: options?.preserveKeyframeSelection ? s.selectedKeyframes : [],
+      })),
       setTotalFrames: (frames) => set({ totalFrames: frames }),
       setPlaying: (playing) => set({ isPlaying: playing }),
       setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.1, Math.min(4, rate)) }),
@@ -1510,6 +1629,7 @@ export const useStore = create<Store>()(
       setShowAllSubtracks: (show) => set({ showAllSubtracks: show }),
       setShowValueGraph: (show) => set({ showValueGraph: show }),
       setEditorViewport: (zoom, panX, panY) => set({ editorZoom: zoom, editorPanX: panX, editorPanY: panY }),
+      setShowOutsideCanvas: (show) => set({ showOutsideCanvas: show }),
       setEditingTextLayerId: (id) => set({ editingTextLayerId: id }),
       setTextSelection: (selection) => set({ textSelection: selection }),
       updateTextSelectionStyle: (layerId, style) => {
@@ -1566,6 +1686,7 @@ export const useStore = create<Store>()(
           editorZoom: s.editorZoom,
           editorPanX: s.editorPanX,
           editorPanY: s.editorPanY,
+          showOutsideCanvas: s.showOutsideCanvas,
         }
       },
       partialize: (s) => ({
@@ -1578,6 +1699,7 @@ export const useStore = create<Store>()(
         editorZoom: s.editorZoom,
         editorPanX: s.editorPanX,
         editorPanY: s.editorPanY,
+        showOutsideCanvas: s.showOutsideCanvas,
       }),
     }
   )

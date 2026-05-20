@@ -95,6 +95,28 @@ function savedTimelineH() {
   return v ? Math.max(MIN_TL_H, parseInt(v)) : 200
 }
 
+function fixedPopoverPosition(x: number, y: number, width: number, estimatedHeight: number, margin = 8) {
+  const viewportW = typeof window === 'undefined' ? 1280 : window.innerWidth
+  const viewportH = typeof window === 'undefined' ? 720 : window.innerHeight
+  const left = Math.max(margin, Math.min(x, viewportW - width - margin))
+  const opensUp = y + estimatedHeight + margin > viewportH
+
+  if (opensUp) {
+    return {
+      left,
+      bottom: Math.max(margin, viewportH - y),
+      maxHeight: Math.max(96, y - margin),
+    }
+  }
+
+  const top = Math.max(margin, Math.min(y, viewportH - estimatedHeight - margin))
+  return {
+    left,
+    top,
+    maxHeight: Math.max(96, viewportH - top - margin),
+  }
+}
+
 // ── Context menus ──────────────────────────────────────────────────────────
 interface KfContextMenu {
   x: number; y: number; layerId: string; frame: number
@@ -170,7 +192,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
     previewStateRef.current = { currentFrame, isPlaying, loopIn, loopOut, loopEnabled }
     setLoop(frame, nextFrame)
     setLoopEnabled(true)
-    setCurrentFrame(frame)
+    setCurrentFrame(frame, { preserveKeyframeSelection: true })
     setPlaying(true)
 
     return () => {
@@ -179,7 +201,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
       if (previous.loopIn === null || previous.loopOut === null) clearLoop()
       else setLoop(previous.loopIn, previous.loopOut)
       setLoopEnabled(previous.loopEnabled)
-      setCurrentFrame(previous.currentFrame)
+      setCurrentFrame(previous.currentFrame, { preserveKeyframeSelection: true })
       setPlaying(previous.isPlaying)
       previewStateRef.current = null
     }
@@ -472,8 +494,8 @@ function TrackRow({
           )
         })()}
 
-        {/* Keyframes */}
-        {(() => {
+        {/* Keyframes. A single transform keyframe is the layer base state, not an animation point. */}
+        {hasMultipleKf && (() => {
           const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
           return (
             <>
@@ -559,7 +581,7 @@ function TrackRow({
                         return (
                           <button
                             key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
-                            onClick={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
+                            onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey) }}
                             style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
                             title={t('timeline.easingTitle', { easing: kf.easing })}
                           >~</button>
@@ -575,10 +597,10 @@ function TrackRow({
                             top: graphH / 2 - 5,
                             width: 8,
                             height: 8,
-                            outline: selectedKeyframes.some((sel) => sel.layerId === layer.id && sel.frame === kf.frame && sel.propKey === propKey) ? '2px solid #fff' : undefined,
+                            outline: selectedKeyframes.some((sel) => sel.layerId === layer.id && sel.frame === kf.frame && sel.propKey === effectivePropKey) ? '2px solid #fff' : undefined,
                           }}
                           onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame, effectivePropKey) }}
-                          onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
+                          onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame, false, effectivePropKey)}
                           onClick={(e) => e.stopPropagation()}
                           title={`${propLabel(t, propKey)}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value}`}
                         />
@@ -690,7 +712,7 @@ export function Timeline() {
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, setPlaybackRate,
-    selectLayer, removeKeyframe, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe,
+    selectLayer, removeKeyframe, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe, duplicateKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
     updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById,
@@ -1017,6 +1039,7 @@ export function Timeline() {
         if (newFrame !== kfDrag.current.fromFrame) {
           if (kfDrag.current.propKey) movePropertyKeyframe(kfDrag.current.layerId, kfDrag.current.propKey, kfDrag.current.fromFrame, newFrame)
           else moveKeyframe(kfDrag.current.layerId, kfDrag.current.fromFrame, newFrame)
+          setCurrentFrame(newFrame, { preserveKeyframeSelection: true })
           kfDrag.current = { ...kfDrag.current, fromFrame: newFrame }
         }
         return
@@ -1041,7 +1064,7 @@ export function Timeline() {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
-  }, [totalFrames, fpx, moveKeyframe, movePropertyKeyframe, updateLayerTimeRange, setLayerRange, currentFrame, endInteraction])
+  }, [totalFrames, fpx, moveKeyframe, movePropertyKeyframe, updateLayerTimeRange, setLayerRange, setCurrentFrame, currentFrame, endInteraction])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -1146,6 +1169,15 @@ export function Timeline() {
   }
 
   const durationSec = totalFrames / fps
+  const keyframeMenuItemCount = kfContextMenu && !kfContextMenu.showEasing
+    ? 3 + (kfContextMenu.propKey ? 0 : 1) + (copiedKf && !kfContextMenu.propKey ? 1 : 0)
+    : 0
+  const keyframeMenuStyle = kfContextMenu && !kfContextMenu.showEasing
+    ? fixedPopoverPosition(kfContextMenu.x, kfContextMenu.y, 176, keyframeMenuItemCount * 30 + 8)
+    : null
+  const barMenuStyle = barContextMenu
+    ? fixedPopoverPosition(barContextMenu.x, barContextMenu.y, 190, 6 * 30 + 8)
+    : null
 
   return (
     <div style={{
@@ -1319,6 +1351,7 @@ export function Timeline() {
                 onKfMouseDown={onKfMouseDown}
                 onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => {
                   e.preventDefault(); e.stopPropagation()
+                  selectKeyframe({ layerId, frame, propKey })
                   setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing, propKey })
                 }}
                 onClick={() => selectLayer(layer.id)}
@@ -1363,11 +1396,12 @@ export function Timeline() {
 
       {/* Keyframe context menu */}
       {kfContextMenu && !kfContextMenu.showEasing && (
-        <div style={{ position: 'fixed', left: kfContextMenu.x, top: kfContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
+        <div style={{ position: 'fixed', ...keyframeMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
             { label: t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
-            { label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } },
+            { label: t('timeline.duplicateKeyframe'), danger: false, action: () => { duplicateKeyframe(kfContextMenu.layerId, kfContextMenu.frame, kfContextMenu.propKey, currentFrame); setKfContextMenu(null) } },
+            ...(!kfContextMenu.propKey ? [{ label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } }] : []),
             ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
             { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
           ].map(({ label, action, danger }) => (
@@ -1389,7 +1423,7 @@ export function Timeline() {
 
       {/* Bar context menu */}
       {barContextMenu && (
-        <div style={{ position: 'fixed', left: barContextMenu.x, top: barContextMenu.y, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 180, boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
+        <div style={{ position: 'fixed', ...barMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 180, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
             { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerInPoint(l); setBarContextMenu(null) } },

@@ -476,9 +476,10 @@ interface CompositionProps {
   canvasWidth: number
   canvasHeight: number
   backgroundColor?: string
+  showOutsideCanvas?: boolean
 }
 
-export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e' }: CompositionProps) {
+export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectLayer } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))
@@ -491,7 +492,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
 
   return (
     <div
-      style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: 'hidden' }}
+      style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
       onClick={() => selectLayer(null)}
     >
       {rootLayers.map((layer) => (

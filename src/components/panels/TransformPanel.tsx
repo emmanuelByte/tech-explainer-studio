@@ -832,6 +832,22 @@ export function TransformPanel() {
 
 export function SectionHeader({ label }: { label: string }) {
   return (
-    <div className="section-header">{label}</div>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '8px 12px',
+        borderTop: '1px solid var(--border)',
+        fontSize: 10,
+        fontWeight: 500,
+        textTransform: 'uppercase',
+        letterSpacing: '0.06em',
+        color: 'var(--text2)',
+        userSelect: 'none',
+      }}
+    >
+      {label}
+    </div>
   )
 }

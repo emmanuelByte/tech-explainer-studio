@@ -1,9 +1,241 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RotateCcw } from 'lucide-react'
 import { useStore } from '../../store'
 import { interpolateProps } from '../../remotion/interpolateProps'
 import { Keyframe, TransformProps, EasingType, Layer, TextRevealMode } from '../../types'
-import { SectionHeader } from './TransformPanel'
+import { Section, Row, NumField, SegGroup, ToggleRow } from './_panelKit'
+
+/* ──────────────────────────────────────────────────────────────
+   Rotation3DGizmo — interactive 3D rotation editor with a
+   cube body and colored axis sticks (X=red, Y=green, Z=blue).
+   - Drag the body to rotate Y (horizontal) and X (vertical)
+   - Shift + drag for Z rotation
+   - Reset button in corner
+   ────────────────────────────────────────────────────────────── */
+function Rotation3DGizmo({ rotateX, rotateY, rotateZ, onChange }: {
+  rotateX: number
+  rotateY: number
+  rotateZ: number
+  /** Batched update — gizmo passes any subset of axes that changed. */
+  onChange: (update: { rotateX?: number; rotateY?: number; rotateZ?: number }) => void
+}) {
+  const dragRef = useRef({
+    active: false, startX: 0, startY: 0,
+    startRotX: 0, startRotY: 0, startRotZ: 0,
+  })
+  const [dragging, setDragging] = useState(false)
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
+  function onMouseDown(e: React.MouseEvent) {
+    e.preventDefault()
+    dragRef.current = {
+      active: true,
+      startX: e.clientX, startY: e.clientY,
+      startRotX: rotateX, startRotY: rotateY, startRotZ: rotateZ,
+    }
+    setDragging(true)
+  }
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragRef.current.active) return
+      const dx = e.clientX - dragRef.current.startX
+      const dy = e.clientY - dragRef.current.startY
+      if (e.shiftKey) {
+        onChangeRef.current({ rotateZ: dragRef.current.startRotZ + dx * 0.8 })
+      } else {
+        // Single batched update so React doesn't drop one axis
+        onChangeRef.current({
+          rotateY: dragRef.current.startRotY + dx * 0.8,
+          rotateX: dragRef.current.startRotX - dy * 0.8,
+        })
+      }
+    }
+    function onUp() {
+      dragRef.current.active = false
+      setDragging(false)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+  }, [])
+
+  const AXIS = { x: '#ef4444', y: '#22c55e', z: '#3b82f6' } as const
+  const CUBE = 36
+  const STICK_LEN = 34
+  const STICK_W = 2
+
+  // Cube face style helper
+  const face = (transform: string, bg: string, border: string): React.CSSProperties => ({
+    position: 'absolute', inset: 0,
+    background: bg, border: `1px solid ${border}`,
+    transform,
+  })
+
+  // Axis stick (a thin bar coming out of the cube center along one axis)
+  // Each stick is positioned with translateZ to extend from the cube
+  const axisStick = (axis: 'x' | 'y' | 'z'): React.CSSProperties => {
+    const color = AXIS[axis]
+    if (axis === 'x') {
+      // along X axis (horizontal right), extends to +X
+      return {
+        position: 'absolute',
+        left: '50%', top: '50%',
+        width: STICK_LEN, height: STICK_W,
+        marginTop: -STICK_W / 2,
+        background: color,
+        transformOrigin: 'left center',
+        transform: 'rotateY(0deg)',
+      }
+    }
+    if (axis === 'y') {
+      // along Y axis (vertical up). In screen space, up is -Y.
+      return {
+        position: 'absolute',
+        left: '50%', top: '50%',
+        width: STICK_W, height: STICK_LEN,
+        marginLeft: -STICK_W / 2,
+        background: color,
+        transformOrigin: 'center bottom',
+        transform: 'translateY(-100%)',
+      }
+    }
+    // z axis — sticks toward camera (+Z)
+    return {
+      position: 'absolute',
+      left: '50%', top: '50%',
+      width: STICK_W, height: STICK_W,
+      marginLeft: -STICK_W / 2, marginTop: -STICK_W / 2,
+      background: color,
+      boxShadow: `0 0 0 1px ${color}`,
+      transform: `translateZ(${STICK_LEN}px)`,
+    }
+  }
+
+  // Axis end-cap dot (small sphere indicator at the tip of each axis)
+  const axisDot = (axis: 'x' | 'y' | 'z'): React.CSSProperties => {
+    const color = AXIS[axis]
+    const size = 6
+    const base: React.CSSProperties = {
+      position: 'absolute',
+      width: size, height: size,
+      borderRadius: '50%',
+      background: color,
+      boxShadow: `0 0 0 1px var(--panel)`,
+    }
+    if (axis === 'x') {
+      return { ...base, left: '50%', top: '50%', marginLeft: STICK_LEN - size / 2, marginTop: -size / 2 }
+    }
+    if (axis === 'y') {
+      return { ...base, left: '50%', top: '50%', marginLeft: -size / 2, marginTop: -STICK_LEN - size / 2 }
+    }
+    return {
+      ...base, left: '50%', top: '50%', marginLeft: -size / 2, marginTop: -size / 2,
+      transform: `translateZ(${STICK_LEN}px)`,
+    }
+  }
+
+  return (
+    <div style={{ position: 'relative', width: '100%' }}>
+      <div
+        onMouseDown={onMouseDown}
+        style={{
+          width: '100%', height: 140,
+          background: 'var(--input)',
+          border: `1px solid ${dragging ? 'var(--accent)' : 'var(--input-border)'}`,
+          borderRadius: 3,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          perspective: 380,
+          cursor: dragging ? 'grabbing' : 'grab',
+          userSelect: 'none',
+          overflow: 'hidden',
+          transition: 'border-color 0.1s',
+        }}
+        title="Drag to rotate · Shift+drag for Z"
+      >
+        {/* World grid (faded reference) */}
+        <svg
+          viewBox="0 0 200 140"
+          style={{ position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.12 }}
+        >
+          <line x1={100} y1={10} x2={100} y2={130} stroke="currentColor" strokeWidth={0.5} />
+          <line x1={20} y1={70} x2={180} y2={70} stroke="currentColor" strokeWidth={0.5} />
+          <ellipse cx={100} cy={70} rx={50} ry={14} fill="none" stroke="currentColor" strokeWidth={0.5} />
+        </svg>
+
+        {/* 3D body + local axes */}
+        <div
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: `rotateX(${rotateX}deg) rotateY(${rotateY}deg) rotateZ(${rotateZ}deg)`,
+            width: CUBE, height: CUBE,
+            position: 'relative',
+            transition: dragging ? 'none' : 'transform 0.08s linear',
+          }}
+        >
+          {/* Cube faces (6) — semi-transparent so axes stay visible */}
+          <div style={face(`translateZ(${CUBE / 2}px)`, 'rgba(13,153,255,0.45)', 'rgba(13,153,255,0.7)')} />
+          <div style={face(`rotateY(180deg) translateZ(${CUBE / 2}px)`, 'rgba(13,153,255,0.18)', 'rgba(13,153,255,0.35)')} />
+          <div style={face(`rotateY(90deg) translateZ(${CUBE / 2}px)`, 'rgba(239,68,68,0.35)', 'rgba(239,68,68,0.6)')} />
+          <div style={face(`rotateY(-90deg) translateZ(${CUBE / 2}px)`, 'rgba(239,68,68,0.18)', 'rgba(239,68,68,0.35)')} />
+          <div style={face(`rotateX(90deg) translateZ(${CUBE / 2}px)`, 'rgba(34,197,94,0.35)', 'rgba(34,197,94,0.6)')} />
+          <div style={face(`rotateX(-90deg) translateZ(${CUBE / 2}px)`, 'rgba(34,197,94,0.18)', 'rgba(34,197,94,0.35)')} />
+
+          {/* Axis sticks — rotate with the body, showing local orientation */}
+          <div style={axisStick('x')} />
+          <div style={axisStick('y')} />
+          <div style={axisStick('z')} />
+          <div style={axisDot('x')} />
+          <div style={axisDot('y')} />
+          <div style={axisDot('z')} />
+        </div>
+
+        {/* Legend */}
+        <div style={{ position: 'absolute', left: 6, bottom: 4, display: 'flex', gap: 8, fontSize: 9, color: 'var(--text3)' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: AXIS.x }} />X
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: AXIS.y }} />Y
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: AXIS.z }} />Z
+          </span>
+        </div>
+
+        {/* Reset button */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => onChange({ rotateX: 0, rotateY: 0, rotateZ: 0 })}
+          title="Reset"
+          style={{
+            position: 'absolute', top: 4, right: 4,
+            width: 22, height: 22, borderRadius: 3,
+            background: 'transparent', color: 'var(--text3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'color 0.1s, background 0.1s',
+          }}
+          onMouseEnter={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)';
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)'
+          }}
+          onMouseLeave={(e) => {
+            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text3)'
+          }}
+        >
+          <RotateCcw size={11} />
+        </button>
+      </div>
+    </div>
+  )
+}
 
 type PresetCategory = 'in' | 'out' | 'attention' | 'text'
 type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective'
@@ -294,50 +526,6 @@ function storedValue(value: number, percent?: boolean) {
   return percent ? value / 100 : value
 }
 
-function NumberTargetInput({ label, unit, value, disabled, step, min, max, precision, percent, onChange }: {
-  label: string
-  unit: string
-  value: number
-  disabled?: boolean
-  step: number
-  min?: number
-  max?: number
-  precision: number
-  percent?: boolean
-  onChange: (value: number) => void
-}) {
-  return (
-    <label className="block min-w-0">
-      <input
-        type="number"
-        min={min}
-        max={max}
-        step={step}
-        value={Number(displayValue(value, percent).toFixed(precision))}
-        disabled={disabled}
-        onChange={(e) => onChange(storedValue(Number(e.target.value), percent))}
-        className="input-base w-full text-right"
-      />
-      <span className="block text-[9px] leading-3 mt-0.5 uppercase" style={{ color: 'var(--text3)' }}>
-        {label}{unit ? ` (${unit})` : ''}
-      </span>
-    </label>
-  )
-}
-
-function MiniStepButton({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="icon-btn text-xs"
-      style={{ width: 28, height: 28, minWidth: 28, opacity: disabled ? 0.45 : 1 }}
-    >
-      {label}
-    </button>
-  )
-}
 
 export function AnimationPresetsPanel() {
   const { t } = useTranslation()
@@ -386,6 +574,22 @@ export function AnimationPresetsPanel() {
 
   function updateBuilder(key: MotionBuilderKey, patch: Partial<MotionBuilderState[MotionBuilderKey]>) {
     const next = { ...builder, [key]: { ...builder[key], ...patch } }
+    setBuilder(next)
+    applyBuilderMotion(next)
+  }
+
+  /**
+   * Batched update for multiple builder axes at once.
+   * Avoids React state-update collisions when the gizmo updates
+   * rotateX and rotateY together during the same mouse event.
+   */
+  function updateBuilderBatch(updates: Partial<{ rotateX: number; rotateY: number; rotateZ: number; scale: number; opacity: number; perspective: number; skewX: number; skewY: number }>) {
+    const next = { ...builder }
+    ;(Object.entries(updates) as Array<[MotionBuilderKey, number]>).forEach(([key, value]) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        next[key] = { enabled: true, to: value }
+      }
+    })
     setBuilder(next)
     applyBuilderMotion(next)
   }
@@ -444,216 +648,193 @@ export function AnimationPresetsPanel() {
     setDuration(Math.max(1, Math.min(duration, layerEnd - nextStart)))
   }
 
+  const builderRotateXYZ = ['rotateX', 'rotateY', 'rotateZ'] as const
+  const builderSkewXY = ['skewX', 'skewY'] as const
+  const otherBuilderFields = BUILDER_FIELDS.filter((f) => !builderRotateXYZ.includes(f.key as typeof builderRotateXYZ[number]) && !builderSkewXY.includes(f.key as typeof builderSkewXY[number]))
+
   return (
-    <div className="flex flex-col gap-0">
-      <SectionHeader label={t('motion.parameters')} />
-      <div className="px-3 pb-2 flex flex-col gap-1.5">
-        <div className="grid grid-cols-2 gap-1">
-          {(['seconds', 'frames'] as const).map((unit) => (
-            <button
-              key={unit}
-              onClick={() => setTimeUnit(unit)}
-              className="text-xs rounded py-1 transition-colors"
-              style={{
-                background: timeUnit === unit ? 'var(--accent-bg)' : 'var(--input)',
-                color: timeUnit === unit ? '#0d99ff' : 'var(--text2)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              {unit === 'seconds' ? t('motion.seconds') : t('motion.frames')}
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.duration')}</span>
-          <input
-            type="number"
+    <div>
+      {/* ── PARAMETERS ─────────────────────────────────── */}
+      <Section title={t('motion.parameters')}>
+        <Row label={t('motion.duration')}>
+          <SegGroup
+            value={timeUnit}
+            options={[
+              { value: 'seconds', label: t('motion.seconds') },
+              { value: 'frames', label: t('motion.frames') },
+            ]}
+            onChange={setTimeUnit}
+          />
+        </Row>
+        <Row label={t('motion.duration')}>
+          <NumField
+            leading="D"
+            value={durationValue}
             min={timeUnit === 'seconds' ? 0.01 : 1}
             step={timeUnit === 'seconds' ? 0.1 : 1}
-            value={durationValue}
-            onChange={(e) => setDurationFromInput(Number(e.target.value))}
-            className="input-base flex-1 w-0 text-right"
+            precision={timeUnit === 'seconds' ? 2 : 0}
+            unit={unitLabel}
+            sensitivity={timeUnit === 'seconds' ? 0.05 : 0.5}
+            onChange={setDurationFromInput}
           />
-          <span style={{ color: 'var(--text3)', fontSize: 10 }}>{unitLabel}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.startAt')}</span>
-          <input
-            type="number"
+        </Row>
+        <Row label={t('motion.startAt')}>
+          <NumField
+            leading="S"
+            value={startValue}
             min={0}
             step={timeUnit === 'seconds' ? 0.1 : 1}
-            value={startValue}
-            onChange={(e) => setStartFromInput(Number(e.target.value))}
-            className="input-base flex-1 w-0 text-right"
+            precision={timeUnit === 'seconds' ? 2 : 0}
+            unit={unitLabel}
+            sensitivity={timeUnit === 'seconds' ? 0.05 : 0.5}
+            onChange={setStartFromInput}
           />
-          <span style={{ color: 'var(--text3)', fontSize: 10 }}>{unitLabel}</span>
-        </div>
+        </Row>
         <button
           onClick={syncToPlayhead}
-          className="text-xs rounded py-1 transition-colors"
-          style={{ background: 'var(--input)', color: 'var(--text2)', border: '1px solid var(--border)' }}
+          style={{
+            width: '100%', height: 26, fontSize: 11,
+            background: 'var(--input)', color: 'var(--text2)',
+            border: '1px solid var(--input-border)', borderRadius: 3,
+            transition: 'background 0.1s',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--input)' }}
         >
           {t('motion.usePlayhead', { seconds: (currentFrame / fps).toFixed(2), frames: currentFrame })}
         </button>
-        <div className="flex items-center gap-2">
-          <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('motion.easing')}</span>
-          <select value={easing} onChange={(e) => setEasing(e.target.value as EasingType)}
-            className="input-base flex-1"
-          >
+        <Row label={t('motion.easing')}>
+          <select value={easing} onChange={(e) => setEasing(e.target.value as EasingType)} className="input-base" style={{ flex: 1, height: 26 }}>
             {EASINGS.map((e) => <option key={e} value={e}>{e}</option>)}
           </select>
-        </div>
-      </div>
+        </Row>
+      </Section>
 
-      <SectionHeader label={t('motion.custom3d')} />
-      <div className="px-3 pb-3 flex flex-col gap-2">
-        <div className="rounded-md px-2 py-2" style={{ background: 'var(--input)', border: '1px solid var(--border)' }}>
-          <div className="text-[10px] font-semibold uppercase mb-1.5" style={{ color: 'var(--text3)' }}>
-            {t('motion.rotation')}
-          </div>
-          <div className="grid grid-cols-[58px_1fr_58px] gap-1.5 items-center">
-            <NumberTargetInput
-              label="Y" unit="deg" value={builder.rotateY.to} step={1} precision={0}
-              onChange={(value) => updateBuilder('rotateY', { enabled: true, to: value })}
-            />
-            <div className="grid grid-cols-3 gap-1 place-items-center">
-              <span />
-              <MiniStepButton label="↑" onClick={() => updateBuilder('rotateX', { enabled: true, to: builder.rotateX.to - 15 })} />
-              <span />
-              <MiniStepButton label="←" onClick={() => updateBuilder('rotateY', { enabled: true, to: builder.rotateY.to - 15 })} />
-              <button
-                type="button"
-                className="rounded-full"
-                onClick={() => updateBuilder('rotateZ', { enabled: true, to: builder.rotateZ.to + 15 })}
-                title={t('motion.rotateZ')}
-                style={{ width: 26, height: 26, border: '1px solid var(--border)', background: 'var(--panel)', color: '#0d99ff' }}
-              >
-                •
-              </button>
-              <MiniStepButton label="→" onClick={() => updateBuilder('rotateY', { enabled: true, to: builder.rotateY.to + 15 })} />
-              <span />
-              <MiniStepButton label="↓" onClick={() => updateBuilder('rotateX', { enabled: true, to: builder.rotateX.to + 15 })} />
-              <span />
-            </div>
-            <NumberTargetInput
-              label="Z" unit="deg" value={builder.rotateZ.to} step={1} precision={0}
-              onChange={(value) => updateBuilder('rotateZ', { enabled: true, to: value })}
-            />
-          </div>
-          <div className="mt-1.5">
-            <NumberTargetInput
-              label="X" unit="deg" value={builder.rotateX.to} step={1} precision={0}
-              onChange={(value) => updateBuilder('rotateX', { enabled: true, to: value })}
-            />
-          </div>
-        </div>
+      {/* ── CUSTOM 3D ─────────────────────────────────── */}
+      <Section title={t('motion.custom3d')} defaultOpen={false}>
+        {/* Interactive 3D gizmo */}
+        <Rotation3DGizmo
+          rotateX={builder.rotateX.to}
+          rotateY={builder.rotateY.to}
+          rotateZ={builder.rotateZ.to}
+          onChange={(update) => updateBuilderBatch(update)}
+        />
 
-        <div className="rounded-md px-2 py-2" style={{ background: 'var(--input)', border: '1px solid var(--border)' }}>
-          <div className="text-[10px] font-semibold uppercase mb-1.5" style={{ color: 'var(--text3)' }}>
-            {t('motion.skew')}
-          </div>
-          <div className="grid grid-cols-[58px_1fr_58px] gap-1.5 items-center">
-            <NumberTargetInput
-              label="X" unit="deg" value={builder.skewX.to} step={1} precision={0}
-              onChange={(value) => updateBuilder('skewX', { enabled: true, to: value })}
-            />
-            <div className="grid grid-cols-3 gap-1 place-items-center">
-              <span />
-              <MiniStepButton label="↑" onClick={() => updateBuilder('skewY', { enabled: true, to: builder.skewY.to - 5 })} />
-              <span />
-              <MiniStepButton label="←" onClick={() => updateBuilder('skewX', { enabled: true, to: builder.skewX.to - 5 })} />
-              <span style={{ width: 22, height: 22, borderRadius: 999, border: '1px solid var(--border)', background: 'var(--panel)' }} />
-              <MiniStepButton label="→" onClick={() => updateBuilder('skewX', { enabled: true, to: builder.skewX.to + 5 })} />
-              <span />
-              <MiniStepButton label="↓" onClick={() => updateBuilder('skewY', { enabled: true, to: builder.skewY.to + 5 })} />
-              <span />
-            </div>
-            <NumberTargetInput
-              label="Y" unit="deg" value={builder.skewY.to} step={1} precision={0}
-              onChange={(value) => updateBuilder('skewY', { enabled: true, to: value })}
-            />
-          </div>
+        {/* Rotation (3 axes) — numeric inputs sync with gizmo */}
+        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 6, marginBottom: 2 }}>
+          {t('motion.rotation')}
         </div>
-
-        {BUILDER_FIELDS.map((field) => {
-          if (field.key === 'rotateX' || field.key === 'rotateY' || field.key === 'rotateZ' || field.key === 'skewX' || field.key === 'skewY') return null
-          const item = builder[field.key]
-          const disabled = !item.enabled
+        {builderRotateXYZ.map((key) => {
+          const item = builder[key]
+          const axisColor = key === 'rotateX' ? '#ef4444' : key === 'rotateY' ? '#22c55e' : '#3b82f6'
+          const axisLetter = key === 'rotateX' ? 'X' : key === 'rotateY' ? 'Y' : 'Z'
           return (
-            <div
-              key={field.key}
-              className="rounded-md px-2 py-1.5"
-              style={{ background: 'var(--input)', border: '1px solid var(--border)', opacity: disabled ? 0.62 : 1 }}
-            >
-              <label className="flex items-center gap-2 min-w-0">
-                <input
-                  type="checkbox"
-                  checked={item.enabled}
-                  onChange={(e) => updateBuilder(field.key, { enabled: e.target.checked })}
-                  className="accent-[#0d99ff] flex-shrink-0"
-                  aria-label={t(`motion.${field.labelKey}`)}
-                />
-                <span className="text-xs font-medium min-w-0 flex-1" style={{ color: disabled ? 'var(--text3)' : 'var(--text2)' }}>
-                  {t(`motion.${field.labelKey}`)}
-                </span>
-                <span className="text-[10px] flex-shrink-0" style={{ color: 'var(--text3)' }}>{field.unit}</span>
-              </label>
-              <label className="block min-w-0 mt-1.5">
-                <input
-                  type="number"
-                  min={field.min}
-                  max={field.max}
-                  step={field.step}
-                  value={Number(displayValue(item.to, field.percent).toFixed(field.precision))}
-                  disabled={disabled}
-                  onChange={(e) => updateBuilder(field.key, { to: storedValue(Number(e.target.value), field.percent) })}
-                  className="input-base w-full text-right"
-                />
-                <span className="block text-[9px] leading-3 mt-0.5 uppercase" style={{ color: 'var(--text3)' }}>
-                  {t('motion.target')}
-                </span>
-              </label>
+            <Row key={key} label={axisLetter}>
+              <NumField
+                leading={<span style={{ display: 'flex', alignItems: 'center', gap: 3 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: axisColor }} />{axisLetter}</span>}
+                value={item.to}
+                step={1}
+                precision={0}
+                unit="°"
+                onChange={(v) => updateBuilder(key, { enabled: true, to: v })}
+              />
+            </Row>
+          )
+        })}
+
+        {/* Skew (2 axes) */}
+        <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 8, marginBottom: 2 }}>
+          {t('motion.skew')}
+        </div>
+        {builderSkewXY.map((key) => {
+          const item = builder[key]
+          const axisLetter = key === 'skewX' ? 'X' : 'Y'
+          return (
+            <Row key={key} label={axisLetter}>
+              <NumField
+                leading={axisLetter}
+                value={item.to}
+                step={1}
+                precision={0}
+                unit="°"
+                onChange={(v) => updateBuilder(key, { enabled: true, to: v })}
+              />
+            </Row>
+          )
+        })}
+
+        {/* Other builder fields (scale, opacity, perspective) */}
+        {otherBuilderFields.length > 0 && (
+          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 8, marginBottom: 2 }}>
+            {t('motion.target')}
+          </div>
+        )}
+        {otherBuilderFields.map((field) => {
+          const item = builder[field.key]
+          return (
+            <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <ToggleRow
+                label={t(`motion.${field.labelKey}`)}
+                checked={item.enabled}
+                onChange={(v) => updateBuilder(field.key, { enabled: v })}
+              />
+              {item.enabled && (
+                <Row label="">
+                  <NumField
+                    leading={field.key.charAt(0).toUpperCase()}
+                    value={Number(displayValue(item.to, field.percent).toFixed(field.precision))}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    precision={field.precision}
+                    unit={field.unit === 'deg' ? '°' : field.unit}
+                    onChange={(v) => updateBuilder(field.key, { to: storedValue(v, field.percent) })}
+                  />
+                </Row>
+              )}
             </div>
           )
         })}
-      </div>
+      </Section>
 
-      <SectionHeader label={t('motion.presets')} />
-      {/* Category tabs */}
-      <div className="px-3 pb-2 flex gap-1">
-        {categories.map((cat) => (
-          <button key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className="flex-1 text-xs rounded py-1 capitalize transition-colors"
-            style={{
-              background: safeActiveCategory === cat ? 'var(--accent)' : 'var(--input)',
-              color: safeActiveCategory === cat ? '#fff' : 'var(--text2)',
-              border: '1px solid var(--border)',
-            }}
-          >
-            {t(`motion.${cat}`, { defaultValue: CATEGORY_LABELS[cat] })}
-          </button>
-        ))}
-      </div>
-
-      <div className="px-3 pb-3 grid grid-cols-2 gap-1.5">
-        {Object.entries(PRESETS)
-          .filter(([, def]) => def.category === safeActiveCategory && (!def.textOnly || layer.type === 'text'))
-          .map(([key, def]) => (
-            <button
-              key={key}
-              onClick={() => applyPreset(key)}
-              className="text-xs rounded px-2 py-2 text-left transition-all hover:scale-[1.02] active:scale-95"
-              style={{
-                background: 'var(--input)',
-                color: 'var(--text)',
-                border: '1px solid var(--border)',
-              }}
-            >
-              {t(`motion.${key}`, { defaultValue: def.label })}
-            </button>
-          ))}
-      </div>
+      {/* ── PRESETS ──────────────────────────────────────── */}
+      <Section title={t('motion.presets')}>
+        <SegGroup
+          value={safeActiveCategory}
+          options={categories.map((cat) => ({
+            value: cat,
+            label: t(`motion.${cat}`, { defaultValue: CATEGORY_LABELS[cat] }),
+          }))}
+          onChange={setActiveCategory}
+        />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, marginTop: 6 }}>
+          {Object.entries(PRESETS)
+            .filter(([, def]) => def.category === safeActiveCategory && (!def.textOnly || layer.type === 'text'))
+            .map(([key, def]) => (
+              <button
+                key={key}
+                onClick={() => applyPreset(key)}
+                style={{
+                  fontSize: 11, color: 'var(--text)', textAlign: 'left',
+                  padding: '6px 8px', borderRadius: 3,
+                  background: 'var(--input)',
+                  border: '1px solid var(--input-border)',
+                  transition: 'background 0.1s, border-color 0.1s',
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--accent)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background = 'var(--input)';
+                  (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--input-border)';
+                }}
+              >
+                {t(`motion.${key}`, { defaultValue: def.label })}
+              </button>
+            ))}
+        </div>
+      </Section>
     </div>
   )
 }

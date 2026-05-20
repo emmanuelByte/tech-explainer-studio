@@ -1,6 +1,28 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
 import { interpolateProps } from '../remotion/interpolateProps'
+import { AnimatableProperty, KeyframeSelection, PairEasingType, TransformProps } from '../types'
+
+type KeyframeClipboardItem =
+  | {
+    kind: 'transform'
+    layerId: string
+    offset: number
+    props: TransformProps
+    easing: PairEasingType
+    bezier?: [number, number, number, number]
+  }
+  | {
+    kind: 'property'
+    layerId: string
+    propKey: AnimatableProperty
+    offset: number
+    value: number | string
+    easing: PairEasingType
+    bezier?: [number, number, number, number]
+  }
+
+let keyframeClipboard: KeyframeClipboardItem[] = []
 
 function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['layers'], selectedIds: string[]) {
   const ids = new Set<string>()
@@ -10,6 +32,65 @@ function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['l
     ids.add(id)
   })
   return [...ids]
+}
+
+function copySelectedKeyframes(store: ReturnType<typeof useStore.getState>) {
+  const selected = store.selectedKeyframes
+  if (!selected.length) return false
+  const minFrame = Math.min(...selected.map((kf) => kf.frame))
+  const items = selected.flatMap((selection): KeyframeClipboardItem[] => {
+    const layer = store.layers.find((item) => item.id === selection.layerId)
+    if (!layer) return []
+    if (selection.propKey) {
+      const source = layer.propertyKeyframes?.[selection.propKey]?.find((kf) => kf.frame === selection.frame)
+      if (!source) return []
+      return [{
+        kind: 'property',
+        layerId: layer.id,
+        propKey: selection.propKey,
+        offset: selection.frame - minFrame,
+        value: source.value,
+        easing: source.easing,
+        bezier: source.bezier,
+      }]
+    }
+    const source = layer.keyframes.find((kf) => kf.frame === selection.frame)
+    if (!source) return []
+    return [{
+      kind: 'transform',
+      layerId: layer.id,
+      offset: selection.frame - minFrame,
+      props: { ...source.props },
+      easing: source.easing,
+      bezier: source.bezier,
+    }]
+  })
+  if (!items.length) return false
+  keyframeClipboard = items
+  return true
+}
+
+function pasteKeyframeClipboard(store: ReturnType<typeof useStore.getState>) {
+  if (!keyframeClipboard.length) return false
+  const nextSelection: KeyframeSelection[] = []
+  keyframeClipboard.forEach((item) => {
+    const layer = store.layers.find((candidate) => candidate.id === item.layerId)
+    if (!layer) return
+    const frame = Math.max(0, Math.min(store.totalFrames - 1, store.currentFrame + item.offset))
+    if (item.kind === 'property') {
+      store.addPropertyKeyframe(item.layerId, item.propKey, frame, item.value)
+      store.updatePropertyKeyframeEasing(item.layerId, item.propKey, frame, item.easing, item.bezier)
+      nextSelection.push({ layerId: item.layerId, frame, propKey: item.propKey })
+      return
+    }
+    store.addKeyframe(item.layerId, frame, { ...item.props }, item.easing)
+    store.updateKeyframeEasing(item.layerId, frame, item.easing, item.bezier)
+    nextSelection.push({ layerId: item.layerId, frame })
+  })
+  if (!nextSelection.length) return false
+  store.selectKeyframe(nextSelection[0])
+  nextSelection.slice(1).forEach((selection) => store.selectKeyframe(selection, true))
+  return true
 }
 
 export function useKeyboardShortcuts() {
@@ -27,6 +108,23 @@ export function useKeyboardShortcuts() {
       }
       if (e.key === 'z' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault(); store.undo(); return
+      }
+
+      // Keyframe clipboard
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && store.selectedKeyframes.length) {
+        e.preventDefault()
+        copySelectedKeyframes(store)
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x' && store.selectedKeyframes.length) {
+        e.preventDefault()
+        if (copySelectedKeyframes(store)) store.deleteSelectedKeyframes()
+        return
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && keyframeClipboard.length) {
+        e.preventDefault()
+        pasteKeyframeClipboard(store)
+        return
       }
 
       // Parenting / ordering

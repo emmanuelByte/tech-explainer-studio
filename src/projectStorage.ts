@@ -251,6 +251,7 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
       panY: s.editorPanY,
       selectedLayerIds: s.selectedLayerIds,
       playheadFrame: s.currentFrame,
+      showOutsideCanvas: s.showOutsideCanvas,
     },
   }
   project.thumbnail = thumbnailFor(project)
@@ -284,7 +285,7 @@ export function createBlankProject(options: {
     layers: [],
     guides: [],
     timeline: { zoom: 1, scrollX: 0 },
-    editor: { zoom: 1, panX: 0, panY: 0, selectedLayerIds: [], playheadFrame: 0 },
+    editor: { zoom: 1, panX: 0, panY: 0, selectedLayerIds: [], playheadFrame: 0, showOutsideCanvas: false },
   }
   project.thumbnail = thumbnailFor(project)
   return project

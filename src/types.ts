@@ -220,6 +220,7 @@ export interface MotionProject {
     panY: number
     selectedLayerIds: string[]
     playheadFrame: number
+    showOutsideCanvas?: boolean
   }
 }
 
@@ -299,6 +300,7 @@ export interface EditorState {
   editorZoom: number
   editorPanX: number
   editorPanY: number
+  showOutsideCanvas: boolean
   editingTextLayerId: string | null
   textSelection: { layerId: string; start: number; end: number } | null
   activeInteractionCount: number

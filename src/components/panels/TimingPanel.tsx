@@ -1,21 +1,6 @@
-import { Clock3 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
-import { ScrubField } from './ScrubField'
-
-function PanelGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="mx-2 my-2 rounded-md overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--panel)' }}>
-      <div className="flex items-center gap-1.5 px-2.5 py-2" style={{ borderBottom: '1px solid var(--border)', color: 'var(--text2)' }}>
-        <Clock3 size={13} />
-        <span className="text-[10px] font-semibold uppercase tracking-widest">{title}</span>
-      </div>
-      <div className="p-2 flex flex-col gap-2">
-        {children}
-      </div>
-    </section>
-  )
-}
+import { Section, Row, NumField } from './_panelKit'
 
 export function TimingPanel() {
   const { t } = useTranslation()
@@ -46,40 +31,44 @@ export function TimingPanel() {
   const isGroup = layer.type === 'group' || layer.isGroup
 
   return (
-    <PanelGroup title={t('timeline.editTiming')}>
-      <ScrubField
-        label={t('timeline.startTime')}
-        value={startFrame / fps}
-        min={0}
-        max={(endFrame - 1) / fps}
-        step={0.1}
-        sensitivity={0.05}
-        precision={2}
-        unit="s"
-        onChange={(v) => {
-          const nextStart = Math.round(v * fps)
-          const duration = Math.max(1, endFrame - startFrame)
-          setLayerRange(layer.id, nextStart, Math.min(totalFrames, nextStart + duration))
-        }}
-      />
-      <ScrubField
-        label={t('transform.end')}
-        value={endFrame / fps}
-        min={(startFrame + 1) / fps}
-        max={durationSec}
-        step={0.1}
-        sensitivity={0.05}
-        precision={2}
-        unit="s"
-        onChange={(v) => {
-          const nextEnd = Math.round(v * fps)
-          if (isGroup) setLayerRange(layer.id, startFrame, nextEnd)
-          else updateLayerTimeRange(layer.id, startFrame, nextEnd)
-        }}
-      />
-      <div className="px-3 pb-1 text-[10px]" style={{ color: 'var(--text3)' }}>
+    <Section title={t('timeline.editTiming')}>
+      <Row label={t('timeline.startTime')}>
+        <NumField
+          leading="S"
+          value={parseFloat((startFrame / fps).toFixed(2))}
+          min={0}
+          max={(endFrame - 1) / fps}
+          step={0.1}
+          precision={2}
+          unit="s"
+          sensitivity={0.05}
+          onChange={(v) => {
+            const nextStart = Math.round(v * fps)
+            const duration = Math.max(1, endFrame - startFrame)
+            setLayerRange(layer.id, nextStart, Math.min(totalFrames, nextStart + duration))
+          }}
+        />
+      </Row>
+      <Row label={t('transform.end')}>
+        <NumField
+          leading="E"
+          value={parseFloat((endFrame / fps).toFixed(2))}
+          min={(startFrame + 1) / fps}
+          max={durationSec}
+          step={0.1}
+          precision={2}
+          unit="s"
+          sensitivity={0.05}
+          onChange={(v) => {
+            const nextEnd = Math.round(v * fps)
+            if (isGroup) setLayerRange(layer.id, startFrame, nextEnd)
+            else updateLayerTimeRange(layer.id, startFrame, nextEnd)
+          }}
+        />
+      </Row>
+      <div style={{ fontSize: 10, color: 'var(--text3)' }}>
         {t('common.frames')} {startFrame}-{endFrame}
       </div>
-    </PanelGroup>
+    </Section>
   )
 }
