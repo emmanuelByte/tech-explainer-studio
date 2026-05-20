@@ -28,7 +28,7 @@ export function PreviewCanvas() {
     layers, currentFrame, totalFrames, fps,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
     setCanvasPreset, setCustomDimension, currentTool,
-    editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas,
+    editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas, selectLayers,
   } = useStore()
 
   const playerRef = useRef<PlayerRef>(null)
@@ -227,6 +227,11 @@ export function PreviewCanvas() {
   }, [])
 
   function onMouseDown(e: React.MouseEvent) {
+    const clickedCanvas = playerWrapperRef.current?.contains(e.target as Node) ?? false
+    if (e.button === 0 && !clickedCanvas && !spaceHeld.current && currentTool !== 'hand') {
+      selectLayers([])
+    }
+
     if (e.button === 1 || (e.button === 0 && spaceHeld.current) || currentTool === 'hand') {
       e.preventDefault()
       const state = useStore.getState()

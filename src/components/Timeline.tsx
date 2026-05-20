@@ -189,11 +189,13 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
     setPlaying,
   } = useStore()
   const layer = layers.find((item) => item.id === layerId)
-  const current = propKey
-    ? layer?.propertyKeyframes?.[propKey]?.find((kf) => kf.frame === frame)
+  const propertyFrames = propKey ? layer?.propertyKeyframes?.[propKey] ?? [] : []
+  const usesPropertyFrames = Boolean(propKey && propertyFrames.length)
+  const current = usesPropertyFrames
+    ? propertyFrames.find((kf) => kf.frame === frame)
     : layer?.keyframes.find((kf) => kf.frame === frame)
-  const sortedFrames = propKey
-    ? [...(layer?.propertyKeyframes?.[propKey] ?? [])].sort((a, b) => a.frame - b.frame).map((kf) => kf.frame)
+  const sortedFrames = usesPropertyFrames
+    ? [...propertyFrames].sort((a, b) => a.frame - b.frame).map((kf) => kf.frame)
     : [...(layer?.keyframes ?? [])].sort((a, b) => a.frame - b.frame).map((kf) => kf.frame)
   const nextFrame = sortedFrames.find((item) => item > frame)
   const [selectedEasing, setSelectedEasing] = useState<PairEasingType>(current?.easing ?? 'ease-out')
@@ -228,14 +230,14 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
 
   function apply(easing: PairEasingType) {
     setSelectedEasing(easing)
-    if (propKey) updatePropertyKeyframeEasing(layerId, propKey, frame, easing, easing === 'custom' ? bezier : undefined)
+    if (propKey && usesPropertyFrames) updatePropertyKeyframeEasing(layerId, propKey, frame, easing, easing === 'custom' ? bezier : undefined)
     else updateKeyframeEasing(layerId, frame, easing, easing === 'custom' ? bezier : undefined)
   }
   function updateBezier(index: number, value: number) {
     const next = bezier.map((item, idx) => idx === index ? value : item) as [number, number, number, number]
     setBezier(next)
     if (selectedEasing === 'custom') {
-      if (propKey) updatePropertyKeyframeEasing(layerId, propKey, frame, 'custom', next)
+      if (propKey && usesPropertyFrames) updatePropertyKeyframeEasing(layerId, propKey, frame, 'custom', next)
       else updateKeyframeEasing(layerId, frame, 'custom', next)
     }
   }
@@ -562,6 +564,7 @@ function TrackRow({
                 {groupProps.map((propKey) => {
                   const propKfs = getPropertyKeyframes(layer, propKey)
                   const effectivePropKey = propKey
+                  const easingPropKey = propKfs.length ? propKey : undefined
                   const sourceKfs = propKfs.length
                     ? propKfs
                     : getTransformPropertyKeyframes(layer, propKey)
@@ -600,7 +603,7 @@ function TrackRow({
                         return (
                           <button
                             key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
-                            onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey) }}
+                            onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true, easingPropKey) }}
                             style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
                             title={t('timeline.easingTitle', { easing: kf.easing })}
                           >~</button>
@@ -1418,8 +1421,8 @@ export function Timeline() {
         <div style={{ position: 'fixed', ...keyframeMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
           onClick={(e) => e.stopPropagation()}>
           {[
-            { label: t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
-            { label: t('timeline.duplicateKeyframe'), danger: false, action: () => { duplicateKeyframe(kfContextMenu.layerId, kfContextMenu.frame, kfContextMenu.propKey, currentFrame); setKfContextMenu(null) } },
+            { label: kfContextMenu.propKey ? t('timeline.deleteKeyframeValue') : t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
+            { label: kfContextMenu.propKey ? t('timeline.duplicateKeyframeValue') : t('timeline.duplicateKeyframe'), danger: false, action: () => { duplicateKeyframe(kfContextMenu.layerId, kfContextMenu.frame, kfContextMenu.propKey, currentFrame); setKfContextMenu(null) } },
             ...(!kfContextMenu.propKey ? [{ label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } }] : []),
             ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
             { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },

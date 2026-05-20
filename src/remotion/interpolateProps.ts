@@ -64,12 +64,12 @@ export function buildTransform(p: TransformProps): string {
   return [
     `perspective(${p.perspective}px)`,
     `translate(${p.x}px,${p.y}px)`,
-    `scale(${p.scale * p.scaleX},${p.scale * p.scaleY})`,
     `rotateX(${p.rotateX}deg)`,
     `rotateY(${p.rotateY}deg)`,
     `rotateZ(${p.rotateZ}deg)`,
     `skewX(${p.skewX}deg)`,
     `skewY(${p.skewY}deg)`,
+    `scale(${p.scale * p.scaleX},${p.scale * p.scaleY})`,
   ].join(' ')
 }
 

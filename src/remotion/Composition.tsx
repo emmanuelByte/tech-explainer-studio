@@ -176,7 +176,6 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
     transformStyle: 'preserve-3d',
-    perspective: p.perspective,
     filter: buildFilter(p),
     boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,

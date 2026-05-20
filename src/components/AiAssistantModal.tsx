@@ -18,6 +18,9 @@ type AiAction =
     fillColor?: string
     textColor?: string
     fontSize?: number
+    clientId?: string
+    parentId?: string | null
+    parentClientId?: string
     props?: Record<string, unknown>
     transform?: Partial<TransformProps>
   }
@@ -39,6 +42,8 @@ const LAYER_PROPS = new Set<keyof Layer>([
   'height',
   'fillType',
   'fillColor',
+  'gradientStops',
+  'gradientAngle',
   'strokeEnabled',
   'strokeColor',
   'strokeWidth',
@@ -55,6 +60,13 @@ const LAYER_PROPS = new Set<keyof Layer>([
   'lineHeight',
   'textColor',
   'textRevealMode',
+  'imageFit',
+  'svgStrokeColor',
+  'svgFillColor',
+  'svgFillEnabled',
+  'svgStrokeWidth',
+  'startFrame',
+  'endFrame',
   'layoutMode',
   'layoutDirection',
   'layoutGap',
@@ -88,10 +100,17 @@ function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame:
         locked: layer.locked,
         width: layer.width,
         height: layer.height,
+        fillType: layer.fillType,
         text: layer.type === 'text' ? layer.text : undefined,
         fillColor: layer.fillColor,
+        strokeEnabled: layer.strokeEnabled,
+        strokeColor: layer.strokeColor,
+        strokeWidth: layer.strokeWidth,
         textColor: layer.textColor,
+        textAlign: layer.textAlign,
+        fontFamily: layer.fontFamily,
         fontSize: layer.fontSize,
+        fontWeight: layer.fontWeight,
         startFrame: layer.startFrame,
         endFrame: layer.endFrame,
         transform: {
@@ -99,7 +118,11 @@ function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame:
           y: resolved.transform.y,
           scale: resolved.transform.scale,
           opacity: resolved.transform.opacity,
+          rotateX: resolved.transform.rotateX,
+          rotateY: resolved.transform.rotateY,
           rotateZ: resolved.transform.rotateZ,
+          skewX: resolved.transform.skewX,
+          skewY: resolved.transform.skewY,
         },
       }
     }),
@@ -114,17 +137,27 @@ function layerTarget(actionLayerId: string, selectedLayerIds: string[], layers: 
 function applyAiActions(response: AiResponse) {
   const store = useStore.getState()
   const createdIds: string[] = []
+  const clientIdMap = new Map<string, string>()
 
   response.actions?.forEach((action) => {
     const latest = useStore.getState()
     if (action.type === 'create_layer') {
       if (!['text', 'rectangle', 'ellipse', 'triangle', 'line', 'path', 'group'].includes(action.layerType)) return
+      const explicitProps = action.props ?? {}
+      const resolvedParentId = action.parentClientId
+        ? clientIdMap.get(action.parentClientId) ?? null
+        : action.parentId === null
+          ? null
+          : latest.layers.find((layer) => layer.id === action.parentId)?.id ?? null
       const overrides: Partial<Layer> = {
+        ...(action.layerType === 'group' ? { fillType: 'none' as const, fillColor: 'transparent', strokeEnabled: false } : {}),
         ...(Object.fromEntries(
-          Object.entries(action.props ?? {}).filter(([key]) => LAYER_PROPS.has(key as keyof Layer))
+          Object.entries(explicitProps).filter(([key]) => LAYER_PROPS.has(key as keyof Layer))
         ) as Partial<Layer>),
         ...(typeof action.name === 'string' ? { name: action.name } : {}),
         ...(action.layerType === 'text' ? { text: action.text ?? (typeof action.props?.text === 'string' ? action.props.text : 'AI text') } : {}),
+        ...(action.layerType === 'text' && explicitProps.fillType === undefined ? { fillType: 'none' } : {}),
+        ...(resolvedParentId !== null ? { parentId: resolvedParentId } : {}),
         ...(typeof action.width === 'number' ? { width: action.width } : {}),
         ...(typeof action.height === 'number' ? { height: action.height } : {}),
         ...(typeof action.fillColor === 'string' ? { fillColor: action.fillColor } : {}),
@@ -150,6 +183,7 @@ function applyAiActions(response: AiResponse) {
         }]
       }
       const id = store.addGeneratedLayer(action.layerType, overrides)
+      if (typeof action.clientId === 'string' && action.clientId.trim()) clientIdMap.set(action.clientId, id)
       createdIds.push(id)
       return
     }
