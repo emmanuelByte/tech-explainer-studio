@@ -99,15 +99,13 @@ function layerWorldPosition(layers: Layer[], layer: Layer, frame: number) {
 }
 
 function reparentLayerAtFrame(layer: Layer, layers: Layer[], frame: number, parentId: string | null) {
-  const current = interpolateProps(frame, layer.keyframes)
   const world = layerWorldPosition(layers, layer, frame)
   const parent = parentId ? layers.find((item) => item.id === parentId) : null
   const parentWorld = parent ? layerWorldPosition(layers, parent, frame) : { x: 0, y: 0 }
-  return upsertTransformKeyframe(
-    { ...layer, parentId },
-    frame,
-    { ...current, x: Math.round(world.x - parentWorld.x), y: Math.round(world.y - parentWorld.y) },
-  )
+  return setLayerBaseTransformValues({ ...layer, parentId }, frame, {
+    x: Math.round(world.x - parentWorld.x),
+    y: Math.round(world.y - parentWorld.y),
+  })
 }
 
 function getLayerFrameBox(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number, layers: Layer[] = [layer]) {
@@ -176,7 +174,7 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
       const deltaY = parentWorld.y + y - currentWorld.y
       if (currentLayer.width !== width || currentLayer.height !== height || current.x !== x || current.y !== y) changed = true
       const fittedGroup = {
-        ...upsertTransformKeyframe(currentLayer, frame, { ...current, x, y }),
+        ...setLayerBaseTransformValues(currentLayer, frame, { x, y }),
         width,
         height,
         startFrame: Math.min(currentLayer.startFrame ?? 0, ...children.map((child) => child.startFrame ?? 0)),
@@ -187,8 +185,7 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
         if (item.parentId !== currentLayer.id || (!deltaX && !deltaY)) return item
         const childCurrent = interpolateProps(frame, item.keyframes)
         changed = true
-        return upsertTransformKeyframe(item, frame, {
-          ...childCurrent,
+        return setLayerBaseTransformValues(item, frame, {
           x: Math.round(childCurrent.x - deltaX),
           y: Math.round(childCurrent.y - deltaY),
         })
@@ -336,6 +333,13 @@ function setLayerBaseValue(layer: Layer, key: AnimatableProperty, value: number 
   return { ...layer, [key]: value }
 }
 
+function setLayerBaseTransformValues(layer: Layer, frame: number, values: Partial<TransformProps>): Layer {
+  return (Object.entries(values) as Array<[keyof TransformProps, number | undefined]>).reduce((next, [key, value]) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return next
+    return setLayerBaseValue(next, key as AnimatableProperty, value, frame)
+  }, layer)
+}
+
 function removeTransformPropertyChange(layer: Layer, key: AnimatableProperty, frame: number): Layer {
   if (!(key in DEFAULT_TRANSFORM)) return layer
   const target = layer.keyframes.find((kf) => kf.frame === frame)
@@ -464,8 +468,7 @@ function applyGroupLayout(layers: Layer[], groupId: string, state: EditorState) 
   return layers.map((layer) => {
     const placement = placements.get(layer.id)
     if (!placement) return layer
-    const current = interpolateProps(frame, layer.keyframes)
-    const moved = upsertTransformKeyframe(layer, frame, { ...current, x: placement.x, y: placement.y })
+    const moved = setLayerBaseTransformValues(layer, frame, { x: placement.x, y: placement.y })
     return {
       ...moved,
       width: placement.width && layer.type !== 'line' ? placement.width : moved.width,
@@ -1539,7 +1542,7 @@ export const useStore = create<Store>()(
               startFrame: bounds.startFrame,
               endFrame: bounds.endFrame,
               keyframes: [{
-                frame: s.currentFrame,
+                frame: 0,
                 easing: 'ease-out',
                 props: {
                   ...DEFAULT_TRANSFORM,
@@ -1606,7 +1609,7 @@ export const useStore = create<Store>()(
             startFrame: bounds.startFrame,
             endFrame: bounds.endFrame,
             keyframes: [{
-              frame: s.currentFrame,
+              frame: 0,
               easing: 'ease-out',
               props: {
                 ...DEFAULT_TRANSFORM,

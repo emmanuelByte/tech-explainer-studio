@@ -238,7 +238,7 @@ function Rotation3DGizmo({ rotateX, rotateY, rotateZ, onChange }: {
 }
 
 type PresetCategory = 'in' | 'out' | 'attention' | 'text'
-type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective'
+type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective' | 'lift'
 type MotionBuilderState = Record<MotionBuilderKey, { enabled: boolean; to: number }>
 
 interface PresetDef {
@@ -503,6 +503,7 @@ const BUILDER_FIELDS: Array<{
   { key: 'scale', labelKey: 'scale', unit: '%', step: 1, precision: 0, percent: true, min: 0 },
   { key: 'opacity', labelKey: 'opacity', unit: '%', step: 1, precision: 0, percent: true, min: 0, max: 100 },
   { key: 'perspective', labelKey: 'perspective', unit: 'px', step: 25, precision: 0, min: 100 },
+  { key: 'lift', labelKey: 'lift', unit: 'px', step: 4, precision: 0, min: 0 },
 ]
 
 function makeBuilderState(base: TransformProps): MotionBuilderState {
@@ -515,6 +516,7 @@ function makeBuilderState(base: TransformProps): MotionBuilderState {
     scale: { enabled: false, to: base.scale },
     opacity: { enabled: false, to: base.opacity },
     perspective: { enabled: false, to: base.perspective },
+    lift: { enabled: false, to: 32 },
   }
 }
 
@@ -524,6 +526,25 @@ function displayValue(value: number, percent?: boolean) {
 
 function storedValue(value: number, percent?: boolean) {
   return percent ? value / 100 : value
+}
+
+function inferLiftAmount(from: TransformProps, to: TransformProps) {
+  const yLift = from.y - to.y
+  const shadowLift = Math.max(0, (to.shadowBlur - from.shadowBlur) / 0.55)
+  const lift = Math.max(yLift, shadowLift)
+  return lift > 2 ? Math.round(Math.max(0, Math.min(240, lift))) : 0
+}
+
+function surfaceBaseFromLift(to: TransformProps, lift: number): TransformProps {
+  if (lift <= 0) return { ...to }
+  return {
+    ...to,
+    y: to.y + lift,
+    scale: to.scale / (1 + lift / 900),
+    shadowY: to.shadowY - lift * 0.35,
+    shadowBlur: Math.max(0, to.shadowBlur - lift * 0.55),
+    shadowSpread: to.shadowSpread - lift * 0.02,
+  }
 }
 
 
@@ -538,6 +559,7 @@ export function AnimationPresetsPanel() {
   const [easing, setEasing] = useState<EasingType>('ease-out')
   const [activeCategory, setActiveCategory] = useState<PresetCategory>('in')
   const [builder, setBuilder] = useState<MotionBuilderState>(() => makeBuilderState(interpolateProps(0, [])))
+  const builderBaseRef = useRef<Record<string, TransformProps>>({})
 
   useEffect(() => {
     if (!layer) return
@@ -548,10 +570,19 @@ export function AnimationPresetsPanel() {
     const textLength = layer.type === 'text' ? Math.max(1, layer.text.length) : 0
     const textDuration = layer.type === 'text' ? Math.max(Math.round(fps * 0.8), Math.min(Math.round(fps * 2), textLength * 2)) : fps
     const inferredDuration = Math.max(1, Math.min(remaining, textDuration))
+    const inferredTarget = Math.max(layerStart, Math.min(currentFrame, Math.max(layerStart, layerEnd - 1)))
+    const inferredMotionStart = Math.max(layerStart, inferredTarget - inferredDuration)
+    const from = interpolateProps(inferredMotionStart, layer.keyframes)
+    const to = interpolateProps(inferredTarget, layer.keyframes)
+    const inferredLift = inferLiftAmount(from, to)
+    const base = surfaceBaseFromLift(to, inferredLift)
+    const nextBuilder = makeBuilderState(base)
+    if (inferredLift) nextBuilder.lift = { enabled: true, to: inferredLift }
     setStartFrame(inferredStart)
     setDuration(inferredDuration)
     if (layer.type === 'text') setActiveCategory('text')
-    setBuilder(makeBuilderState(interpolateProps(inferredStart, layer.keyframes)))
+    builderBaseRef.current = { [layer.id]: base }
+    setBuilder(nextBuilder)
   }, [layer?.id, layer?.startFrame, layer?.endFrame, layer?.type, layer?.text, currentFrame, fps, totalFrames])
 
   if (!layer) return null
@@ -583,7 +614,7 @@ export function AnimationPresetsPanel() {
    * Avoids React state-update collisions when the gizmo updates
    * rotateX and rotateY together during the same mouse event.
    */
-  function updateBuilderBatch(updates: Partial<{ rotateX: number; rotateY: number; rotateZ: number; scale: number; opacity: number; perspective: number; skewX: number; skewY: number }>) {
+  function updateBuilderBatch(updates: Partial<{ rotateX: number; rotateY: number; rotateZ: number; scale: number; opacity: number; perspective: number; skewX: number; skewY: number; lift: number }>) {
     const next = { ...builder }
     ;(Object.entries(updates) as Array<[MotionBuilderKey, number]>).forEach(([key, value]) => {
       if (typeof value === 'number' && Number.isFinite(value)) {
@@ -609,8 +640,20 @@ export function AnimationPresetsPanel() {
     presetTargets.forEach((target) => {
       const base = interpolateProps(start, target.keyframes)
       const fromProps: TransformProps = { ...base }
-      const toProps: TransformProps = { ...interpolateProps(targetFrame, target.keyframes) }
+      const targetBase = builderBaseRef.current[target.id] ?? interpolateProps(targetFrame, target.keyframes)
+      const toProps: TransformProps = { ...targetBase }
       enabled.forEach(({ key }) => {
+        if (key === 'lift') {
+          const lift = Math.max(0, nextBuilder.lift.to)
+          toProps.y = targetBase.y - lift
+          if (!nextBuilder.scale.enabled) toProps.scale = targetBase.scale * (1 + lift / 900)
+          if (!nextBuilder.perspective.enabled) toProps.perspective = Math.max(targetBase.perspective, 900)
+          toProps.shadowY = targetBase.shadowY + lift * 0.35
+          toProps.shadowBlur = targetBase.shadowBlur + lift * 0.55
+          toProps.shadowSpread = targetBase.shadowSpread + lift * 0.02
+          updateLayerProp(target.id, 'shadowEnabled', true)
+          return
+        }
         toProps[key] = nextBuilder[key].to
       })
       fromUpdates.push({ layerId: target.id, props: fromProps })
@@ -650,7 +693,7 @@ export function AnimationPresetsPanel() {
 
   const builderRotateXYZ = ['rotateX', 'rotateY', 'rotateZ'] as const
   const builderSkewXY = ['skewX', 'skewY'] as const
-  const otherBuilderFields = BUILDER_FIELDS.filter((f) => !builderRotateXYZ.includes(f.key as typeof builderRotateXYZ[number]) && !builderSkewXY.includes(f.key as typeof builderSkewXY[number]))
+  const otherBuilderFields = BUILDER_FIELDS.filter((f) => !builderRotateXYZ.includes(f.key as typeof builderRotateXYZ[number]) && !builderSkewXY.includes(f.key as typeof builderSkewXY[number]) && f.key !== 'lift')
 
   return (
     <div>
@@ -719,6 +762,29 @@ export function AnimationPresetsPanel() {
           rotateZ={builder.rotateZ.to}
           onChange={(update) => updateBuilderBatch(update)}
         />
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '6px 0 2px' }}>
+          <ToggleRow
+            label={t('motion.lift')}
+            checked={builder.lift.enabled}
+            onChange={(v) => updateBuilder('lift', { enabled: v })}
+          />
+          {builder.lift.enabled && (
+            <Row label={t('motion.height')}>
+              <NumField
+                leading="H"
+                value={builder.lift.to}
+                min={0}
+                max={240}
+                step={4}
+                precision={0}
+                unit="px"
+                sensitivity={1}
+                onChange={(v) => updateBuilder('lift', { enabled: true, to: Math.max(0, Math.round(v)) })}
+              />
+            </Row>
+          )}
+        </div>
 
         {/* Rotation (3 axes) — numeric inputs sync with gizmo */}
         <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: 6, marginBottom: 2 }}>
