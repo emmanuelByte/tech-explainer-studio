@@ -281,17 +281,17 @@ export function PreviewCanvas() {
 
   return (
     <div className="flex flex-col flex-1 min-w-0" style={{ background: 'var(--bg)', overflow: 'hidden' }}>
-      {/* Toolbar strip — Figma-style: minimal, flat */}
+      {/* Toolbar strip — Figma-style: minimal, flat, aligned with panel headers */}
       <div
         className="flex items-center flex-shrink-0"
-        style={{ height: 40, padding: '0 10px', gap: 4, background: 'var(--panel)', borderBottom: '1px solid var(--border)' }}
+        style={{ height: 32, padding: '0 8px', gap: 4, background: 'var(--panel)', borderBottom: '1px solid var(--border)' }}
       >
         {/* Preset selector */}
         <select
           value={canvasPreset.name}
           onChange={(e) => setCanvasPreset(e.target.value)}
           className="input-base"
-          style={{ minWidth: 110, height: 26 }}
+          style={{ minWidth: 100, height: 22 }}
         >
           {CANVAS_PRESETS.map((p) => (
             <option key={p.name} value={p.name}>{p.name}</option>
@@ -303,42 +303,47 @@ export function PreviewCanvas() {
             <input type="number" value={customWidth}
               onChange={(e) => setCustomDimension('customWidth', Number(e.target.value))}
               className="input-base"
-              style={{ width: 56, height: 26 }}
+              style={{ width: 50, height: 22 }}
             />
             <span style={{ color: 'var(--text3)', fontSize: 10 }}>×</span>
             <input type="number" value={customHeight}
               onChange={(e) => setCustomDimension('customHeight', Number(e.target.value))}
               className="input-base"
-              style={{ width: 56, height: 26 }}
+              style={{ width: 50, height: 22 }}
             />
           </div>
         ) : (
-          <span style={{ color: 'var(--text3)', fontSize: 11 }}>{canvasW} × {canvasH}</span>
+          <span style={{ color: 'var(--text3)', fontSize: 10 }}>{canvasW} × {canvasH}</span>
         )}
 
         <div className="flex-1" />
 
         {/* Zoom controls — Figma-style */}
-        <ZoomButton title={t('preview.zoomOut')} onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))}><Minus size={13} /></ZoomButton>
+        <button onClick={() => zoomAtCanvasCenter(Math.max(0.1, zoom / 1.25))} className="icon-btn" title={t('preview.zoomOut')} style={{ width: 22, height: 22, minWidth: 22 }}>
+          <Minus size={12} />
+        </button>
         <button
           onClick={resetZoom}
           title={t('preview.resetZoom')}
           style={{
-            height: 26, minWidth: 52, padding: '0 6px',
+            height: 22, minWidth: 48, padding: '0 6px',
             fontSize: 11, color: 'var(--text2)',
             background: 'transparent', borderRadius: 3,
-            border: '1px solid var(--input-border)',
             fontVariantNumeric: 'tabular-nums',
           }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent' }}
         >
           {Math.round(zoom * 100)}%
         </button>
-        <ZoomButton title={t('preview.zoomIn')} onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))}><Plus size={13} /></ZoomButton>
-        <button onClick={fitToScreen} className="icon-btn" title={t('preview.fitToScreen')} style={{ width: 26, height: 26, minWidth: 26 }}>
-          <Maximize2 size={13} />
+        <button onClick={() => zoomAtCanvasCenter(Math.min(5, zoom * 1.25))} className="icon-btn" title={t('preview.zoomIn')} style={{ width: 22, height: 22, minWidth: 22 }}>
+          <Plus size={12} />
         </button>
-        <button onClick={resetZoom} className="icon-btn" title={t('preview.actualSize')} style={{ width: 26, height: 26, minWidth: 26 }}>
-          <Scan size={13} />
+        <button onClick={fitToScreen} className="icon-btn" title={t('preview.fitToScreen')} style={{ width: 22, height: 22, minWidth: 22 }}>
+          <Maximize2 size={12} />
+        </button>
+        <button onClick={resetZoom} className="icon-btn" title={t('preview.actualSize')} style={{ width: 22, height: 22, minWidth: 22 }}>
+          <Scan size={12} />
         </button>
       </div>
 

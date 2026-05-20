@@ -63,6 +63,10 @@ const PROP_LABELS: Partial<Record<keyof TransformProps, string>> = {
   shadowSpread: 'Shad Spd', charProgress: 'Char',
 }
 
+function propLabel(t: ReturnType<typeof useTranslation>['t'], propKey: AnimatableProperty) {
+  return t(`props.${propKey}`, { defaultValue: PROPERTY_LABELS[propKey] ?? PROP_LABELS[propKey as keyof TransformProps] ?? propKey })
+}
+
 function getChangingProps(layer: Layer): (keyof TransformProps)[] {
   if (layer.keyframes.length < 2) return []
   const keys = Object.keys(DEFAULT_TRANSFORM) as (keyof TransformProps)[]
@@ -368,14 +372,14 @@ function SortableLabel({
             const groupProps = group.keys.filter((k) => animProps.includes(k))
             if (groupProps.length === 0) return null
             return (
-              <div key={group.label}>
+              <div key={group.id}>
                 {/* Group header */}
                 <div style={{
                   height: groupHeaderH, display: 'flex', alignItems: 'center', paddingLeft: 28,
                   background: 'rgba(0,0,0,0.15)',
                 }}>
                   <span style={{ fontSize: 8, color: group.color, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    {t(`timeline.${group.label.toLowerCase()}`, { defaultValue: group.label })}
+                    {t(`timeline.${group.id}`, { defaultValue: group.label })}
                   </span>
                 </div>
                 {groupProps.map((propKey) => (
@@ -387,12 +391,12 @@ function SortableLabel({
                   }}>
                     <div style={{ width: 3, height: 3, borderRadius: '50%', background: group.color, flexShrink: 0 }} />
                     <span className="flex-1 truncate" style={{ fontSize: 9, color: 'var(--text2)' }}>
-                      {PROPERTY_LABELS[propKey] ?? propKey}
+                      {propLabel(t, propKey)}
                     </span>
                     <button
                       onClick={(e) => { e.stopPropagation(); onAddSubKf(layer.id, propKey) }}
                       style={{ fontSize: 10, color: group.color, flexShrink: 0, lineHeight: 1 }}
-                      title={t('timeline.addPropertyKeyframe', { property: PROPERTY_LABELS[propKey] })}
+                      title={t('timeline.addPropertyKeyframe', { property: propLabel(t, propKey) })}
                     >+</button>
                   </div>
                 ))}
@@ -426,6 +430,7 @@ function TrackRow({
   subtrackH: number
   valueGraphH: number
 }) {
+  const { t } = useTranslation()
   const isGroup = layer.type === 'group' || layer.isGroup
   const frameX = (frame: number) => timelineOffset + frame * fpx
   const startF = groupRange?.start ?? layer.startFrame ?? 0
@@ -510,7 +515,7 @@ function TrackRow({
             const groupProps = group.keys.filter((k) => animProps.includes(k))
             if (groupProps.length === 0) return null
             return (
-              <div key={group.label}>
+              <div key={group.id}>
                 {/* Group header track */}
                 <div style={{ height: groupHeaderH, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
                 {groupProps.map((propKey) => {
@@ -556,7 +561,7 @@ function TrackRow({
                             key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
                             onClick={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
                             style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
-                            title={`${kf.easing} easing`}
+                            title={t('timeline.easingTitle', { easing: kf.easing })}
                           >~</button>
                         )
                       })}
@@ -575,7 +580,7 @@ function TrackRow({
                           onMouseDown={(e) => { e.stopPropagation(); onKfMouseDown(e, layer.id, kf.frame, effectivePropKey) }}
                           onContextMenu={(e) => onKfContextMenu(e, layer.id, kf.frame, true, effectivePropKey)}
                           onClick={(e) => e.stopPropagation()}
-                          title={`${PROPERTY_LABELS[propKey] ?? propKey}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value}`}
+                          title={`${propLabel(t, propKey)}: ${typeof kf.value === 'number' ? kf.value.toFixed(2) : kf.value}`}
                         />
                       ))}
                     </div>
@@ -642,7 +647,7 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
               onChange={(e) => setStart(e.target.value)}
               className="input-base flex-1"
             />
-            <span style={{ color: 'var(--text3)' }}>s</span>
+            <span style={{ color: 'var(--text3)' }}>{t('common.secondShort')}</span>
           </div>
         </label>
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--text2)' }}>
@@ -655,7 +660,7 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
               onChange={(e) => setDuration(e.target.value)}
               className="input-base flex-1"
             />
-            <span style={{ color: 'var(--text3)' }}>s</span>
+            <span style={{ color: 'var(--text3)' }}>{t('common.secondShort')}</span>
           </div>
         </label>
         <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
@@ -1216,7 +1221,7 @@ export function Timeline() {
           <input type="number" min={1} max={300} value={Math.round(durationSec)}
             onChange={(e) => setTotalFrames(Math.max(1, Number(e.target.value)) * fps)}
             className="input-base w-12 text-right" />
-          <span className="text-xs" style={{ color: 'var(--text3)' }}>s</span>
+          <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('common.secondShort')}</span>
         </div>
       </div>
 
@@ -1287,7 +1292,7 @@ export function Timeline() {
               )}
               {markers.map((m: TimelineMarker) => (
                 <div key={m.id} style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + m.frame * fpx, top: 0, zIndex: 5 }}>
-                  <div title={`${m.label} (frame ${m.frame})`}
+                  <div title={`${m.label} (${t('timeline.frameLabel', { frame: m.frame })})`}
                     style={{ width: 0, height: 0, borderLeft: '5px solid transparent', borderRight: '5px solid transparent', borderTop: `8px solid ${m.color}`, cursor: 'pointer' }}
                     onClick={(e) => { e.stopPropagation(); setCurrentFrame(m.frame) }}
                     onContextMenu={(e) => { e.preventDefault(); removeMarker(m.id) }}

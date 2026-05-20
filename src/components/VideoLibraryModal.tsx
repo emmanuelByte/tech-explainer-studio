@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { ImagePlus, RefreshCw, X } from 'lucide-react'
+import { Film, RefreshCw, Upload, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { ImageAsset, listImageAssets, uploadImageAsset } from '../assetStorage'
+import { VideoAsset, listVideoAssets, uploadVideoAsset } from '../assetStorage'
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -9,16 +9,23 @@ function formatBytes(bytes: number) {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-export function ImageLibraryModal({
+function formatDuration(seconds?: number) {
+  if (!seconds || !Number.isFinite(seconds)) return ''
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.round(seconds % 60).toString().padStart(2, '0')
+  return `${mins}:${secs}`
+}
+
+export function VideoLibraryModal({
   onClose,
   onPick,
 }: {
   onClose: () => void
-  onPick: (asset: ImageAsset) => void
+  onPick: (asset: VideoAsset) => void
 }) {
   const { t } = useTranslation()
   const fileRef = useRef<HTMLInputElement>(null)
-  const [assets, setAssets] = useState<ImageAsset[]>([])
+  const [assets, setAssets] = useState<VideoAsset[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
@@ -27,9 +34,9 @@ export function ImageLibraryModal({
     setLoading(true)
     setError('')
     try {
-      setAssets(await listImageAssets())
+      setAssets(await listVideoAssets())
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('layers.imageLibraryLoadError'))
+      setError(err instanceof Error ? err.message : t('layers.videoLibraryLoadError'))
     } finally {
       setLoading(false)
     }
@@ -51,11 +58,11 @@ export function ImageLibraryModal({
     setUploading(true)
     setError('')
     try {
-      const asset = await uploadImageAsset(file)
+      const asset = await uploadVideoAsset(file)
       setAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)])
       onPick(asset)
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('layers.imageImportError'))
+      setError(err instanceof Error ? err.message : t('layers.videoImportError'))
     } finally {
       setUploading(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -71,8 +78,8 @@ export function ImageLibraryModal({
       <div
         className="flex flex-col"
         style={{
-          width: 'min(760px, calc(100vw - 32px))',
-          maxHeight: 'min(620px, calc(100vh - 32px))',
+          width: 'min(820px, calc(100vw - 32px))',
+          maxHeight: 'min(640px, calc(100vh - 32px))',
           background: 'var(--panel)',
           border: '1px solid var(--border)',
           borderRadius: 10,
@@ -83,8 +90,8 @@ export function ImageLibraryModal({
       >
         <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid var(--border)' }}>
           <div className="flex-1">
-            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('layers.imageLibraryTitle')}</div>
-            <div className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>{t('layers.imageLibraryHelp')}</div>
+            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('layers.videoLibraryTitle')}</div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--text3)' }}>{t('layers.videoLibraryHelp')}</div>
           </div>
           <button type="button" className="icon-btn" onClick={refresh} disabled={loading || uploading} title={t('common.refresh')}>
             <RefreshCw size={15} />
@@ -104,7 +111,7 @@ export function ImageLibraryModal({
           <div
             style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(168px, 1fr))',
               gap: 10,
             }}
           >
@@ -114,15 +121,15 @@ export function ImageLibraryModal({
               disabled={uploading}
               className="flex flex-col items-center justify-center gap-2"
               style={{
-                minHeight: 146,
+                minHeight: 156,
                 border: '1px dashed var(--border)',
                 borderRadius: 8,
                 background: 'var(--input)',
                 color: 'var(--text2)',
               }}
             >
-              <ImagePlus size={24} />
-              <span className="text-xs font-medium">{uploading ? t('layers.importingImage') : t('layers.importNewImage')}</span>
+              {uploading ? <Upload size={24} /> : <Film size={24} />}
+              <span className="text-xs font-medium">{uploading ? t('layers.importingVideo') : t('layers.importNewVideo')}</span>
             </button>
 
             {assets.map((asset) => (
@@ -132,20 +139,22 @@ export function ImageLibraryModal({
                 onClick={() => onPick(asset)}
                 className="text-left"
                 style={{
-                  minHeight: 146,
+                  minHeight: 156,
                   border: '1px solid var(--border)',
                   borderRadius: 8,
                   background: 'var(--input)',
                   overflow: 'hidden',
                 }}
               >
-                <div className="flex items-center justify-center" style={{ height: 98, background: 'rgba(0,0,0,0.18)' }}>
-                  <img src={asset.url} alt={asset.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                <div className="flex items-center justify-center" style={{ height: 104, background: 'rgba(0,0,0,0.22)' }}>
+                  <video src={asset.url} muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                 </div>
                 <div className="px-2 py-2">
                   <div className="truncate text-xs font-medium" style={{ color: 'var(--text)' }}>{asset.name}</div>
                   <div className="truncate text-[10px] mt-0.5" style={{ color: 'var(--text3)' }}>
-                    {asset.naturalWidth && asset.naturalHeight ? `${asset.naturalWidth}x${asset.naturalHeight} · ` : ''}{formatBytes(asset.bytes)}
+                    {asset.naturalWidth && asset.naturalHeight ? `${asset.naturalWidth}x${asset.naturalHeight} · ` : ''}
+                    {formatDuration(asset.duration) ? `${formatDuration(asset.duration)} · ` : ''}
+                    {formatBytes(asset.bytes)}
                   </div>
                 </div>
               </button>
@@ -154,7 +163,7 @@ export function ImageLibraryModal({
 
           {!loading && assets.length === 0 && (
             <div className="text-xs text-center mt-5" style={{ color: 'var(--text3)' }}>
-              {t('layers.noImportedImages')}
+              {t('layers.noImportedVideos')}
             </div>
           )}
           {loading && (
@@ -167,7 +176,7 @@ export function ImageLibraryModal({
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="video/*"
           hidden
           onChange={(e) => {
             const file = e.target.files?.[0]

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload } from 'lucide-react'
+import { Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload, X } from 'lucide-react'
 import { CANVAS_PRESETS, MotionProject, ProjectIndexItem } from '../types'
 import {
   createBlankProject,
@@ -115,7 +115,7 @@ function NewProjectModal({ onClose, onCreate, recentProjects }: {
       <div className="w-[520px] max-w-[calc(100vw-32px)] rounded-md p-4" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-semibold">{t('home.newProject')}</h2>
-          <button onClick={onClose} className="text-lg" style={{ color: 'var(--text2)' }} title={t('common.close')}>x</button>
+          <button onClick={onClose} className="icon-btn" style={{ color: 'var(--text2)' }} title={t('common.close')}><X size={16} /></button>
         </div>
         <label className="block text-xs mb-1" style={{ color: 'var(--text2)' }}>{t('home.projectName')}</label>
         <input className="input-base w-full mb-3" value={name} onChange={(e) => setName(e.target.value)} />

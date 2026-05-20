@@ -5,15 +5,18 @@ import { extname, resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
 
 type StoredImageKind = 'raster' | 'svg'
+type StoredAssetKind = 'image' | 'video'
 
 interface StoredAsset {
   id: string
   name: string
   fileName: string
   mimeType: string
+  kind?: StoredAssetKind
   imageKind: StoredImageKind
   naturalWidth?: number
   naturalHeight?: number
+  duration?: number
   bytes: number
   createdAt: string
   updatedAt: string
@@ -24,9 +27,11 @@ interface UploadAssetPayload {
   name?: string
   fileName?: string
   mimeType?: string
+  kind?: StoredAssetKind
   imageKind?: StoredImageKind
   naturalWidth?: number
   naturalHeight?: number
+  duration?: number
   dataUrl?: string
 }
 
@@ -81,12 +86,17 @@ function extensionForAsset(payload: UploadAssetPayload) {
   if (payload.mimeType === 'image/png') return '.png'
   if (payload.mimeType === 'image/webp') return '.webp'
   if (payload.mimeType === 'image/gif') return '.gif'
+  if (payload.mimeType === 'video/mp4') return '.mp4'
+  if (payload.mimeType === 'video/webm') return '.webm'
+  if (payload.mimeType === 'video/quicktime') return '.mov'
+  if (payload.mimeType === 'video/x-m4v') return '.m4v'
+  if (payload.mimeType?.startsWith('video/')) return '.mp4'
   return '.jpg'
 }
 
 function parseDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/)
-  if (!match) throw new Error('Invalid image data.')
+  if (!match) throw new Error('Invalid asset data.')
   const mimeType = match[1] || 'application/octet-stream'
   const isBase64 = Boolean(match[2])
   const raw = match[3] || ''
@@ -97,15 +107,17 @@ function parseDataUrl(dataUrl: string) {
 }
 
 async function saveAsset(root: string, payload: UploadAssetPayload) {
-  if (!payload.dataUrl) throw new Error('Missing image data.')
+  if (!payload.dataUrl) throw new Error('Missing asset data.')
   const parsed = parseDataUrl(payload.dataUrl)
   const mimeType = payload.mimeType || parsed.mimeType
-  if (!mimeType.startsWith('image/')) throw new Error('Only image assets are supported.')
+  const kind: StoredAssetKind = payload.kind || (mimeType.startsWith('video/') ? 'video' : 'image')
+  if (kind === 'image' && !mimeType.startsWith('image/')) throw new Error('Only image files are supported for image assets.')
+  if (kind === 'video' && !mimeType.startsWith('video/')) throw new Error('Only video files are supported for video assets.')
 
   await ensureAssetDir(root)
   const now = new Date().toISOString()
   const id = `asset_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
-  const imageKind = payload.imageKind || (mimeType === 'image/svg+xml' ? 'svg' : 'raster')
+  const imageKind = kind === 'image' ? payload.imageKind || (mimeType === 'image/svg+xml' ? 'svg' : 'raster') : 'raster'
   const fileName = `${id}${extensionForAsset({ ...payload, mimeType, imageKind })}`
   const file = resolve(assetFilesDir(root), fileName)
   await writeFile(file, parsed.buffer)
@@ -113,12 +125,14 @@ async function saveAsset(root: string, payload: UploadAssetPayload) {
 
   const asset: StoredAsset = {
     id,
-    name: (payload.name || payload.fileName || 'Image').replace(/\.[^.]+$/, ''),
+    name: (payload.name || payload.fileName || (kind === 'video' ? 'Video' : 'Image')).replace(/\.[^.]+$/, ''),
     fileName,
     mimeType,
+    kind,
     imageKind,
     naturalWidth: payload.naturalWidth,
     naturalHeight: payload.naturalHeight,
+    duration: payload.duration,
     bytes: info.size,
     createdAt: now,
     updatedAt: now,

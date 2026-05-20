@@ -167,7 +167,7 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
             <>
               <div className="aspect-video rounded mb-3 flex items-center justify-center" style={{ background: 'var(--canvas-bg)', border: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 11, color: 'var(--text2)' }}>
-                  {active.project.canvas.width} × {active.project.canvas.height} · {active.project.layers.length} layers
+                  {active.project.canvas.width} × {active.project.canvas.height} · {t('topbar.layersCount', { count: active.project.layers.length })}
                 </div>
               </div>
               <button

@@ -231,13 +231,13 @@ export function AiAssistantModal({ onClose }: { onClose: () => void }) {
         }),
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'AI request failed.')
+      if (!response.ok) throw new Error(data.error || t('ai.requestFailed'))
       const parsed = JSON.parse(stripJson(data.text || '{}')) as AiResponse
       applyAiActions(parsed)
       setMessage(parsed.message || t('ai.applied'))
       setStatus('done')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'AI request failed.')
+      setError(err instanceof Error ? err.message : t('ai.requestFailed'))
       setStatus('error')
     }
   }

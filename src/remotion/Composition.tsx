@@ -1,4 +1,4 @@
-import { useCurrentFrame } from 'remotion'
+import { Sequence, useCurrentFrame, Video } from 'remotion'
 import { Layer, GradientStop, FillType } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
@@ -202,6 +202,26 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
           alt={animatedLayer.name}
         />
+      </div>
+    )
+  }
+
+  if (animatedLayer.type === 'video' && animatedLayer.src) {
+    const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
+    return (
+      <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
+        <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
+          <Video
+            src={animatedLayer.src}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: animatedLayer.imageFit ?? 'contain',
+              display: 'block',
+              borderRadius: animatedLayer.borderRadius,
+            }}
+          />
+        </Sequence>
       </div>
     )
   }

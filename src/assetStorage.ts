@@ -1,18 +1,23 @@
-import { ImageKind } from './types'
+import { AssetKind, ImageKind } from './types'
 
-export interface ImageAsset {
+export interface LocalAsset {
   id: string
   name: string
   fileName: string
   mimeType: string
+  kind?: AssetKind
   imageKind: ImageKind
   naturalWidth?: number
   naturalHeight?: number
+  duration?: number
   bytes: number
   createdAt: string
   updatedAt: string
   url: string
 }
+
+export type ImageAsset = LocalAsset & { kind?: 'image'; imageKind: ImageKind }
+export type VideoAsset = LocalAsset & { kind: 'video'; imageKind: 'raster' }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
@@ -45,8 +50,37 @@ export function measureImage(dataUrl: string) {
   })
 }
 
+export function measureVideo(dataUrl: string) {
+  return new Promise<{ naturalWidth?: number; naturalHeight?: number; duration?: number }>((resolve) => {
+    const video = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted = true
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(video.src)
+      resolve({
+        naturalWidth: video.videoWidth || undefined,
+        naturalHeight: video.videoHeight || undefined,
+        duration: Number.isFinite(video.duration) ? video.duration : undefined,
+      })
+    }
+    video.onerror = () => {
+      URL.revokeObjectURL(video.src)
+      resolve({})
+    }
+    video.src = dataUrl
+  })
+}
+
+export function listAssets() {
+  return requestJson<LocalAsset[]>('/api/assets')
+}
+
 export function listImageAssets() {
-  return requestJson<ImageAsset[]>('/api/assets')
+  return listAssets().then((assets) => assets.filter((asset) => (asset.kind ?? 'image') === 'image') as ImageAsset[])
+}
+
+export function listVideoAssets() {
+  return listAssets().then((assets) => assets.filter((asset) => asset.kind === 'video') as VideoAsset[])
 }
 
 export async function uploadImageAsset(file: File) {
@@ -59,7 +93,26 @@ export async function uploadImageAsset(file: File) {
       name: file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
       mimeType: file.type || (getImageKind(file) === 'svg' ? 'image/svg+xml' : 'image/jpeg'),
+      kind: 'image',
       imageKind: getImageKind(file),
+      dataUrl,
+      ...size,
+    }),
+  })
+}
+
+export async function uploadVideoAsset(file: File) {
+  const dataUrl = await readFileAsDataUrl(file)
+  const size = await measureVideo(dataUrl)
+  return requestJson<VideoAsset>('/api/assets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: file.name.replace(/\.[^.]+$/, ''),
+      fileName: file.name,
+      mimeType: file.type || 'video/mp4',
+      kind: 'video',
+      imageKind: 'raster',
       dataUrl,
       ...size,
     }),

@@ -63,7 +63,7 @@ export function TimingPanel() {
         }}
       />
       <ScrubField
-        label={t('transform.end', { defaultValue: 'End' })}
+        label={t('transform.end')}
         value={endFrame / fps}
         min={(startFrame + 1) / fps}
         max={durationSec}

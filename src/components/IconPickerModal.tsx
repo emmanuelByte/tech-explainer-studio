@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Search } from 'lucide-react'
+import { Search, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import dynamicIconImports from 'lucide-react/dynamicIconImports.mjs'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -124,7 +124,7 @@ export function IconPickerModal({ onClose, onPick }: { onClose: () => void; onPi
             <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>{t('layers.iconPickerTitle')}</div>
             <div className="text-[10px]" style={{ color: 'var(--text3)' }}>{filteredIcons.length} / {ICON_CHOICES.length}</div>
           </div>
-          <button type="button" className="icon-btn" onClick={onClose} title={t('common.close')}>x</button>
+          <button type="button" className="icon-btn" onClick={onClose} title={t('common.close')}><X size={14} /></button>
         </div>
         <div className="input-base flex items-center gap-2 mb-3">
           <Search size={14} style={{ color: 'var(--text3)' }} />

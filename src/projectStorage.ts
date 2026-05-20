@@ -148,6 +148,9 @@ function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, can
     const imageSrc = layer.imageKind === 'svg' ? styledSvgDataUrl(layer.src, layer) : layer.src
     return `<image href="${escapeXml(imageSrc || layer.src)}" width="${width}" height="${height}" preserveAspectRatio="${fit}" ${common}/>`
   }
+  if (layer.type === 'video' && layer.src) {
+    return `<g ${common}><rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="#111827"/><path d="M ${width * 0.42} ${height * 0.32} L ${width * 0.42} ${height * 0.68} L ${width * 0.7} ${height * 0.5} Z" fill="#f8fafc" opacity="0.9"/><rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="none" stroke="#ef4444" stroke-width="${Math.max(2, Math.min(width, height) * 0.025)}" opacity="0.6"/></g>`
+  }
   return `<rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${fill}"${stroke} ${common}/>`
 }
 

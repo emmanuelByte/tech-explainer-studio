@@ -434,6 +434,7 @@ const LAYOUT_PROP_KEYS = new Set<keyof Layer>([
 const TYPE_NAMES: Record<LayerType, string> = {
   rectangle: 'Rectangle', ellipse: 'Ellipse', line: 'Line',
   triangle: 'Triangle', path: 'Path', text: 'Text', image: 'Image',
+  video: 'Video',
   group: 'Group',
 }
 
@@ -448,8 +449,8 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     collapsed: false,
     isGroup: type === 'group',
     autoFit: false,
-    width: type === 'text' ? 400 : type === 'line' ? 200 : 200,
-    height: type === 'text' ? 80 : type === 'line' ? 4 : type === 'path' ? 200 : 140,
+    width: type === 'text' ? 400 : type === 'line' ? 200 : type === 'video' ? 320 : 200,
+    height: type === 'text' ? 80 : type === 'line' ? 4 : type === 'path' ? 200 : type === 'video' ? 180 : 140,
     sizeMode: 'fixed',
     layoutMode: 'none',
     layoutDirection: 'row',
@@ -502,6 +503,8 @@ interface Actions {
   insertLibraryLayers: (layers: Layer[], options?: { frameOffset?: number; fitToTimeline?: boolean; rootLayerIds?: string[] }) => string[]
   addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
   replaceImageSource: (id: string, src: string, imageKind: ImageKind, naturalWidth?: number, naturalHeight?: number) => void
+  addVideo: (src: string, name: string, naturalWidth?: number, naturalHeight?: number, duration?: number) => void
+  replaceVideoSource: (id: string, src: string, naturalWidth?: number, naturalHeight?: number, duration?: number) => void
   deleteLayer: (id: string) => void
   duplicateLayer: (id: string) => void
   toggleVisibility: (id: string) => void
@@ -807,6 +810,50 @@ export const useStore = create<Store>()(
                 imageKind,
                 imageNaturalWidth: naturalWidth,
                 imageNaturalHeight: naturalHeight,
+              }
+            : layer
+          ),
+        }))
+      },
+
+      addVideo: (src, name, naturalWidth, naturalHeight, duration) => {
+        get()._snapshot()
+        const { totalFrames, fps } = get()
+        const maxW = 420
+        const maxH = 280
+        const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 16 / 9
+        const scale = naturalWidth && naturalHeight ? Math.min(1, maxW / naturalWidth, maxH / naturalHeight) : 1
+        const width = naturalWidth && naturalHeight ? Math.max(1, Math.round(naturalWidth * scale)) : 320
+        const height = naturalWidth && naturalHeight ? Math.max(1, Math.round(width / aspect)) : 180
+        const videoFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * fps)) : totalFrames
+        set((s) => ({
+          layers: [
+            ...s.layers,
+            makeLayer('video', {
+              name,
+              src,
+              imageFit: 'contain',
+              videoNaturalWidth: naturalWidth,
+              videoNaturalHeight: naturalHeight,
+              videoDuration: duration,
+              width,
+              height,
+              endFrame: Math.min(totalFrames, videoFrames),
+            }),
+          ],
+        }))
+      },
+
+      replaceVideoSource: (id, src, naturalWidth, naturalHeight, duration) => {
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => layer.id === id && layer.type === 'video'
+            ? {
+                ...layer,
+                src,
+                videoNaturalWidth: naturalWidth,
+                videoNaturalHeight: naturalHeight,
+                videoDuration: duration,
               }
             : layer
           ),

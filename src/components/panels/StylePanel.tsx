@@ -256,7 +256,7 @@ export function StylePanel() {
 
   return (
     <div className="flex flex-col gap-0">
-      {layer.type !== 'image' && (
+      {layer.type !== 'image' && layer.type !== 'video' && (
         <>
           {/* Fill */}
           <SectionHeader label={t('style.fill')} />
@@ -423,9 +423,9 @@ export function StylePanel() {
       )}
 
       {/* Image options */}
-      {layer.type === 'image' && (
+      {(layer.type === 'image' || layer.type === 'video') && (
         <>
-          <SectionHeader label={layer.imageKind === 'svg' ? t('style.svgImage') : t('style.image')} />
+          <SectionHeader label={layer.type === 'video' ? t('style.video') : layer.imageKind === 'svg' ? t('style.svgImage') : t('style.image')} />
           <div className="px-3 pb-2 flex flex-col gap-1.5">
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.fit')}</span>
@@ -435,17 +435,19 @@ export function StylePanel() {
                 className="input-base flex-1"
               >
                 <option value="contain">{t('style.contain')}</option>
-                {layer.imageKind !== 'svg' && <option value="cover">{t('style.cover')}</option>}
+                {(layer.type === 'video' || layer.imageKind !== 'svg') && <option value="cover">{t('style.cover')}</option>}
                 <option value="fill">{t('style.stretch')}</option>
                 <option value="scale-down">{t('style.scaleDown')}</option>
               </select>
             </div>
             <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
-              {layer.imageKind === 'svg'
+              {layer.type === 'video'
+                ? t('style.videoHelp')
+                : layer.imageKind === 'svg'
                 ? t('style.svgHelp')
                 : t('style.imageHelp')}
             </div>
-            {layer.imageKind === 'svg' && (
+            {layer.type === 'image' && layer.imageKind === 'svg' && (
               <div className="mt-2 flex flex-col gap-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <div className="flex items-center gap-2">
                   <span className="text-xs w-20" style={{ color: 'var(--text2)' }}>{t('style.svgStroke')}</span>

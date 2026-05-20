@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
-  Library, Lock, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
+  Film, Layers, Library, Lock, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
   Type, Unlock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -23,8 +23,9 @@ import { visibleLayerRows } from '../layerTree'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
+import { VideoLibraryModal } from './VideoLibraryModal'
 import { LibraryModal } from './LibraryModal'
-import type { ImageAsset } from '../assetStorage'
+import type { ImageAsset, VideoAsset } from '../assetStorage'
 import { useToast } from './Toast'
 
 function CompositionAccordion() {
@@ -93,7 +94,7 @@ function CompositionAccordion() {
               className="input-base text-right"
               style={{ width: 60 }}
             />
-            <span style={{ fontSize: 11, color: 'var(--text3)' }}>s</span>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t('common.secondShort')}</span>
           </div>
           <div style={{ fontSize: 10, color: 'var(--text3)' }}>
             {t('layers.framesAtFps', { frames: totalFrames, fps })}
@@ -107,6 +108,7 @@ function CompositionAccordion() {
 const TYPE_ICONS: Record<LayerType, LucideIcon> = {
   rectangle: Square, ellipse: Circle, line: Slash,
   triangle: Triangle, path: PenLine, text: Type, image: ImageIcon,
+  video: Film,
   group: Folder,
 }
 
@@ -308,8 +310,8 @@ export function LayersPanel() {
   const toast = useToast()
   const {
     layers, selectedLayerIds,
-    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage,
-    replaceImageSource,
+    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo,
+    replaceImageSource, replaceVideoSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
   } = useStore()
@@ -319,8 +321,10 @@ export function LayersPanel() {
   const [convertModal, setConvertModal] = useState<ConvertGroupModal | null>(null)
   const [showIcons, setShowIcons] = useState(false)
   const [showImages, setShowImages] = useState(false)
+  const [showVideos, setShowVideos] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
   const [replaceImageLayerId, setReplaceImageLayerId] = useState<string | null>(null)
+  const [replaceVideoLayerId, setReplaceVideoLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
   const hoverRef = useRef<{ targetId: string; startedAt: number } | null>(null)
@@ -432,6 +436,16 @@ export function LayersPanel() {
     setShowImages(false)
   }
 
+  function addVideoAsset(asset: VideoAsset) {
+    if (replaceVideoLayerId) {
+      replaceVideoSource(replaceVideoLayerId, asset.url, asset.naturalWidth, asset.naturalHeight, asset.duration)
+      setReplaceVideoLayerId(null)
+    } else {
+      addVideo(asset.url, asset.name, asset.naturalWidth, asset.naturalHeight, asset.duration)
+    }
+    setShowVideos(false)
+  }
+
   function addIconLayer(choice: IconPick) {
     addGeneratedLayer('image', {
       name: choice.name,
@@ -481,9 +495,9 @@ export function LayersPanel() {
           durationFrames: Math.max(1, range.end - range.start),
         })
       }
-      toast.success(`Saved "${itemName}" to library`)
+      toast.success(t('layers.savedToLibrary', { name: itemName }))
     } catch (err) {
-      toast.error(`Failed to save: ${err instanceof Error ? err.message : String(err)}`)
+      toast.error(t('layers.saveFailed', { message: err instanceof Error ? err.message : String(err) }))
     }
   }
 
@@ -494,9 +508,14 @@ export function LayersPanel() {
     >
       <CompositionAccordion />
 
-      {/* Header */}
+      {/* Header — Layers icon aligned with Composition's Settings2 icon (offset for chevron) */}
       <div className="flex items-center justify-between px-3 flex-shrink-0" style={{ height: 32, borderBottom: '1px solid var(--border)' }}>
-        <span className="section-header" style={{ padding: 0 }}>{t('layers.title')}</span>
+        <div className="flex items-center gap-1.5" style={{ color: 'var(--text2)' }}>
+          {/* Spacer to match composition's chevron width (12px chevron + 6px gap) */}
+          <span style={{ width: 12, flexShrink: 0 }} aria-hidden />
+          <Layers size={12} />
+          <span className="section-header" style={{ padding: 0 }}>{t('layers.title')}</span>
+        </div>
         <div ref={addMenuRef} className="relative">
         <button
           type="button"
@@ -548,8 +567,9 @@ export function LayersPanel() {
             </div>
             <AddMenuItem label={t('layers.text')} icon={Type} onClick={() => { addLayer('text'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
-            <AddMenuItem label={t('layers.library', { defaultValue: 'Library' })} icon={Library} onClick={() => { setShowLibrary(true); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.library')} icon={Library} onClick={() => { setShowLibrary(true); setAddMenuOpen(false) }} />
           </div>
         )}
         </div>
@@ -605,6 +625,13 @@ export function LayersPanel() {
               action: () => {
                 setReplaceImageLayerId(menu.layer.id)
                 setShowImages(true)
+              },
+            }] : []),
+            ...(menu.layer.type === 'video' ? [{
+              label: t('layers.replaceVideo'),
+              action: () => {
+                setReplaceVideoLayerId(menu.layer.id)
+                setShowVideos(true)
               },
             }] : []),
             { label: t('common.delete'), danger: true, action: () => { if (childCount(menu.layer.id) === 0 || confirm(t('layers.deleteChildrenConfirm'))) useStore.getState().deleteLayer(menu.layer.id) } },
@@ -671,6 +698,15 @@ export function LayersPanel() {
             setReplaceImageLayerId(null)
           }}
           onPick={addImageAsset}
+        />
+      )}
+      {showVideos && (
+        <VideoLibraryModal
+          onClose={() => {
+            setShowVideos(false)
+            setReplaceVideoLayerId(null)
+          }}
+          onPick={addVideoAsset}
         />
       )}
     </div>
