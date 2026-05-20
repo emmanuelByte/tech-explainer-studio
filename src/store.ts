@@ -995,32 +995,32 @@ export const useStore = create<Store>()(
       selectLayer: (id, multi = false) => {
         if (!id) { set({ selectedLayerIds: [], selectedKeyframes: [], editingTextLayerId: null, textSelection: null }); return }
         if (multi) {
-          const { selectedLayerIds, editingTextLayerId } = get()
+          const { selectedLayerIds } = get()
           const next = selectedLayerIds.includes(id)
             ? selectedLayerIds.filter((x) => x !== id)
             : [...selectedLayerIds, id]
           set({
             selectedLayerIds: next,
             selectedKeyframes: [],
-            editingTextLayerId: editingTextLayerId && next.includes(editingTextLayerId) ? editingTextLayerId : null,
-            textSelection: editingTextLayerId && next.includes(editingTextLayerId) ? get().textSelection : null,
+            editingTextLayerId: null,
+            textSelection: null,
           })
         } else {
-          set((s) => ({
+          set({
             selectedLayerIds: [id],
             selectedKeyframes: [],
-            editingTextLayerId: s.editingTextLayerId === id ? null : s.editingTextLayerId,
-            textSelection: s.editingTextLayerId === id ? null : s.textSelection,
-          }))
+            editingTextLayerId: null,
+            textSelection: null,
+          })
         }
       },
 
-      selectLayers: (ids) => set((s) => ({
+      selectLayers: (ids) => set({
         selectedLayerIds: ids,
         selectedKeyframes: [],
-        editingTextLayerId: s.editingTextLayerId && ids.includes(s.editingTextLayerId) ? s.editingTextLayerId : null,
-        textSelection: s.editingTextLayerId && ids.includes(s.editingTextLayerId) ? s.textSelection : null,
-      })),
+        editingTextLayerId: null,
+        textSelection: null,
+      }),
 
       selectKeyframe: (selection, multi = false) => {
         set((s) => {
