@@ -25,7 +25,7 @@ export interface TextRangeStyle {
 }
 
 export type AnimatableProperty =
-  | 'x' | 'y' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
+  | 'x' | 'y' | 'z' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
   | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
   | 'perspective' | 'originX' | 'originY' | 'opacity'
   | 'fillColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
@@ -41,6 +41,7 @@ export interface GradientStop {
 export interface TransformProps {
   x: number
   y: number
+  z: number
   scale: number
   scaleX: number
   scaleY: number
@@ -68,7 +69,7 @@ export interface TransformProps {
 }
 
 export const DEFAULT_TRANSFORM: TransformProps = {
-  x: 0, y: 0,
+  x: 0, y: 0, z: 0,
   scale: 1,
   scaleX: 1,
   scaleY: 1,
@@ -140,6 +141,7 @@ export interface Layer {
   // Shadow static props (color; position/size are keyframeable)
   shadowEnabled: boolean
   shadowColor: string
+  shadowFollowsPerspective?: boolean
   // Text
   text: string
   fontFamily: string

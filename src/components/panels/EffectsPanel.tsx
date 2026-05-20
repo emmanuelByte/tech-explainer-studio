@@ -30,6 +30,20 @@ const SHADOW_FIELDS: SliderField[] = [
   { propKey: 'shadowSpread', label: 'Spread', min: -50, max: 100, step: 1, unit: 'px' },
 ]
 
+const SHADOW_ON_VALUES: Pick<TransformProps, 'shadowX' | 'shadowY' | 'shadowBlur' | 'shadowSpread'> = {
+  shadowX: 0,
+  shadowY: 12,
+  shadowBlur: 28,
+  shadowSpread: 0,
+}
+
+function hasVisibleShadow(p: TransformProps) {
+  return Math.abs(p.shadowX) > 0.01
+    || Math.abs(p.shadowY) > 0.01
+    || Math.abs(p.shadowBlur) > 0.01
+    || Math.abs(p.shadowSpread) > 0.01
+}
+
 /** Slider + numeric input combo for effect parameters */
 function EffectField({
   label, value, min, max, step, unit, sensitivity, onChange,
@@ -114,14 +128,28 @@ function DebouncedColor({ value, onChange }: { value: string; onChange: (value: 
 
 export function EffectsPanel() {
   const { t } = useTranslation()
-  const { layers, selectedLayerIds, currentFrame, setLayerAnimatedProperty, updateLayerProp } = useStore()
+  const { layers, selectedLayerIds, currentFrame, setLayerAnimatedProperty, updateLayerProp, addKeyframes } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
   if (!layer) return null
 
   const p = resolveLayerAnimation(layer, currentFrame).transform
+  const shadowActiveAtFrame = !!layer.shadowEnabled && hasVisibleShadow(p)
 
   function handleChange(key: keyof TransformProps, value: number) {
     setLayerAnimatedProperty(layer!.id, key as never, value)
+  }
+
+  function handleShadowToggle(enabled: boolean) {
+    updateLayerProp(layer!.id, 'shadowEnabled', true)
+    addKeyframes([
+      {
+        layerId: layer!.id,
+        props: {
+          ...p,
+          ...(enabled ? SHADOW_ON_VALUES : { shadowX: 0, shadowY: 0, shadowBlur: 0, shadowSpread: 0 }),
+        },
+      },
+    ], currentFrame, 'ease-out')
   }
 
   const safeShadowColor = layer.shadowColor?.startsWith('rgba') ? '#000000' : (layer.shadowColor ?? '#000000')
@@ -150,8 +178,8 @@ export function EffectsPanel() {
       <Section title={t('effects.shadow')} defaultOpen={!!layer.shadowEnabled}>
         <ToggleRow
           label={t('effects.enableShadow')}
-          checked={!!layer.shadowEnabled}
-          onChange={(v) => updateLayerProp(layer.id, 'shadowEnabled', v)}
+          checked={shadowActiveAtFrame}
+          onChange={handleShadowToggle}
         />
         {layer.shadowEnabled && (
           <>
@@ -161,6 +189,11 @@ export function EffectsPanel() {
                 onChange={(value) => updateLayerProp(layer.id, 'shadowColor', value)}
               />
             </Row>
+            <ToggleRow
+              label={t('effects.followPerspective')}
+              checked={!!layer.shadowFollowsPerspective}
+              onChange={(v) => updateLayerProp(layer.id, 'shadowFollowsPerspective', v)}
+            />
             {SHADOW_FIELDS.map((f) => (
               <EffectField
                 key={f.propKey}

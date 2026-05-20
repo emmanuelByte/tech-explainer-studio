@@ -240,6 +240,8 @@ function Rotation3DGizmo({ rotateX, rotateY, rotateZ, onChange }: {
 type PresetCategory = 'in' | 'out' | 'attention' | 'text'
 type MotionBuilderKey = 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY' | 'scale' | 'opacity' | 'perspective' | 'lift'
 type MotionBuilderState = Record<MotionBuilderKey, { enabled: boolean; to: number }>
+type BreathingStyle = 'soft' | 'float' | 'glow' | 'bob'
+const MAX_BREATHING_KEYFRAMES = 120
 
 interface PresetDef {
   label: string
@@ -547,10 +549,81 @@ function surfaceBaseFromLift(to: TransformProps, lift: number): TransformProps {
   }
 }
 
+function breathingPeakProps(base: TransformProps, intensity: number, style: BreathingStyle): TransformProps {
+  const amount = Math.max(0, intensity) / 100
+  const lift = Math.max(0, intensity)
+  const peak: TransformProps = { ...base }
+
+  if (style === 'soft') {
+    peak.scale = base.scale * (1 + amount)
+    peak.shadowY = base.shadowY + lift * 0.65
+    peak.shadowBlur = base.shadowBlur + lift * 2.4
+    peak.shadowSpread = base.shadowSpread + lift * 0.06
+    return peak
+  }
+
+  if (style === 'glow') {
+    peak.scale = base.scale * (1 + amount * 0.75)
+    peak.brightness = Math.min(160, base.brightness + lift * 1.4)
+    peak.shadowY = base.shadowY + lift * 0.45
+    peak.shadowBlur = base.shadowBlur + lift * 4.5
+    peak.shadowSpread = base.shadowSpread + lift * 0.16
+    return peak
+  }
+
+  peak.y = base.y - lift * 1.6
+  peak.z = base.z + lift * 2.5
+  peak.scale = base.scale * (1 + amount * 0.55)
+  peak.rotateZ = base.rotateZ + Math.max(-0.8, Math.min(0.8, lift * 0.08))
+  peak.shadowY = base.shadowY + lift * 1.15
+  peak.shadowBlur = base.shadowBlur + lift * 3.4
+  peak.shadowSpread = base.shadowSpread + lift * 0.08
+  return peak
+}
+
+function generateBreathingKeyframes(start: number, end: number, interval: number, base: TransformProps, intensity: number, style: BreathingStyle): Keyframe[] {
+  const startFrame = Math.max(0, Math.round(start))
+  const endFrame = Math.max(startFrame + 1, Math.round(end))
+  const pointsPerCycle = style === 'bob' ? 3 : 3
+  const maxCycles = Math.max(1, Math.floor(MAX_BREATHING_KEYFRAMES / pointsPerCycle))
+  const intervalFrames = Math.max(6, Math.round(interval), Math.ceil((endFrame - startFrame) / maxCycles))
+  const peak = breathingPeakProps(base, intensity, style)
+  const byFrame = new Map<number, Keyframe>()
+
+  for (let frame = startFrame; frame < endFrame; frame += intervalFrames) {
+    const cycleEnd = Math.min(endFrame, frame + intervalFrames)
+    const peakFrame = frame + Math.max(1, Math.round((cycleEnd - frame) * 0.5))
+    if (style === 'bob') {
+      const travel = Math.max(1, intensity * 1.35)
+      const upProps: TransformProps = {
+        ...base,
+        y: base.y - travel,
+        shadowY: base.shadowY + travel * 0.45,
+        shadowBlur: base.shadowBlur + travel * 0.9,
+      }
+      byFrame.set(frame, { frame, easing: 'ease-in-out', props: { ...base } })
+      if (peakFrame > frame && peakFrame < cycleEnd) {
+        byFrame.set(peakFrame, { frame: peakFrame, easing: 'ease-in-out', props: upProps })
+      }
+      byFrame.set(cycleEnd, { frame: cycleEnd, easing: 'ease-in-out', props: { ...base } })
+      continue
+    }
+    byFrame.set(frame, { frame, easing: 'ease-in-out', props: { ...base } })
+    if (peakFrame > frame && peakFrame < cycleEnd) {
+      byFrame.set(peakFrame, { frame: peakFrame, easing: 'ease-in-out', props: { ...peak } })
+    }
+    byFrame.set(cycleEnd, { frame: cycleEnd, easing: 'ease-in-out', props: { ...base } })
+  }
+
+  const frames = [...byFrame.values()].sort((a, b) => a.frame - b.frame)
+  if (frames.length) frames[frames.length - 1] = { ...frames[frames.length - 1], easing: 'linear' }
+  return frames
+}
+
 
 export function AnimationPresetsPanel() {
   const { t } = useTranslation()
-  const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, addKeyframes, updateLayerProp } = useStore()
+  const { layers, selectedLayerIds, currentFrame, fps, totalFrames, addKeyframe, addKeyframes, addKeyframeSequence, updateLayerProp, beginInteraction, endInteraction } = useStore()
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
 
   const [duration, setDuration] = useState(30)
@@ -559,6 +632,12 @@ export function AnimationPresetsPanel() {
   const [easing, setEasing] = useState<EasingType>('ease-out')
   const [activeCategory, setActiveCategory] = useState<PresetCategory>('in')
   const [builder, setBuilder] = useState<MotionBuilderState>(() => makeBuilderState(interpolateProps(0, [])))
+  const [breathingStyle, setBreathingStyle] = useState<BreathingStyle>('float')
+  const [breathingTimeUnit, setBreathingTimeUnit] = useState<'frames' | 'seconds'>('seconds')
+  const [breathingStartFrame, setBreathingStartFrame] = useState(currentFrame)
+  const [breathingEndFrame, setBreathingEndFrame] = useState(currentFrame + 90)
+  const [breathingInterval, setBreathingInterval] = useState(1.2)
+  const [breathingIntensity, setBreathingIntensity] = useState(4)
   const builderBaseRef = useRef<Record<string, TransformProps>>({})
 
   useEffect(() => {
@@ -580,6 +659,8 @@ export function AnimationPresetsPanel() {
     if (inferredLift) nextBuilder.lift = { enabled: true, to: inferredLift }
     setStartFrame(inferredStart)
     setDuration(inferredDuration)
+    setBreathingStartFrame(inferredStart)
+    setBreathingEndFrame(Math.max(inferredStart + 1, layerEnd))
     if (layer.type === 'text') setActiveCategory('text')
     builderBaseRef.current = { [layer.id]: base }
     setBuilder(nextBuilder)
@@ -664,12 +745,36 @@ export function AnimationPresetsPanel() {
     addKeyframes(toUpdates, targetFrame, 'linear')
   }
 
+  function applyBreathing() {
+    if (!layer) return
+    const layerStart = layer.startFrame ?? 0
+    const layerEnd = layer.endFrame ?? totalFrames
+    const start = Math.max(layerStart, Math.min(Math.round(breathingStartFrame), Math.max(layerStart, layerEnd - 1)))
+    const end = Math.min(layerEnd, Math.max(start + 1, Math.round(breathingEndFrame)))
+    const intervalFrames = Math.max(Math.round(fps * 0.35), Math.round(breathingInterval * fps))
+    beginInteraction(true)
+    try {
+      presetTargets.forEach((target) => {
+        const base = interpolateProps(start, target.keyframes)
+        const keyframes = generateBreathingKeyframes(start, end, intervalFrames, base, breathingIntensity, breathingStyle)
+        updateLayerProp(target.id, 'shadowEnabled', true)
+        addKeyframeSequence(target.id, keyframes)
+      })
+    } finally {
+      endInteraction()
+    }
+  }
+
   const categories = (layer.type === 'text' ? ['text', 'in', 'out', 'attention'] : ['in', 'out', 'attention']) as PresetCategory[]
   const safeActiveCategory = categories.includes(activeCategory) ? activeCategory : categories[0]
   const durationValue = timeUnit === 'seconds' ? Number((duration / fps).toFixed(2)) : duration
   const startValue = timeUnit === 'seconds' ? Number((startFrame / fps).toFixed(2)) : startFrame
   const unitLabel = timeUnit === 'seconds' ? 's' : 'fr'
+  const breathingStartValue = breathingTimeUnit === 'seconds' ? Number((breathingStartFrame / fps).toFixed(2)) : breathingStartFrame
+  const breathingEndValue = breathingTimeUnit === 'seconds' ? Number((breathingEndFrame / fps).toFixed(2)) : breathingEndFrame
+  const breathingUnitLabel = breathingTimeUnit === 'seconds' ? 's' : 'fr'
   const maxStartFrame = Math.max(0, (layer.endFrame ?? totalFrames) - 1)
+  const maxEndFrame = Math.max(1, layer.endFrame ?? totalFrames)
 
   const setDurationFromInput = (value: number) => {
     if (!Number.isFinite(value)) return
@@ -681,6 +786,20 @@ export function AnimationPresetsPanel() {
     if (!Number.isFinite(value)) return
     const nextFrame = timeUnit === 'seconds' ? Math.round(value * fps) : Math.round(value)
     setStartFrame(Math.max(0, Math.min(maxStartFrame, nextFrame)))
+  }
+
+  const setBreathingStartFromInput = (value: number) => {
+    if (!Number.isFinite(value)) return
+    const nextFrame = breathingTimeUnit === 'seconds' ? Math.round(value * fps) : Math.round(value)
+    const clamped = Math.max(0, Math.min(maxStartFrame, nextFrame))
+    setBreathingStartFrame(clamped)
+    if (breathingEndFrame <= clamped) setBreathingEndFrame(Math.min(maxEndFrame, clamped + 1))
+  }
+
+  const setBreathingEndFromInput = (value: number) => {
+    if (!Number.isFinite(value)) return
+    const nextFrame = breathingTimeUnit === 'seconds' ? Math.round(value * fps) : Math.round(value)
+    setBreathingEndFrame(Math.max(breathingStartFrame + 1, Math.min(maxEndFrame, nextFrame)))
   }
 
   const syncToPlayhead = () => {
@@ -751,6 +870,97 @@ export function AnimationPresetsPanel() {
             {EASINGS.map((e) => <option key={e} value={e}>{e}</option>)}
           </select>
         </Row>
+      </Section>
+
+      {/* ── BREATHING LOOP ─────────────────────────────── */}
+      <Section title={t('motion.breathing')} defaultOpen={false}>
+        <Row label={t('motion.timeUnit')}>
+          <SegGroup
+            value={breathingTimeUnit}
+            options={[
+              { value: 'seconds', label: t('motion.seconds') },
+              { value: 'frames', label: t('motion.frames') },
+            ]}
+            onChange={setBreathingTimeUnit}
+          />
+        </Row>
+        <Row label={t('motion.style')}>
+          <select
+            className="input-base"
+            value={breathingStyle}
+            onChange={(e) => setBreathingStyle(e.target.value as BreathingStyle)}
+            style={{ flex: 1, height: 26 }}
+          >
+            <option value="soft">{t('motion.breathingSoft')}</option>
+            <option value="float">{t('motion.breathingFloat')}</option>
+            <option value="bob">{t('motion.breathingBob')}</option>
+            <option value="glow">{t('motion.breathingGlow')}</option>
+          </select>
+        </Row>
+        <Row label={t('motion.start')}>
+          <NumField
+            leading="S"
+            value={breathingStartValue}
+            min={0}
+            max={breathingTimeUnit === 'seconds' ? maxStartFrame / fps : maxStartFrame}
+            step={breathingTimeUnit === 'seconds' ? 0.1 : 1}
+            precision={breathingTimeUnit === 'seconds' ? 2 : 0}
+            unit={breathingUnitLabel}
+            sensitivity={breathingTimeUnit === 'seconds' ? 0.05 : 0.5}
+            onChange={setBreathingStartFromInput}
+          />
+        </Row>
+        <Row label={t('motion.end')}>
+          <NumField
+            leading="E"
+            value={breathingEndValue}
+            min={breathingTimeUnit === 'seconds' ? (breathingStartFrame + 1) / fps : breathingStartFrame + 1}
+            max={breathingTimeUnit === 'seconds' ? maxEndFrame / fps : maxEndFrame}
+            step={breathingTimeUnit === 'seconds' ? 0.1 : 1}
+            precision={breathingTimeUnit === 'seconds' ? 2 : 0}
+            unit={breathingUnitLabel}
+            sensitivity={breathingTimeUnit === 'seconds' ? 0.05 : 0.5}
+            onChange={setBreathingEndFromInput}
+          />
+        </Row>
+        <Row label={t('motion.interval')}>
+          <NumField
+            leading="I"
+            value={breathingInterval}
+            min={0.35}
+            step={0.1}
+            precision={2}
+            unit="s"
+            sensitivity={0.03}
+            onChange={(v) => setBreathingInterval(Math.max(0.35, v))}
+          />
+        </Row>
+        <Row label={t('motion.intensity')}>
+          <NumField
+            leading="%"
+            value={breathingIntensity}
+            min={0}
+            max={30}
+            step={1}
+            precision={0}
+            unit="%"
+            sensitivity={0.5}
+            onChange={(v) => setBreathingIntensity(Math.max(0, Math.min(30, Math.round(v))))}
+          />
+        </Row>
+        <button
+          onClick={applyBreathing}
+          style={{
+            width: '100%', height: 28, fontSize: 11,
+            background: 'var(--accent-bg)', color: '#0d99ff',
+            border: '1px solid var(--accent)', borderRadius: 3,
+            transition: 'background 0.1s',
+          }}
+          onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)' }}
+          onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--accent-bg)' }}
+        >
+          {t('motion.applyBreathing')}
+        </button>
       </Section>
 
       {/* ── CUSTOM 3D ─────────────────────────────────── */}

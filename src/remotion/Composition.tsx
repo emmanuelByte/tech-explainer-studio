@@ -137,6 +137,24 @@ function layerSize(layer: Layer, canvasWidth: number, canvasHeight: number) {
   }
 }
 
+function layerCanCastSurfaceShadow(layer: Layer) {
+  if (layer.type === 'image' || layer.type === 'video' || layer.type === 'line') return true
+  return layer.fillType !== 'none' || !!layer.strokeEnabled
+}
+
+function buildLayerSurfaceShadow(layer: Layer, p: ReturnType<typeof resolveLayerAnimation>['transform']) {
+  if (!layerCanCastSurfaceShadow(layer)) return 'none'
+  return buildBoxShadow(p, layer.shadowColor, layer.shadowEnabled, !!layer.shadowFollowsPerspective)
+}
+
+function buildLayerDropShadow(layer: Layer, p: ReturnType<typeof resolveLayerAnimation>['transform']) {
+  if (!layerCanCastSurfaceShadow(layer)) return undefined
+  const shadow = buildBoxShadow(p, layer.shadowColor, layer.shadowEnabled, !!layer.shadowFollowsPerspective)
+  if (shadow === 'none') return undefined
+  const [x, y, blur] = shadow.split(' ')
+  return `drop-shadow(${x} ${y} ${blur} ${layer.shadowColor})`
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
   layer: Layer
   frame: number
@@ -169,7 +187,6 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     transformOrigin: `${p.originX}% ${p.originY}%`,
     transformStyle: 'preserve-3d',
     filter: buildFilter(p),
-    boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',
@@ -187,7 +204,15 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       ? styledSvgDataUrl(animatedLayer.src, animatedLayer)
       : animatedLayer.src
     return (
-      <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
+      <div
+        data-layer-id={animatedLayer.id}
+        style={{
+          ...wrapperStyle,
+          borderRadius: animatedLayer.borderRadius,
+          boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
+        }}
+        onClick={handleClick}
+      >
         <img
           src={imageSrc}
           style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
@@ -200,7 +225,15 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   if (animatedLayer.type === 'video' && animatedLayer.src) {
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
     return (
-      <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
+      <div
+        data-layer-id={animatedLayer.id}
+        style={{
+          ...wrapperStyle,
+          borderRadius: animatedLayer.borderRadius,
+          boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
+        }}
+        onClick={handleClick}
+      >
         <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
           <Video
             src={animatedLayer.src}
@@ -219,10 +252,11 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
 
   if (animatedLayer.type === 'text') {
     return (
-        <div
+          <div
           data-layer-id={animatedLayer.id}
           style={{
           ...wrapperStyle,
+          boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
           background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
           display: 'flex',
           alignItems: 'center',
@@ -259,6 +293,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           background: bg,
           borderRadius: '50%',
           border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+          boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
       />
@@ -273,6 +308,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           background: bg,
           clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)',
+          filter: [buildFilter(p), buildLayerDropShadow(animatedLayer, p)].filter(Boolean).join(' '),
         }}
         onClick={handleClick}
       />
@@ -287,6 +323,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           background: animatedLayer.strokeColor,
           borderRadius: animatedLayer.strokeWidth,
+          boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
       />
@@ -301,7 +338,11 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           height="100%"
           viewBox={`0 0 ${layerWidth} ${layerHeight}`}
           preserveAspectRatio="none"
-          style={{ display: 'block', overflow: 'visible' }}
+          style={{
+            display: 'block',
+            overflow: 'visible',
+            filter: buildLayerDropShadow(animatedLayer, p),
+          }}
         >
           <path
             d={animatedLayer.pathData || ''}
@@ -325,6 +366,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         background: bg,
         borderRadius: animatedLayer.borderRadius,
         border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+        boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
       }}
       onClick={handleClick}
     />
@@ -374,7 +416,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     borderRadius: animatedLayer.borderRadius,
     border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
     boxSizing: 'border-box',
-    boxShadow: buildBoxShadow(p, animatedLayer.shadowColor, animatedLayer.shadowEnabled),
+    boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',

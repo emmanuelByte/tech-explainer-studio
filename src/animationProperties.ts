@@ -19,7 +19,7 @@ export const ANIMATION_GROUPS: {
     id: 'transform',
     label: 'Transform',
     color: '#6366f1',
-    keys: ['x', 'y', 'width', 'height', 'scale', 'scaleX', 'scaleY', 'rotateX', 'rotateY', 'rotateZ', 'skewX', 'skewY', 'perspective', 'originX', 'originY'],
+    keys: ['x', 'y', 'z', 'width', 'height', 'scale', 'scaleX', 'scaleY', 'rotateX', 'rotateY', 'rotateZ', 'skewX', 'skewY', 'perspective', 'originX', 'originY'],
   },
   {
     id: 'style',
@@ -38,6 +38,7 @@ export const ANIMATION_GROUPS: {
 export const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   x: 'X',
   y: 'Y',
+  z: 'Z',
   width: 'Width',
   height: 'Height',
   scale: 'Scale',
@@ -183,4 +184,3 @@ export function resolveLayerAnimation(layer: Layer, frame: number) {
 export function hasPropertyAnimation(layer: Layer, key: AnimatableProperty) {
   return Boolean(layer.propertyKeyframes?.[key]?.length)
 }
-

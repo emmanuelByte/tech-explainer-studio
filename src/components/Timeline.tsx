@@ -361,6 +361,8 @@ function SortableLabel({
 
   const outOfRange = currentFrame < (layer.startFrame ?? 0) || currentFrame > (layer.endFrame ?? Infinity)
   const hasMultipleKf = layer.keyframes.length >= 2
+  const canExpandValues = hasMultipleKf || animProps.length > 0
+  const isGroup = childCount > 0 || layer.type === 'group' || layer.isGroup
 
   return (
     <div
@@ -392,17 +394,17 @@ function SortableLabel({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            if (childCount > 0 || layer.type === 'group' || layer.isGroup) toggleLayerCollapsed(layer.id)
-            else onToggleExpand()
+            if (isGroup) toggleLayerCollapsed(layer.id)
+            else if (canExpandValues) onToggleExpand()
           }}
           style={{
             width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: childCount > 0 || hasMultipleKf || animProps.length > 0 ? 'var(--text2)' : 'var(--text3)',
-            background: 'transparent', cursor: childCount > 0 || hasMultipleKf || animProps.length > 0 ? 'pointer' : 'default',
-            transform: (childCount > 0 || layer.type === 'group' || layer.isGroup ? !layer.collapsed : expanded) ? 'rotate(90deg)' : 'none',
+            color: isGroup || canExpandValues ? 'var(--text2)' : 'var(--text3)',
+            background: 'transparent', cursor: isGroup || canExpandValues ? 'pointer' : 'default',
+            transform: (isGroup ? !layer.collapsed : expanded) ? 'rotate(90deg)' : 'none',
             transition: 'transform 0.15s',
           }}
-          title={childCount > 0 ? t('timeline.collapseOrExpandGroup') : hasMultipleKf || animProps.length > 0 ? t('timeline.expandSubtracks') : t('timeline.noAnimatedProps')}
+          title={isGroup ? t('timeline.collapseOrExpandGroup') : canExpandValues ? t('timeline.expandSubtracks') : t('timeline.noAnimatedProps')}
         >
           <ChevronRight size={12} />
         </button>
@@ -421,6 +423,27 @@ function SortableLabel({
         <span className="flex-1 truncate" style={{ fontSize: 10, color: 'var(--text)', opacity: outOfRange ? 0.45 : 1 }}>
           {layer.name}
         </span>
+
+        {isGroup && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              if (canExpandValues) onToggleExpand()
+            }}
+            className="icon-btn"
+            style={{
+              width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0,
+              color: canExpandValues ? (expanded ? '#0d99ff' : 'var(--text2)') : 'var(--text3)',
+              cursor: canExpandValues ? 'pointer' : 'default',
+            }}
+            title={canExpandValues ? t('timeline.expandSubtracks') : t('timeline.noAnimatedProps')}
+          >
+            <ChevronRight
+              size={12}
+              style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+            />
+          </button>
+        )}
 
         {/* Actions */}
         <button onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}

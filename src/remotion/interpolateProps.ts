@@ -63,7 +63,7 @@ export function interpolateProps(frame: number, keyframes: Keyframe[]): Transfor
 export function buildTransform(p: TransformProps): string {
   return [
     `perspective(${p.perspective}px)`,
-    `translate(${p.x}px,${p.y}px)`,
+    `translate3d(${p.x}px,${p.y}px,${p.z}px)`,
     `rotateX(${p.rotateX}deg)`,
     `rotateY(${p.rotateY}deg)`,
     `rotateZ(${p.rotateZ}deg)`,
@@ -82,7 +82,23 @@ export function buildFilter(p: TransformProps): string {
   return parts.length ? parts.join(' ') : 'none'
 }
 
-export function buildBoxShadow(p: TransformProps, color: string, enabled: boolean): string {
+export function buildBoxShadow(p: TransformProps, color: string, enabled: boolean, followsPerspective = false): string {
   if (!enabled) return 'none'
-  return `${p.shadowX}px ${p.shadowY}px ${p.shadowBlur}px ${p.shadowSpread}px ${color}`
+  const hasVisibleShadow = Math.abs(p.shadowX) > 0.01
+    || Math.abs(p.shadowY) > 0.01
+    || Math.abs(p.shadowBlur) > 0.01
+    || Math.abs(p.shadowSpread) > 0.01
+
+  if (!hasVisibleShadow) return 'none'
+  if (!followsPerspective) return `${p.shadowX}px ${p.shadowY}px ${p.shadowBlur}px ${p.shadowSpread}px ${color}`
+
+  const rotateX = Math.max(-75, Math.min(75, p.rotateX))
+  const rotateY = Math.max(-75, Math.min(75, p.rotateY))
+  const tilt = Math.min(1, (Math.abs(rotateX) + Math.abs(rotateY)) / 90)
+  const x = p.shadowX - rotateY * 0.45
+  const y = p.shadowY + Math.abs(rotateX) * 0.38 + Math.abs(rotateY) * 0.14
+  const blur = p.shadowBlur + tilt * 22
+  const spread = p.shadowSpread + tilt * 3
+
+  return `${x}px ${y}px ${blur}px ${spread}px ${color}`
 }

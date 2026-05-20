@@ -548,6 +548,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     pathClosed: false,
     shadowEnabled: false,
     shadowColor: 'rgba(0,0,0,0.5)',
+    shadowFollowsPerspective: false,
     text: type === 'text' ? 'Edit text' : '',
     fontFamily: 'Inter',
     fontSize: 48,
@@ -604,6 +605,7 @@ interface Actions {
   // Keyframes
   addKeyframe: (layerId: string, frame: number, props: TransformProps, easing?: string) => void
   addKeyframes: (updates: Array<{ layerId: string; props: TransformProps }>, frame: number, easing?: string) => void
+  addKeyframeSequence: (layerId: string, keyframes: Keyframe[]) => void
   resizeLayerBox: (layerId: string, frame: number, props: TransformProps, size: { width?: number; height?: number }) => void
   removeKeyframe: (layerId: string, frame: number) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
@@ -991,19 +993,34 @@ export const useStore = create<Store>()(
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, locked: !l.locked } : l) })),
 
       selectLayer: (id, multi = false) => {
-        if (!id) { set({ selectedLayerIds: [], selectedKeyframes: [] }); return }
+        if (!id) { set({ selectedLayerIds: [], selectedKeyframes: [], editingTextLayerId: null, textSelection: null }); return }
         if (multi) {
-          const { selectedLayerIds } = get()
+          const { selectedLayerIds, editingTextLayerId } = get()
           const next = selectedLayerIds.includes(id)
             ? selectedLayerIds.filter((x) => x !== id)
             : [...selectedLayerIds, id]
-          set({ selectedLayerIds: next, selectedKeyframes: [] })
+          set({
+            selectedLayerIds: next,
+            selectedKeyframes: [],
+            editingTextLayerId: editingTextLayerId && next.includes(editingTextLayerId) ? editingTextLayerId : null,
+            textSelection: editingTextLayerId && next.includes(editingTextLayerId) ? get().textSelection : null,
+          })
         } else {
-          set({ selectedLayerIds: [id], selectedKeyframes: [] })
+          set((s) => ({
+            selectedLayerIds: [id],
+            selectedKeyframes: [],
+            editingTextLayerId: s.editingTextLayerId === id ? null : s.editingTextLayerId,
+            textSelection: s.editingTextLayerId === id ? null : s.textSelection,
+          }))
         }
       },
 
-      selectLayers: (ids) => set({ selectedLayerIds: ids, selectedKeyframes: [] }),
+      selectLayers: (ids) => set((s) => ({
+        selectedLayerIds: ids,
+        selectedKeyframes: [],
+        editingTextLayerId: s.editingTextLayerId && ids.includes(s.editingTextLayerId) ? s.editingTextLayerId : null,
+        textSelection: s.editingTextLayerId && ids.includes(s.editingTextLayerId) ? s.textSelection : null,
+      })),
 
       selectKeyframe: (selection, multi = false) => {
         set((s) => {
@@ -1413,6 +1430,23 @@ export const useStore = create<Store>()(
             return upsertTransformKeyframe(target, frame, props, easing as PairEasingType)
           })
           const skipAutoFitIds = autoFitSkipIdsForMove(s.layers, [...byId.keys()])
+          return { layers: withAutoFitGroups(s, layers, skipAutoFitIds) }
+        })
+      },
+
+      addKeyframeSequence: (layerId, keyframes) => {
+        if (!keyframes.length) return
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => {
+          const targetLayer = s.layers.find((layer) => layer.id === layerId)
+          const layers = s.layers.map((layer) => {
+            if (layer.id !== layerId) return layer
+            return keyframes.reduce((nextLayer, keyframe) => {
+              const target = ('x' in keyframe.props || 'y' in keyframe.props) ? ensureGroupOrigin(nextLayer) : nextLayer
+              return upsertTransformKeyframe(target, keyframe.frame, keyframe.props, keyframe.easing)
+            }, layer)
+          })
+          const skipAutoFitIds = targetLayer && isGroupLayer(targetLayer) ? new Set([layerId]) : autoFitSkipIdsForMove(s.layers, [layerId])
           return { layers: withAutoFitGroups(s, layers, skipAutoFitIds) }
         })
       },

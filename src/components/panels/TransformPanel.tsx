@@ -487,6 +487,7 @@ export function TransformPanel() {
   const parentLayer = layer.parentId ? layers.find((item) => item.id === layer.parentId) : null
   const relativeX = p.x
   const relativeY = p.y
+  const relativeZ = p.z
   const animatedLayer = resolveLayerAnimation(layer, currentFrame).layer
   const effectiveW = sizeMode === 'fill-canvas' ? canvasW : animatedLayer.width
   const effectiveH = sizeMode === 'fill-canvas' ? canvasH : animatedLayer.type === 'line' ? animatedLayer.strokeWidth || 2 : animatedLayer.height
@@ -595,6 +596,7 @@ export function TransformPanel() {
         <Row label={t('transform.position')}>
           <NumField leading="X" value={relativeX} step={1} precision={1} onChange={setRelativeX} ariaLabel={t('transform.xPositionAria')} />
           <NumField leading="Y" value={relativeY} step={1} precision={1} onChange={setRelativeY} ariaLabel={t('transform.yPositionAria')} />
+          <NumField leading="Z" value={relativeZ} step={10} precision={1} sensitivity={10} onChange={(v) => handleTransformChange('z', v)} ariaLabel={t('transform.zPositionAria')} />
         </Row>
         <Row label={t('transform.size')}>
           <NumField leading="W" value={effectiveW} min={1} step={1} precision={0} onChange={setWidth} ariaLabel={t('transform.widthAria')} />
