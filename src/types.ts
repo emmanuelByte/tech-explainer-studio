@@ -103,6 +103,14 @@ export interface PropertyKeyframe {
   bezier?: [number, number, number, number]
 }
 
+export interface VideoSegment {
+  id: string
+  timelineStartFrame: number
+  timelineEndFrame: number
+  sourceStartFrame: number
+  sourceEndFrame: number
+}
+
 export interface Layer {
   id: string
   name: string
@@ -169,6 +177,8 @@ export interface Layer {
   videoNaturalWidth?: number
   videoNaturalHeight?: number
   videoDuration?: number
+  videoSegments?: VideoSegment[]
+  sourceDurationFrames?: number
   svgStrokeColor?: string
   svgFillColor?: string
   svgFillEnabled?: boolean

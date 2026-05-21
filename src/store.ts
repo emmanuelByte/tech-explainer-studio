@@ -4,7 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -20,6 +20,10 @@ function normalizeHexColor(value: string) {
   }
   if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
   return null
+}
+
+function todoVideoSegmentAction(): never {
+  throw new Error('TODO: video segment action is not implemented yet.')
 }
 
 function collectDescendants(layers: Layer[], parentId: string): Layer[] {
@@ -664,6 +668,19 @@ interface Actions {
   // Time range
   updateLayerTimeRange: (layerId: string, startFrame: number, endFrame: number) => void
   setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames?: number[]) => void
+  // Video segments
+  selectActiveSegment: (layerId: string, frame: number) => VideoSegment | null
+  selectSegmentSpeed: (segment: VideoSegment) => number
+  setLayerSourceDuration: (layerId: string, durationFrames: number) => void
+  splitVideoAt: (layerId: string, frame: number) => void
+  removeVideoSegment: (layerId: string, segmentId: string) => void
+  duplicateVideoSegment: (layerId: string, segmentId: string) => void
+  setSegmentTimelineRange: (layerId: string, segmentId: string, startFrame: number, endFrame: number, opts?: { preserveSpeed?: boolean }) => void
+  setSegmentSourceRange: (layerId: string, segmentId: string, sourceStartFrame: number, sourceEndFrame: number) => void
+  moveVideoSegment: (layerId: string, segmentId: string, deltaFrames: number) => void
+  setSegmentSpeed: (layerId: string, segmentId: string, speed: number) => void
+  freezeSegment: (layerId: string, segmentId: string) => void
+  resetVideoCut: (layerId: string) => void
   // Reorder
   reorderLayersById: (orderedIds: string[]) => void
   moveLayerToParent: (layerIds: string[], parentId: string | null, insertAfterId?: string | null) => void
@@ -1609,6 +1626,39 @@ export const useStore = create<Store>()(
           }
         })
       },
+
+      selectActiveSegment: (layerId, frame) => {
+        const layer = get().layers.find((item) => item.id === layerId)
+        if (!layer?.videoSegments?.length) return null
+        return layer.videoSegments.find((segment) =>
+          frame >= segment.timelineStartFrame && frame < segment.timelineEndFrame
+        ) ?? null
+      },
+
+      selectSegmentSpeed: (segment) => {
+        const timelineDuration = segment.timelineEndFrame - segment.timelineStartFrame
+        if (timelineDuration <= 0) return 0
+        return (segment.sourceEndFrame - segment.sourceStartFrame) / timelineDuration
+      },
+
+      setLayerSourceDuration: (layerId, durationFrames) => {
+        set((s) => ({
+          layers: s.layers.map((layer) => layer.id === layerId && layer.type === 'video'
+            ? { ...layer, sourceDurationFrames: Math.max(0, Math.round(durationFrames)) }
+            : layer
+          ),
+        }))
+      },
+
+      splitVideoAt: () => todoVideoSegmentAction(),
+      removeVideoSegment: () => todoVideoSegmentAction(),
+      duplicateVideoSegment: () => todoVideoSegmentAction(),
+      setSegmentTimelineRange: () => todoVideoSegmentAction(),
+      setSegmentSourceRange: () => todoVideoSegmentAction(),
+      moveVideoSegment: () => todoVideoSegmentAction(),
+      setSegmentSpeed: () => todoVideoSegmentAction(),
+      freezeSegment: () => todoVideoSegmentAction(),
+      resetVideoCut: () => todoVideoSegmentAction(),
 
       reorderLayersById: (orderedIds) => {
         get()._snapshot()
