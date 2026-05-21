@@ -1285,7 +1285,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }
 
   function hitLayerAtPoint(x: number, y: number) {
-    return [...layers].reverse()
+    return layers
       .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
       .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
       .find((box) => pointInBox(x, y, box))
@@ -1414,7 +1414,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       : null
     if (selectedGroup) {
       const childIds = new Set(descendantsOf(layers, selectedGroup.id).map((child) => child.id))
-      const childHit = [...layers].reverse()
+      const childHit = layers
         .filter((item) => childIds.has(item.id) && item.visible && item.type !== 'group' && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
         .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
         .find((box) => pointInBox(point.x, point.y, box))
@@ -1427,7 +1427,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       }
     }
 
-    const boxes = [...layers].reverse()
+    const boxes = layers
       .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
       .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
     const hit = boxes.find((box) => pointInBox(point.x, point.y, box))

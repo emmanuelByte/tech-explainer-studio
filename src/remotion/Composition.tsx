@@ -687,7 +687,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
             style={{
               position: 'absolute',
               inset: 0,
-              zIndex: index,
+              zIndex: children.length - index,
               pointerEvents: 'none',
             }}
           >
@@ -785,7 +785,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
           canvasHeight={canvasHeight}
           selectedLayerIds={selectedLayerIds}
           selectLayer={selectLayer}
-          stackIndex={index}
+          stackIndex={rootLayers.length - index}
         />
       ))}
     </div>
