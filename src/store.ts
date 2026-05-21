@@ -1830,15 +1830,14 @@ export const useStore = create<Store>()(
 
       setLayerSourceDuration: (layerId, durationFrames) => {
         const sourceDurationFrames = Math.max(0, Math.round(durationFrames))
+        const current = get().layers.find((layer) => layer.id === layerId)
+        if (!current || current.type !== 'video' || current.sourceDurationFrames === sourceDurationFrames) return
         set((s) => {
-          let changed = false
-          const layers = s.layers.map((layer) => {
-            if (layer.id !== layerId || layer.type !== 'video') return layer
-            if (layer.sourceDurationFrames === sourceDurationFrames) return layer
-            changed = true
-            return normalizeVideoLayer({ ...layer, sourceDurationFrames }, s.fps, s.totalFrames)
-          })
-          return changed ? { layers } : {}
+          const layers = s.layers.map((layer) => layer.id === layerId && layer.type === 'video'
+            ? normalizeVideoLayer({ ...layer, sourceDurationFrames }, s.fps, s.totalFrames)
+            : layer
+          )
+          return { layers }
         })
       },
 

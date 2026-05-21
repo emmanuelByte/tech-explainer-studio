@@ -284,6 +284,7 @@ function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
   // Keep latest target in a ref so async metadata-ready listeners seek to
   // the CURRENT scrub position, not a stale one captured at mount.
   const pendingTargetRef = useRef(0)
+  const reportedSourceDurationRef = useRef<number | null>(null)
 
   useEffect(() => {
     const video = videoRef.current
@@ -300,7 +301,10 @@ function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
 
     const updateSourceDuration = () => {
       if (!Number.isFinite(video.duration) || video.duration <= 0) return
-      useStore.getState().setLayerSourceDuration(layerId, Math.max(0, Math.round(video.duration * fps)))
+      const sourceDurationFrames = Math.max(0, Math.round(video.duration * fps))
+      if (reportedSourceDurationRef.current === sourceDurationFrames) return
+      reportedSourceDurationRef.current = sourceDurationFrames
+      useStore.getState().setLayerSourceDuration(layerId, sourceDurationFrames)
     }
 
     const seek = () => {
