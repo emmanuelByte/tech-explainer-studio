@@ -178,11 +178,70 @@ export function assetStoragePlugin() {
             return
           }
 
-          if (subresource === 'file' && req.method === 'GET') {
-            res.statusCode = 200
+          if (subresource === 'file' && (req.method === 'GET' || req.method === 'HEAD')) {
+            const filePath = assetFilePath(root, asset)
+            const fileStat = await stat(filePath)
+            const total = fileStat.size
+
             res.setHeader('Content-Type', asset.mimeType)
             res.setHeader('Cache-Control', 'no-cache')
-            createReadStream(assetFilePath(root, asset)).pipe(res)
+            // Critical for video seeking: signals the client that we support
+            // byte-range requests. Without this header the browser falls back
+            // to sequential download and video.duration may stay NaN /
+            // seeks to un-buffered positions fail silently.
+            res.setHeader('Accept-Ranges', 'bytes')
+            res.setHeader('Content-Length', String(total))
+
+            // HEAD: just headers, no body
+            if (req.method === 'HEAD') {
+              res.statusCode = 200
+              res.end()
+              return
+            }
+
+            const rangeHeader = req.headers.range
+            if (rangeHeader) {
+              // Parse "bytes=START-END" (END optional). Multipart ranges not supported.
+              const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim())
+              if (!match) {
+                res.statusCode = 416 // Range Not Satisfiable
+                res.setHeader('Content-Range', `bytes */${total}`)
+                res.end()
+                return
+              }
+              const startStr = match[1]
+              const endStr = match[2]
+              let start = startStr === '' ? NaN : Number(startStr)
+              let end = endStr === '' ? NaN : Number(endStr)
+
+              // Suffix range: "bytes=-N" means the last N bytes
+              if (Number.isNaN(start) && !Number.isNaN(end)) {
+                start = Math.max(0, total - end)
+                end = total - 1
+              } else {
+                if (Number.isNaN(start)) start = 0
+                if (Number.isNaN(end)) end = total - 1
+              }
+
+              if (start > end || start >= total || end >= total) {
+                res.statusCode = 416
+                res.setHeader('Content-Range', `bytes */${total}`)
+                res.end()
+                return
+              }
+
+              const chunkSize = end - start + 1
+              res.statusCode = 206 // Partial Content
+              res.setHeader('Content-Range', `bytes ${start}-${end}/${total}`)
+              res.setHeader('Content-Length', String(chunkSize))
+              createReadStream(filePath, { start, end }).pipe(res)
+              return
+            }
+
+            // No Range header: send full body, but keep Accept-Ranges so
+            // the browser knows it can issue range requests on subsequent fetches.
+            res.statusCode = 200
+            createReadStream(filePath).pipe(res)
             return
           }
 

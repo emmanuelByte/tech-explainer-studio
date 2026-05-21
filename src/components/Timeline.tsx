@@ -1,4 +1,5 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
+import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
@@ -32,6 +33,11 @@ const MAX_TL_H_RATIO = 0.6
 const BAR_HANDLE_W = 6
 const SNAP_FRAMES = 5
 const TIMELINE_LEFT_OFFSET = 32
+
+function BodyPortal({ children }: { children: ReactNode }) {
+  if (typeof document === 'undefined') return <>{children}</>
+  return createPortal(children, document.body)
+}
 
 function scaleTimelineHeight(base: number, max: number, zoom: number) {
   const amount = Math.max(0, Math.min(1, (zoom - 1) / 3))
@@ -79,12 +85,14 @@ function getChangingProps(layer: Layer): (keyof TransformProps)[] {
 function getVisibleAnimProps(layer: Layer, showAll: boolean): AnimatableProperty[] {
   if (showAll) return ANIMATION_GROUPS.flatMap((group) => group.keys)
   const props = new Set<AnimatableProperty>()
+  const explicitPropertyKeys = new Set(Object.keys(layer.propertyKeyframes ?? {}) as AnimatableProperty[])
   for (const group of ANIMATION_GROUPS) {
     for (const key of group.keys) {
       if (layer.propertyKeyframes?.[key]?.length) props.add(key)
     }
   }
   getChangingProps(layer).forEach((key) => {
+    if (explicitPropertyKeys.has(key as AnimatableProperty)) return
     if ((ANIMATION_GROUPS.flatMap((group) => group.keys) as string[]).includes(key)) props.add(key as AnimatableProperty)
   })
   return [...props]
@@ -94,9 +102,10 @@ function getTransformPropertyKeyframes(layer: Layer, propKey: AnimatableProperty
   const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
   if (!(propKey in DEFAULT_TRANSFORM)) return []
   return sorted
-    .filter((kf, index) => {
-      if (sorted.length <= 2 || index === 0 || index === sorted.length - 1) return true
+    .filter((kf) => {
+      if (sorted.length < 2) return false
       const without = sorted.filter((item) => item.frame !== kf.frame)
+      if (!without.length) return false
       const fallback = interpolateProps(kf.frame, without)
       return kf.props[propKey as keyof TransformProps] !== fallback[propKey as keyof TransformProps]
     })
@@ -281,11 +290,12 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
     : { top, maxHeight: viewportH - top - margin }
   return (
     <div
+      data-timeline-popover
       style={{
         position: 'fixed', left,
         ...verticalPosition,
         background: 'var(--panel)', border: '1px solid var(--border)',
-        borderRadius: 6, zIndex: 1100, width: popupWidth,
+        borderRadius: 6, zIndex: 2600, width: popupWidth,
         overflowY: 'auto',
         boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
         padding: '4px 0',
@@ -613,9 +623,10 @@ function TrackRow({
                 <div style={{ height: groupHeaderH, position: 'relative', background: 'rgba(0,0,0,0.15)' }} />
                 {groupProps.map((propKey) => {
                   const propKfs = getPropertyKeyframes(layer, propKey)
+                  const hasExplicitPropTrack = Object.prototype.hasOwnProperty.call(layer.propertyKeyframes ?? {}, propKey)
                   const effectivePropKey = propKey
-                  const easingPropKey = propKfs.length ? propKey : undefined
-                  const sourceKfs = propKfs.length
+                  const easingPropKey = hasExplicitPropTrack ? propKey : undefined
+                  const sourceKfs = hasExplicitPropTrack
                     ? propKfs
                     : getTransformPropertyKeyframes(layer, propKey)
                   const pRange = sourceKfs.map((kf) => typeof kf.value === 'number' ? kf.value : 0)
@@ -1468,49 +1479,55 @@ export function Timeline() {
 
       {/* Keyframe context menu */}
       {kfContextMenu && !kfContextMenu.showEasing && (
-        <div style={{ position: 'fixed', ...keyframeMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 160, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
-          onClick={(e) => e.stopPropagation()}>
-          {[
-            { label: kfContextMenu.propKey ? t('timeline.deleteKeyframeValue') : t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
-            { label: kfContextMenu.propKey ? t('timeline.duplicateKeyframeValue') : t('timeline.duplicateKeyframe'), danger: false, action: () => { duplicateKeyframe(kfContextMenu.layerId, kfContextMenu.frame, kfContextMenu.propKey, currentFrame); setKfContextMenu(null) } },
-            ...(!kfContextMenu.propKey ? [{ label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } }] : []),
-            ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
-            { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
-            { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(kfContextMenu.layerId); setKfContextMenu(null) } },
-          ].map(({ label, action, danger }) => (
-            <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
-              style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
-          ))}
-        </div>
+        <BodyPortal>
+          <div data-timeline-popover style={{ position: 'fixed', ...keyframeMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 2600, minWidth: 160, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
+            onClick={(e) => e.stopPropagation()}>
+            {[
+              { label: kfContextMenu.propKey ? t('timeline.deleteKeyframeValue') : t('timeline.deleteKeyframe'), danger: true, action: () => { kfContextMenu.propKey ? removePropertyKeyframe(kfContextMenu.layerId, kfContextMenu.propKey, kfContextMenu.frame) : removeKeyframe(kfContextMenu.layerId, kfContextMenu.frame); setKfContextMenu(null) } },
+              { label: kfContextMenu.propKey ? t('timeline.duplicateKeyframeValue') : t('timeline.duplicateKeyframe'), danger: false, action: () => { duplicateKeyframe(kfContextMenu.layerId, kfContextMenu.frame, kfContextMenu.propKey, currentFrame); setKfContextMenu(null) } },
+              ...(!kfContextMenu.propKey ? [{ label: t('timeline.copyKeyframe'), danger: false, action: () => { const l = layers.find((x) => x.id === kfContextMenu.layerId); const kf = l?.keyframes.find((k) => k.frame === kfContextMenu.frame); if (kf) setCopiedKf({ props: kf.props, easing: kf.easing }); setKfContextMenu(null) } }] : []),
+              ...(copiedKf && !kfContextMenu.propKey ? [{ label: t('timeline.pasteKeyframe'), danger: false, action: () => { useStore.getState().addKeyframe(kfContextMenu.layerId, kfContextMenu.frame, copiedKf.props as never, copiedKf.easing); setKfContextMenu(null) } }] : []),
+              { label: t('timeline.setEasing'), danger: false, action: () => setKfContextMenu((m) => m ? { ...m, showEasing: true } : m) },
+              { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(kfContextMenu.layerId); setKfContextMenu(null) } },
+            ].map(({ label, action, danger }) => (
+              <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
+                style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
+            ))}
+          </div>
+        </BodyPortal>
       )}
 
       {/* Easing picker */}
       {kfContextMenu?.showEasing && (
-        <EasingPicker
-          x={kfContextMenu.x} y={kfContextMenu.y}
-          layerId={kfContextMenu.layerId} frame={kfContextMenu.frame}
-          propKey={kfContextMenu.propKey}
-          onClose={() => setKfContextMenu(null)}
-        />
+        <BodyPortal>
+          <EasingPicker
+            x={kfContextMenu.x} y={kfContextMenu.y}
+            layerId={kfContextMenu.layerId} frame={kfContextMenu.frame}
+            propKey={kfContextMenu.propKey}
+            onClose={() => setKfContextMenu(null)}
+          />
+        </BodyPortal>
       )}
 
       {/* Bar context menu */}
       {barContextMenu && (
-        <div style={{ position: 'fixed', ...barMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 1000, minWidth: 180, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
-          onClick={(e) => e.stopPropagation()}>
-          {[
-            { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerInPoint(l); setBarContextMenu(null) } },
-            { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerOutPoint(l); setBarContextMenu(null) } },
-            { label: t('timeline.editTimingMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
-            { label: t('timeline.setDurationMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
-            { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(barContextMenu.layerId); setBarContextMenu(null) } },
-            { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
-            { label: t('timeline.deleteLayer'), danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
-          ].map(({ label, action, danger }) => (
-            <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
-              style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
-          ))}
-        </div>
+        <BodyPortal>
+          <div data-timeline-popover style={{ position: 'fixed', ...barMenuStyle, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, zIndex: 2600, minWidth: 180, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,0.3)' }}
+            onClick={(e) => e.stopPropagation()}>
+            {[
+              { label: t('timeline.setInPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerInPoint(l); setBarContextMenu(null) } },
+              { label: t('timeline.setOutPoint'), danger: false, action: () => { const l = layers.find((x) => x.id === barContextMenu.layerId); if (l) setLayerOutPoint(l); setBarContextMenu(null) } },
+              { label: t('timeline.editTimingMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+              { label: t('timeline.setDurationMenu'), danger: false, action: () => openTimingModal(barContextMenu.layerId) },
+              { label: t('timeline.clearLayerKeyframes'), danger: true, action: () => { clearLayerKeyframes(barContextMenu.layerId); setBarContextMenu(null) } },
+              { label: t('timeline.duplicateLayer'), danger: false, action: () => { duplicateLayer(barContextMenu.layerId); setBarContextMenu(null) } },
+              { label: t('timeline.deleteLayer'), danger: true, action: () => { deleteLayer(barContextMenu.layerId); setBarContextMenu(null) } },
+            ].map(({ label, action, danger }) => (
+              <button key={label} onClick={action} className="popover-menu-item w-full text-left px-3 py-2 text-xs"
+                style={{ color: danger ? '#ef4444' : 'var(--text)', display: 'block' }}>{label}</button>
+            ))}
+          </div>
+        </BodyPortal>
       )}
       {timingModal && (
         <TimingModal

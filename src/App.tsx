@@ -333,6 +333,8 @@ function EditorScreen({ projectId }: { projectId: string }) {
     storeState.editorPanX,
     storeState.editorPanY,
     storeState.showOutsideCanvas,
+    storeState.colorPalettes,
+    storeState.activeColorPaletteId,
     storeState.selectedLayerIds,
     storeState.activeInteractionCount,
   ])

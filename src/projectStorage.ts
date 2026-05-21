@@ -1,4 +1,4 @@
-import { CANVAS_PRESETS, DEFAULT_TRANSFORM, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem, TransformProps } from './types'
+import { CANVAS_PRESETS, DEFAULT_COLOR_PALETTES, DEFAULT_TRANSFORM, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem, TransformProps } from './types'
 import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
@@ -130,8 +130,13 @@ function sanitizeLayer(layer: Layer): Layer {
 }
 
 function sanitizeProject(project: MotionProject): MotionProject {
+  const colorPalettes = project.colorPalettes?.length ? project.colorPalettes : DEFAULT_COLOR_PALETTES
   return {
     ...project,
+    colorPalettes,
+    activeColorPaletteId: colorPalettes.some((palette) => palette.id === project.activeColorPaletteId)
+      ? project.activeColorPaletteId
+      : 'custom',
     layers: project.layers.map(sanitizeLayer),
   }
 }
@@ -285,6 +290,8 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
     name: nameOverride || s.projectName || 'Untitled Project',
     createdAt: s.projectCreatedAt || now,
     updatedAt: now,
+    colorPalettes: s.colorPalettes,
+    activeColorPaletteId: s.activeColorPaletteId,
     canvas: {
       width: size.width,
       height: size.height,
@@ -320,11 +327,17 @@ export function createBlankProject(options: {
   const now = new Date().toISOString()
   const preset = CANVAS_PRESETS.find((p) => p.name === options.presetName)
   const isCustom = !preset || preset.name === 'Custom'
+  const s = useStore.getState()
+  const colorPalettes = s.colorPalettes?.length ? s.colorPalettes : DEFAULT_COLOR_PALETTES
   const project: MotionProject = {
     id: uuid(),
     name: options.name.trim() || 'Untitled Project',
     createdAt: now,
     updatedAt: now,
+    colorPalettes,
+    activeColorPaletteId: colorPalettes.some((palette) => palette.id === s.activeColorPaletteId)
+      ? s.activeColorPaletteId
+      : 'custom',
     canvas: {
       width: isCustom ? options.width : preset.width,
       height: isCustom ? options.height : preset.height,

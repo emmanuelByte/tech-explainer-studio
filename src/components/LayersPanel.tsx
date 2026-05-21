@@ -25,6 +25,7 @@ import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
 import { VideoLibraryModal } from './VideoLibraryModal'
 import { LibraryModal } from './LibraryModal'
+import { ColorPicker } from './ColorPicker'
 import type { ImageAsset, VideoAsset } from '../assetStorage'
 import { useToast } from './Toast'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
@@ -34,37 +35,8 @@ function CompositionAccordion() {
   const {
     canvasBackgroundColor, setCanvasBackgroundColor,
     fps, totalFrames, setTotalFrames,
-    beginInteraction, endInteraction,
   } = useStore()
   const [open, setOpen] = useState(true)
-  const [color, setColor] = useState(canvasBackgroundColor)
-  const timer = useRef<number | null>(null)
-  const active = useRef(false)
-
-  useEffect(() => {
-    if (!active.current) setColor(canvasBackgroundColor)
-  }, [canvasBackgroundColor])
-
-  function scheduleColor(next: string) {
-    setColor(next)
-    if (!active.current) {
-      active.current = true
-      beginInteraction(true)
-    }
-    if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      setCanvasBackgroundColor(next)
-      active.current = false
-      endInteraction()
-    }, 120)
-  }
-
-  function flushColor() {
-    if (timer.current) window.clearTimeout(timer.current)
-    setCanvasBackgroundColor(color)
-    if (active.current) endInteraction()
-    active.current = false
-  }
 
   return (
     <div style={{ borderBottom: '1px solid var(--border)' }}>
@@ -81,8 +53,7 @@ function CompositionAccordion() {
         <div className="px-3 pb-2.5 flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
             <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1 }}>{t('layers.background')}</span>
-            <input type="color" value={color} onChange={(e) => scheduleColor(e.target.value)} onBlur={flushColor} style={{ width: 28, height: 22, borderRadius: 2, cursor: 'pointer', border: '1px solid var(--input-border)', background: 'var(--input)', padding: 2 }} />
-            <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--text3)' }}>{color}</span>
+            <ColorPicker value={canvasBackgroundColor} onChange={setCanvasBackgroundColor} compact />
           </div>
           <div className="flex items-center gap-2">
             <span style={{ fontSize: 11, color: 'var(--text2)', flex: 1 }}>{t('layers.duration')}</span>
@@ -378,6 +349,14 @@ export function LayersPanel() {
     setDropHint(getDropIntent(event))
   }
 
+  function topChildId(parentId: string | null, movingIds: string[] = []) {
+    const moving = new Set(movingIds)
+    return [...layers]
+      .reverse()
+      .find((layer) => (layer.parentId ?? null) === parentId && !moving.has(layer.id))
+      ?.id ?? null
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event
     const intent = getDropIntent(event)
@@ -394,7 +373,7 @@ export function LayersPanel() {
         setConvertModal({ draggedIds, target })
         return
       }
-      moveLayerToParent(draggedIds, target.id)
+      moveLayerToParent(draggedIds, target.id, topChildId(target.id, draggedIds))
       return
     }
     if (intent?.mode === 'inside') return
@@ -725,7 +704,7 @@ export function LayersPanel() {
           <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
           <div className="px-3 py-1 text-[10px]" style={{ color: 'var(--text3)' }}>{t('layers.moveIntoGroup')}</div>
           {layers.filter((l) => (l.type === 'group' || l.isGroup) && l.id !== menu.layer.id).map((group) => (
-            <button key={group.id} onClick={() => { moveLayerToParent([menu.layer.id], group.id); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-1.5 text-xs" style={{ color: 'var(--text2)' }}>
+            <button key={group.id} onClick={() => { moveLayerToParent([menu.layer.id], group.id, topChildId(group.id, [menu.layer.id])); setMenu(null) }} className="popover-menu-item block w-full text-left px-3 py-1.5 text-xs" style={{ color: 'var(--text2)' }}>
               {group.name}
             </button>
           ))}
@@ -757,7 +736,7 @@ export function LayersPanel() {
                 type="button"
                 className="pill-btn active"
                 onClick={() => {
-                  moveLayerToParent(convertModal.draggedIds, convertModal.target.id)
+                  moveLayerToParent(convertModal.draggedIds, convertModal.target.id, topChildId(convertModal.target.id, convertModal.draggedIds))
                   setConvertModal(null)
                 }}
               >

@@ -8,6 +8,59 @@ import { useStore } from '../../store'
 import { Layer, LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
 import { resolveLayerAnimation } from '../../animationProperties'
 
+/* ──────────────────────────────────────────────────────────────
+   Figma-style corner-radius indicator icons. Each is a 12×12 SVG
+   showing a square with the relevant corner(s) rounded.
+   ────────────────────────────────────────────────────────────── */
+function CornerIcon({ corner }: { corner: 'all' | 'tl' | 'tr' | 'br' | 'bl' }) {
+  // Sharp / rounded corner offsets — true means rounded
+  const r = corner === 'all'
+    ? { tl: true, tr: true, br: true, bl: true }
+    : { tl: corner === 'tl', tr: corner === 'tr', br: corner === 'br', bl: corner === 'bl' }
+  const R = 3.5
+  // Build path with selectively rounded corners
+  // Start at (1+R if tl else 1, 1) and trace clockwise
+  const x0 = 1, y0 = 1, x1 = 11, y1 = 11
+  const d = [
+    `M ${r.tl ? x0 + R : x0} ${y0}`,
+    `L ${r.tr ? x1 - R : x1} ${y0}`,
+    r.tr ? `Q ${x1} ${y0} ${x1} ${y0 + R}` : '',
+    `L ${x1} ${r.br ? y1 - R : y1}`,
+    r.br ? `Q ${x1} ${y1} ${x1 - R} ${y1}` : '',
+    `L ${r.bl ? x0 + R : x0} ${y1}`,
+    r.bl ? `Q ${x0} ${y1} ${x0} ${y1 - R}` : '',
+    `L ${x0} ${r.tl ? y0 + R : y0}`,
+    r.tl ? `Q ${x0} ${y0} ${x0 + R} ${y0}` : '',
+    'Z',
+  ].filter(Boolean).join(' ')
+
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+      <path d={d} />
+    </svg>
+  )
+}
+
+/** Toggle icon that visually shows linked (single value) vs independent (4 corners) state. */
+function CornerLinkIcon({ linked }: { linked: boolean }) {
+  if (linked) {
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round">
+        <rect x="1.5" y="1.5" width="9" height="9" rx="2.5" />
+      </svg>
+    )
+  }
+  // 4 disconnected corner brackets
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <path d="M1.5 4 Q1.5 1.5 4 1.5" />
+      <path d="M8 1.5 Q10.5 1.5 10.5 4" />
+      <path d="M10.5 8 Q10.5 10.5 8 10.5" />
+      <path d="M4 10.5 Q1.5 10.5 1.5 8" />
+    </svg>
+  )
+}
+
 const EASINGS: PairEasingType[] = ['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce', 'custom']
 const LAYOUT_MODES: { value: LayoutMode; label: string }[] = [
   { value: 'none', label: 'None' },
@@ -30,6 +83,7 @@ const LAYOUT_JUSTIFIES: { value: LayoutJustify; label: string }[] = [
   { value: 'end', label: 'End' },
   { value: 'space-between', label: 'Space between' },
 ]
+const RADIUS_KEYS = ['borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius'] as const
 
 function formatNumber(value: number, precision: number) {
   return Number.isInteger(value) ? String(value) : String(parseFloat(value.toFixed(precision)))
@@ -61,6 +115,7 @@ function NumField({
   const [scrubbing, setScrubbing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const editingRef = useRef(false)
+  const scrubbingRef = useRef(false)
   const onChangeRef = useRef(onChange)
   const sensitivityRef = useRef(sensitivity)
   const scrubStart = useRef({ x: 0, v: 0 })
@@ -106,6 +161,7 @@ function NumField({
     if (editing) return
     e.preventDefault()
     scrubStart.current = { x: e.clientX, v: value }
+    scrubbingRef.current = true
     setScrubbing(true)
     beginInteraction(true)
   }
@@ -118,12 +174,23 @@ function NumField({
       const raw = scrubStart.current.v + dx * sensitivityRef.current * mult
       onChangeRef.current(clamp(parseFloat(raw.toFixed(precision))))
     }
-    function onUp() { setScrubbing(false); endInteraction() }
+    function onUp() { scrubbingRef.current = false; setScrubbing(false); endInteraction() }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrubbing, precision])
+
+  useEffect(() => () => {
+    if (editingRef.current) {
+      editingRef.current = false
+      endInteraction()
+    }
+    if (scrubbingRef.current) {
+      scrubbingRef.current = false
+      endInteraction()
+    }
+  }, [endInteraction])
 
   // unit suffix width offset so the value never collides with the unit
   const unitWidth = unit ? Math.max(14, unit.length * 6 + 6) : 0
@@ -495,6 +562,30 @@ export function TransformPanel() {
   const canFit = layer.type === 'text' || layer.autoFit || layer.type === 'group'
   const canLockAspect = layer.type !== 'line'
   const aspectRatio = effectiveH > 0 ? effectiveW / effectiveH : 1
+  const canRoundCorners = layer.type !== 'line' && layer.type !== 'ellipse' && layer.type !== 'triangle'
+  const cornerValues = RADIUS_KEYS.map((key) => Math.round(Number(animatedLayer[key] ?? animatedLayer.borderRadius ?? 0)))
+  const cornersAreEqual = cornerValues.every((value) => value === cornerValues[0])
+  const radiusLinked = layer.borderRadiusLinked ?? cornersAreEqual
+
+  function setCornerRadius(index: number, value: number) {
+    const next = Math.max(0, Math.round(value))
+    if (radiusLinked) {
+      setLayerAnimatedProperty(layer.id, 'borderRadius' as never, next)
+      RADIUS_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key as never, next))
+      return
+    }
+    setLayerAnimatedProperty(layer.id, RADIUS_KEYS[index] as never, next)
+  }
+
+  function toggleRadiusLinked() {
+    const nextLinked = !radiusLinked
+    updateLayerProp(layer.id, 'borderRadiusLinked', nextLinked)
+    if (nextLinked) {
+      const next = cornerValues[0] ?? Math.round(layer.borderRadius)
+      setLayerAnimatedProperty(layer.id, 'borderRadius' as never, next)
+      RADIUS_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key as never, next))
+    }
+  }
 
   function materializeAutoFrame() {
     if (!layer.autoFit) return
@@ -625,6 +716,65 @@ export function TransformPanel() {
           </button>
           <NumField leading="H" value={effectiveH} min={1} step={1} precision={0} onChange={setHeight} ariaLabel={t('transform.heightAria')} />
         </Row>
+        {canRoundCorners && (
+          <Row label={t('transform.radius')}>
+            {radiusLinked ? (
+              <>
+                <NumField
+                  leading={<CornerIcon corner="all" />}
+                  value={cornerValues[0] ?? 0}
+                  min={0}
+                  step={1}
+                  precision={0}
+                  unit="px"
+                  onChange={(v) => setCornerRadius(0, v)}
+                  ariaLabel={t('transform.radius')}
+                />
+                <button
+                  type="button"
+                  onClick={toggleRadiusLinked}
+                  title={t('transform.unlockCorners')}
+                  style={{
+                    width: 22, height: 26, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: 3,
+                    color: 'var(--text3)',
+                    background: 'transparent',
+                    transition: 'background 0.1s, color 0.1s',
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'var(--hover)'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.color = 'var(--text3)' }}
+                >
+                  <CornerLinkIcon linked={true} />
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, flex: 1, minWidth: 0 }}>
+                  <NumField leading={<CornerIcon corner="tl" />} value={cornerValues[0] ?? 0} min={0} step={1} precision={0} onChange={(v) => setCornerRadius(0, v)} ariaLabel={t('transform.radiusTopLeft')} />
+                  <NumField leading={<CornerIcon corner="tr" />} value={cornerValues[1] ?? 0} min={0} step={1} precision={0} onChange={(v) => setCornerRadius(1, v)} ariaLabel={t('transform.radiusTopRight')} />
+                  <NumField leading={<CornerIcon corner="bl" />} value={cornerValues[3] ?? 0} min={0} step={1} precision={0} onChange={(v) => setCornerRadius(3, v)} ariaLabel={t('transform.radiusBottomLeft')} />
+                  <NumField leading={<CornerIcon corner="br" />} value={cornerValues[2] ?? 0} min={0} step={1} precision={0} onChange={(v) => setCornerRadius(2, v)} ariaLabel={t('transform.radiusBottomRight')} />
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleRadiusLinked}
+                  title={t('transform.lockCorners')}
+                  style={{
+                    width: 22, alignSelf: 'stretch', flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: 3,
+                    color: 'var(--accent)',
+                    background: 'var(--accent-bg)',
+                    transition: 'background 0.1s',
+                  }}
+                >
+                  <CornerLinkIcon linked={false} />
+                </button>
+              </>
+            )}
+          </Row>
+        )}
         <Row label={t('transform.align')}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, flex: 1 }}>
             <IconBtn title={t('transform.alignLeft')} onClick={() => alignX('left')}><AlignStartVertical size={13} /></IconBtn>

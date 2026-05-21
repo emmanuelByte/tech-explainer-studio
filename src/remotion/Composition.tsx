@@ -1,4 +1,5 @@
-import { Sequence, useCurrentFrame, Video } from 'remotion'
+import { useEffect, useRef } from 'react'
+import { Sequence, useCurrentFrame, useVideoConfig } from 'remotion'
 import { Layer, GradientStop, FillType } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
@@ -207,13 +208,22 @@ function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
 
+function layerBorderRadius(layer: Layer): number | string {
+  const tl = layer.borderTopLeftRadius ?? layer.borderRadius
+  const tr = layer.borderTopRightRadius ?? layer.borderRadius
+  const br = layer.borderBottomRightRadius ?? layer.borderRadius
+  const bl = layer.borderBottomLeftRadius ?? layer.borderRadius
+  if (tl === tr && tr === br && br === bl) return tl
+  return `${tl}px ${tr}px ${br}px ${bl}px`
+}
+
 function layerShapeClipStyle(layer: Layer): React.CSSProperties {
   if (layer.type === 'ellipse') return { borderRadius: '50%' }
   if (layer.type === 'triangle') return { clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }
   if (layer.type === 'path' && layer.pathClosed && layer.pathData) {
     return { clipPath: `path('${layer.pathData.replace(/'/g, "\\'")}')` }
   }
-  return { borderRadius: layer.borderRadius }
+  return { borderRadius: layerBorderRadius(layer) }
 }
 
 function isLayerActive(layer: Layer, frame: number) {
@@ -247,13 +257,100 @@ function buildLayerDropShadow(layer: Layer, p: ReturnType<typeof resolveLayerAni
   return `drop-shadow(${x} ${y} ${blur} ${layer.shadowColor})`
 }
 
-function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect }: {
+function TimelineSyncedVideo({ src, frame, startFrame, style }: {
+  src: string
+  frame: number
+  startFrame: number
+  style: React.CSSProperties
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const { fps } = useVideoConfig()
+  // Keep latest target in a ref so async metadata-ready listeners seek to
+  // the CURRENT scrub position, not a stale one captured at mount.
+  const pendingTargetRef = useRef(0)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || fps <= 0) return
+
+    const targetTime = Math.max(0, (frame - startFrame) / fps)
+    pendingTargetRef.current = targetTime
+
+    // duration === NaN means metadata isn't loaded yet; browsers silently
+    // reject `currentTime = X` in that state. Wait for it via multiple
+    // events because different containers fire different ones.
+    const isReady = () =>
+      Number.isFinite(video.duration) && video.duration > 0 && video.readyState >= 2;
+
+    const seek = () => {
+      const target = pendingTargetRef.current
+      if (!Number.isFinite(target)) return
+      if (Number.isFinite(video.duration) && target > video.duration) return
+      const tolerance = Math.min(0.005, 1 / (fps * 4))
+
+      if (Math.abs(video.currentTime - target) <= tolerance) return
+      try {
+        video.currentTime = target
+      } catch(e) {console.log(e);
+        // Will be retried by the listeners below as buffer grows.
+      }
+    }
+
+    if (isReady()) {
+      seek()
+      return
+    }
+
+    const onReady = () => { if (isReady()) { seek()} }
+    video.addEventListener('loadedmetadata', onReady)
+    video.addEventListener('durationchange', onReady)
+    video.addEventListener('loadeddata', onReady)
+    video.addEventListener('canplay', onReady)
+    video.addEventListener('progress', onReady)
+
+    // Some browsers wait for explicit play() before fetching metadata.
+    // Force a load and ensure preload allows metadata fetching.
+    if (video.preload === 'none') video.preload = 'metadata'
+    if (video.readyState === 0) {
+      try { video.load() } catch { /* ignore */ }
+    }
+
+    return () => {
+      video.removeEventListener('loadedmetadata', onReady)
+      video.removeEventListener('durationchange', onReady)
+      video.removeEventListener('loadeddata', onReady)
+      video.removeEventListener('canplay', onReady)
+      video.removeEventListener('progress', onReady)
+    }
+  }, [fps, frame, src, startFrame])
+
+  // Use a native <video> element instead of Remotion's <Video> because
+  // Remotion auto-appends `#t=start,end` media fragment to the URL when
+  // placed inside a <Sequence>, which makes the media non-seekable and
+  // forces video.duration to NaN. We manage the seek ourselves via the
+  // effect above, so Remotion's frame-sync isn't needed here.
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      style={style}
+      preload="auto"
+      muted
+      playsInline
+      // disable native controls + native autoplay — we drive currentTime
+      // manually from the composition frame.
+    />
+  )
+}
+
+function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex }: {
   layer: Layer
   frame: number
   canvasWidth: number
   canvasHeight: number
   isSelected: boolean
   onSelect: (multi: boolean) => void
+  stackIndex: number
 }) {
   if (isGroupLayer(layer)) {
     return null
@@ -277,13 +374,13 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     opacity: p.opacity,
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
-    transformStyle: 'preserve-3d',
     filter: buildFilter(p),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
     cursor: 'pointer',
     outline: isSelected ? '2px solid #6366f1' : 'none',
     outlineOffset: '2px',
     pointerEvents: 'auto',
+    zIndex: stackIndex,
   }
 
   const handleClick = (e: React.MouseEvent) => {
@@ -292,6 +389,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'image' && animatedLayer.src) {
+    const radius = layerBorderRadius(animatedLayer)
     const imageSrc = animatedLayer.imageKind === 'svg'
       ? styledSvgDataUrl(animatedLayer.src, animatedLayer)
       : animatedLayer.src
@@ -300,14 +398,15 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
-          borderRadius: animatedLayer.borderRadius,
+          borderRadius: radius,
+          overflow: 'hidden',
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
       >
         <img
           src={imageSrc}
-          style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: animatedLayer.borderRadius }}
+          style={{ width: '100%', height: '100%', objectFit: animatedLayer.imageFit ?? 'contain', display: 'block', borderRadius: radius }}
           alt={animatedLayer.name}
         />
       </div>
@@ -315,29 +414,38 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'video' && animatedLayer.src) {
+    const radius = layerBorderRadius(animatedLayer)
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
     return (
       <div
         data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
-          borderRadius: animatedLayer.borderRadius,
+          borderRadius: radius,
+          overflow: 'hidden',
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
       >
-        <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
-          <Video
-            src={animatedLayer.src}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: animatedLayer.imageFit ?? 'contain',
-              display: 'block',
-              borderRadius: animatedLayer.borderRadius,
-            }}
-          />
-        </Sequence>
+        <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', zIndex: 0 }}>
+          <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
+            <TimelineSyncedVideo
+              src={animatedLayer.src}
+              frame={frame}
+              startFrame={animatedLayer.startFrame ?? 0}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                width: '100%',
+                height: '100%',
+                objectFit: animatedLayer.imageFit ?? 'contain',
+                display: 'block',
+                borderRadius: 'inherit',
+                pointerEvents: 'none',
+              }}
+            />
+          </Sequence>
+        </div>
       </div>
     )
   }
@@ -361,7 +469,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           letterSpacing: animatedLayer.letterSpacing,
           lineHeight: animatedLayer.lineHeight,
           padding: '4px 8px',
-          borderRadius: animatedLayer.borderRadius,
+          borderRadius: layerBorderRadius(animatedLayer),
           boxSizing: 'border-box',
         }}
         onClick={handleClick}
@@ -465,7 +573,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
       style={{
         ...wrapperStyle,
         background: bg,
-        borderRadius: animatedLayer.borderRadius,
+        borderRadius: layerBorderRadius(animatedLayer),
         border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
         boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
       }}
@@ -474,7 +582,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   )
 }
 
-function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors }: {
+function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors, stackIndex }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -483,6 +591,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   selectedLayerIds: string[]
   selectLayer: (id: string | null, multi?: boolean) => void
   ancestors: Set<string>
+  stackIndex: number
 }) {
   if (!isLayerActive(layer, frame)) return null
 
@@ -506,9 +615,9 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     opacity: p.opacity,
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
-    transformStyle: 'preserve-3d',
     filter: buildFilter(p),
     pointerEvents: 'none',
+    zIndex: stackIndex,
   }
 
   const surfaceStyle: React.CSSProperties = {
@@ -533,7 +642,6 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     top: 0,
     width: layerWidth,
     height: layerHeight,
-    transformStyle: 'preserve-3d',
     pointerEvents: 'none',
     zIndex: 1,
     ...(animatedLayer.clipChildren ? { overflow: 'hidden', ...shapeStyle } : {}),
@@ -548,25 +656,35 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     <div data-layer-id={animatedLayer.id} style={outerStyle}>
       <div style={surfaceStyle} onClick={handleClick} />
       <div style={childPlaneStyle}>
-        {children.map((child) => (
-          <RenderLayerNode
+        {children.map((child, index) => (
+          <div
             key={child.id}
-            layer={child}
-            childrenByParent={childrenByParent}
-            frame={frame}
-            canvasWidth={canvasWidth}
-            canvasHeight={canvasHeight}
-            selectedLayerIds={selectedLayerIds}
-            selectLayer={selectLayer}
-            ancestors={nextAncestors}
-          />
+            style={{
+              position: 'absolute',
+              inset: 0,
+              zIndex: index,
+              pointerEvents: 'none',
+            }}
+          >
+            <RenderLayerNode
+              layer={child}
+              childrenByParent={childrenByParent}
+              frame={frame}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+              selectedLayerIds={selectedLayerIds}
+              selectLayer={selectLayer}
+              ancestors={nextAncestors}
+              stackIndex={0}
+            />
+          </div>
         ))}
       </div>
     </div>
   )
 }
 
-function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>() }: {
+function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>(), stackIndex = 0 }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -575,6 +693,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
   selectedLayerIds: string[]
   selectLayer: (id: string | null, multi?: boolean) => void
   ancestors?: Set<string>
+  stackIndex?: number
 }) {
   const isGroup = isGroupLayer(layer)
 
@@ -589,6 +708,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
         selectedLayerIds={selectedLayerIds}
         selectLayer={selectLayer}
         ancestors={ancestors}
+        stackIndex={stackIndex}
       />
     )
   }
@@ -601,6 +721,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
       canvasHeight={canvasHeight}
       isSelected={selectedLayerIds.includes(layer.id)}
       onSelect={(multi) => selectLayer(layer.id, multi)}
+      stackIndex={stackIndex}
     />
   )
 }
@@ -618,7 +739,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
   const { selectedLayerIds, selectLayer } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))
   const childrenByParent = new Map<string | null, Layer[]>()
-  ;[...layers].reverse().forEach((layer) => {
+  layers.forEach((layer) => {
     const parentId = layer.parentId && layerIds.has(layer.parentId) ? layer.parentId : null
     childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), layer])
   })
@@ -629,7 +750,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
       style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
       onClick={() => selectLayer(null)}
     >
-      {rootLayers.map((layer) => (
+      {rootLayers.map((layer, index) => (
         <RenderLayerNode
           key={layer.id}
           layer={layer}
@@ -639,6 +760,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
           canvasHeight={canvasHeight}
           selectedLayerIds={selectedLayerIds}
           selectLayer={selectLayer}
+          stackIndex={index}
         />
       ))}
     </div>

@@ -30,6 +30,7 @@ export function ScrubField({
 
   const startX = useRef(0)
   const startV = useRef(0)
+  const scrubbingRef = useRef(false)
   const onChangeRef = useRef(onChange)
   const sensitivityRef = useRef(sensitivity)
   onChangeRef.current = onChange
@@ -57,6 +58,7 @@ export function ScrubField({
     e.preventDefault()
     startX.current = e.clientX
     startV.current = value
+    scrubbingRef.current = true
     beginInteraction(true)
     setScrubbing(true)
   }
@@ -73,6 +75,7 @@ export function ScrubField({
       onChangeRef.current(clamped)
     }
     function onUp() {
+      scrubbingRef.current = false
       setScrubbing(false)
       endInteraction()
     }
@@ -82,6 +85,13 @@ export function ScrubField({
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrubbing, precision])
+
+  useEffect(() => () => {
+    if (scrubbingRef.current) {
+      scrubbingRef.current = false
+      endInteraction()
+    }
+  }, [endInteraction])
 
   const displayVal = parseFloat(value.toFixed(precision))
 

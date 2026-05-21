@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { TransformProps } from '../../types'
 import { resolveLayerAnimation } from '../../animationProperties'
 import { Section, Row, NumField, ToggleRow } from './_panelKit'
+import { ColorPicker } from '../ColorPicker'
 
 type SliderField = {
   propKey: keyof TransformProps
@@ -82,50 +82,6 @@ function EffectField({
   )
 }
 
-function DebouncedColor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [local, setLocal] = useState(value)
-  const timer = useRef<number | null>(null)
-  const active = useRef(false)
-  const { beginInteraction, endInteraction } = useStore()
-
-  useEffect(() => {
-    if (!active.current) setLocal(value)
-  }, [value])
-
-  function schedule(next: string) {
-    setLocal(next)
-    if (!active.current) { active.current = true; beginInteraction(true) }
-    if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      onChange(next)
-      active.current = false
-      endInteraction()
-    }, 120)
-  }
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
-      <input
-        type="color"
-        value={local}
-        onChange={(e) => schedule(e.target.value)}
-        style={{
-          width: 24, height: 22, borderRadius: 3, cursor: 'pointer',
-          border: '1px solid var(--input-border)', background: 'var(--input)', padding: 1,
-          flexShrink: 0,
-        }}
-      />
-      <input
-        type="text"
-        value={local}
-        onChange={(e) => schedule(e.target.value)}
-        className="input-base"
-        style={{ flex: 1, height: 22, fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase', minWidth: 0 }}
-      />
-    </div>
-  )
-}
-
 export function EffectsPanel() {
   const { t } = useTranslation()
   const { layers, selectedLayerIds, currentFrame, setLayerAnimatedProperty, updateLayerProp, addKeyframes } = useStore()
@@ -184,9 +140,10 @@ export function EffectsPanel() {
         {layer.shadowEnabled && (
           <>
             <Row label={t('effects.color')}>
-              <DebouncedColor
+              <ColorPicker
                 value={safeShadowColor}
                 onChange={(value) => updateLayerProp(layer.id, 'shadowColor', value)}
+                compact
               />
             </Row>
             <ToggleRow

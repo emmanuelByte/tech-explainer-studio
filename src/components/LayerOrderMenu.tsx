@@ -1,4 +1,5 @@
 import { BringToFront, MoveDown, MoveUp, SendToBack } from 'lucide-react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { LayerOrderAction } from '../layerOrdering'
 
@@ -21,11 +22,10 @@ export function LayerOrderMenu({ x, y, count = 1, onAction, onClose }: Props) {
     { action: 'back' as const, label: t('layers.sendToBack'), icon: SendToBack },
   ]
 
-  return (
+  const menu = (
     <div
       data-layer-order-menu
-      className="fixed inset-0"
-      style={{ zIndex: 2600, background: 'transparent' }}
+      style={{ position: 'fixed', inset: 0, zIndex: 2600, background: 'transparent' }}
       onMouseDown={onClose}
       onContextMenu={(e) => {
         e.preventDefault()
@@ -64,4 +64,6 @@ export function LayerOrderMenu({ x, y, count = 1, onAction, onClose }: Props) {
       </div>
     </div>
   )
+
+  return typeof document === 'undefined' ? menu : createPortal(menu, document.body)
 }

@@ -20,10 +20,15 @@ const TABS: { id: Tab; labelKey: string; icon: LucideIcon }[] = [
 
 export function PropertiesPanel() {
   const { t } = useTranslation()
-  const { selectedLayerIds, layers, autoKeyframe, setAutoKeyframe } = useStore()
+  const { selectedLayerIds, selectedKeyframes, layers, autoKeyframe, setAutoKeyframe } = useStore()
   const [activeTab, setActiveTab] = useState<Tab>('transform')
 
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
+  const panelContextKey = [
+    activeTab,
+    selectedLayerIds.join(','),
+    selectedKeyframes.map((kf) => `${kf.layerId}:${kf.propKey ?? 'all'}:${kf.frame}`).join(','),
+  ].join('|')
 
   return (
     <div
@@ -101,7 +106,7 @@ export function PropertiesPanel() {
           </div>
 
           {/* Panel content */}
-          <div className="flex-1 overflow-y-auto">
+          <div key={panelContextKey} className="flex-1 overflow-y-auto">
             {activeTab === 'transform' && <TransformPanel />}
             {activeTab === 'style' && <StylePanel />}
             {activeTab === 'effects' && <EffectsPanel />}

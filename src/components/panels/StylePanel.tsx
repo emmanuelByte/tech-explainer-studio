@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
 import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
+import { ColorPicker } from '../ColorPicker'
 
 function estimateTextSize(text: string, fontSize: number, lineHeight: number, letterSpacing: number) {
   const lines = (text || 'Text').split('\n')
@@ -13,52 +13,6 @@ function estimateTextSize(text: string, fontSize: number, lineHeight: number, le
     width: Math.ceil(longest * (fontSize * 0.58 + letterSpacing) + 24),
     height: Math.ceil(lines.length * fontSize * lineHeight + 16),
   }
-}
-
-function DebouncedColorInput({ value, onChange, className }: {
-  value: string
-  onChange: (value: string) => void
-  className?: string
-}) {
-  const [local, setLocal] = useState(value)
-  const timer = useRef<number | null>(null)
-  const active = useRef(false)
-  const { beginInteraction, endInteraction } = useStore()
-
-  useEffect(() => {
-    if (!active.current) setLocal(value)
-  }, [value])
-
-  function schedule(next: string) {
-    setLocal(next)
-    if (!active.current) {
-      active.current = true
-      beginInteraction(true)
-    }
-    if (timer.current) window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
-      onChange(next)
-      active.current = false
-      endInteraction()
-    }, 120)
-  }
-
-  function flush() {
-    if (timer.current) window.clearTimeout(timer.current)
-    onChange(local)
-    if (active.current) endInteraction()
-    active.current = false
-  }
-
-  return (
-    <input
-      type="color"
-      value={local}
-      onChange={(e) => schedule(e.target.value)}
-      onBlur={flush}
-      className={className ?? 'w-8 h-7 cursor-pointer border-0 bg-transparent'}
-    />
-  )
 }
 
 function getTextSelectionStyle(layer: Layer, range: { start: number; end: number } | null) {
@@ -278,13 +232,11 @@ export function StylePanel() {
           </div>
 
           {layer.fillType === 'solid' && (
-            <div className="flex items-center gap-2 px-3 py-1.5">
-              <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
-              <DebouncedColorInput value={layer.fillColor}
+            <div className="flex items-start gap-2 px-3 py-1.5">
+              <span className="text-xs" style={{ color: 'var(--text2)', width: 44, paddingTop: 6 }}>{t('style.color')}</span>
+              <ColorPicker value={layer.fillColor}
                 onChange={(value) => setLayerAnimatedProperty(layer.id, 'fillColor', value)}
-                className="w-8 h-7 rounded cursor-pointer border-0 bg-transparent"
               />
-              <span className="text-xs font-mono" style={{ color: 'var(--text2)' }}>{layer.fillColor}</span>
             </div>
           )}
 
@@ -313,14 +265,14 @@ export function StylePanel() {
                 }}
               />
               {layer.gradientStops.map((stop, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <DebouncedColorInput value={stop.color}
+                <div key={i} className="flex items-start gap-1.5">
+                  <ColorPicker value={stop.color}
                     onChange={(value) => updateStop(i, 'color', value)}
-                    className="w-7 h-6 cursor-pointer border-0 bg-transparent rounded"
+                    compact
                   />
                   <input type="number" min={0} max={100} value={stop.position}
                     onChange={(e) => updateStop(i, 'position', Number(e.target.value))}
-                    className="input-base w-14 text-right"
+                    className="input-base w-12 text-right"
                   />
                   <span style={{ color: 'var(--text3)', fontSize: 10 }}>%</span>
                   {layer.gradientStops.length > 2 && (
@@ -353,9 +305,8 @@ export function StylePanel() {
           <>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
-              <DebouncedColorInput value={layer.strokeColor}
+              <ColorPicker value={layer.strokeColor}
                 onChange={(value) => setLayerAnimatedProperty(layer.id, 'strokeColor', value)}
-                className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -367,16 +318,6 @@ export function StylePanel() {
           </>
         )}
       </div>
-
-      {/* Border radius */}
-      {layer.type !== 'line' && layer.type !== 'ellipse' && layer.type !== 'triangle' && (
-        <>
-          <SectionHeader label={t('style.borderRadius')} />
-          <ScrubField label={t('style.radius')} value={layer.borderRadius} min={0} max={200} step={1} sensitivity={1} precision={0} unit="px"
-            onChange={(v) => setLayerAnimatedProperty(layer.id, 'borderRadius', Math.round(v))}
-          />
-        </>
-      )}
 
       {/* Path options */}
       {layer.type === 'path' && (
@@ -451,10 +392,10 @@ export function StylePanel() {
               <div className="mt-2 flex flex-col gap-2" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <div className="flex items-center gap-2">
                   <span className="text-xs w-20" style={{ color: 'var(--text2)' }}>{t('style.svgStroke')}</span>
-                  <DebouncedColorInput
+                  <ColorPicker
                     value={sourceLayer.svgStrokeColor ?? '#ffffff'}
                     onChange={(value) => upd('svgStrokeColor', value)}
-                    className="w-8 h-7 cursor-pointer border-0 bg-transparent"
+                    compact
                   />
                   <ScrubField
                     label=""
@@ -480,10 +421,10 @@ export function StylePanel() {
                 {sourceLayer.svgFillEnabled && (
                   <div className="flex items-center gap-2">
                     <span className="text-xs w-20" style={{ color: 'var(--text2)' }}>{t('style.svgFill')}</span>
-                    <DebouncedColorInput
+                    <ColorPicker
                       value={sourceLayer.svgFillColor ?? sourceLayer.svgStrokeColor ?? '#ffffff'}
                       onChange={(value) => upd('svgFillColor', value)}
-                      className="w-8 h-7 cursor-pointer border-0 bg-transparent"
+                      compact
                     />
                   </div>
                 )}
@@ -546,9 +487,8 @@ export function StylePanel() {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
-              <DebouncedColorInput value={textMixed?.textColor ?? layer.textColor}
+              <ColorPicker value={textMixed?.textColor ?? layer.textColor}
                 onChange={(value) => useStore.getState().updateTextSelectionStyle(layer.id, { textColor: value })}
-                className="w-8 h-7 cursor-pointer border-0 bg-transparent"
               />
               {hasTextSelection && textMixed?.textColor === null && <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('style.mixed')}</span>}
             </div>

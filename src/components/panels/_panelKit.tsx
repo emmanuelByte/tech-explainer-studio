@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { CSSProperties, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronRight } from 'lucide-react'
 import { useStore } from '../../store'
+import { ColorPicker } from '../ColorPicker'
 
 /* ──────────────────────────────────────────────────────────────
    Shared Figma-style panel UI primitives.
@@ -49,9 +50,9 @@ export function Section({
 }
 
 /* ── Row with label + flex content ──────────────────────── */
-export function Row({ label, children }: { label?: string; children: React.ReactNode }) {
+export function Row({ label, children, style }: { label?: string; children: React.ReactNode, style?: CSSProperties }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 26 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, minHeight: 26, ...style }}>
       {label && (
         <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', width: 56, flexShrink: 0 }}>
           {label}
@@ -86,6 +87,7 @@ export function NumField({
   const [scrubbing, setScrubbing] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const editingRef = useRef(false)
+  const scrubbingRef = useRef(false)
   const onChangeRef = useRef(onChange)
   const sensitivityRef = useRef(sensitivity)
   const scrubStart = useRef({ x: 0, v: 0 })
@@ -134,6 +136,7 @@ export function NumField({
     if (editing) return
     e.preventDefault()
     scrubStart.current = { x: e.clientX, v: value }
+    scrubbingRef.current = true
     setScrubbing(true)
     beginInteraction(true)
   }
@@ -146,12 +149,23 @@ export function NumField({
       const raw = scrubStart.current.v + dx * sensitivityRef.current * mult
       onChangeRef.current(clamp(parseFloat(raw.toFixed(precision))))
     }
-    function onUp() { setScrubbing(false); endInteraction() }
+    function onUp() { scrubbingRef.current = false; setScrubbing(false); endInteraction() }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrubbing, precision])
+
+  useEffect(() => () => {
+    if (editingRef.current) {
+      editingRef.current = false
+      endInteraction()
+    }
+    if (scrubbingRef.current) {
+      scrubbingRef.current = false
+      endInteraction()
+    }
+  }, [endInteraction])
 
   const unitWidth = unit ? Math.max(14, unit.length * 6 + 6) : 0
 
@@ -161,6 +175,7 @@ export function NumField({
       style={{
         display: 'flex',
         alignItems: 'center',
+        justifyContent: "space-between",
         height: 26,
         background: scrubbing ? 'var(--accent-bg)' : 'var(--input)',
         border: `1px solid ${scrubbing ? 'var(--accent)' : editing ? 'var(--accent)' : 'var(--input-border)'}`,
@@ -354,25 +369,7 @@ export function ColorRow({ label, value, onChange }: {
       <span style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', width: 56, flexShrink: 0 }}>
         {label}
       </span>
-      <input
-        type="color"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={{
-          width: 24, height: 22, borderRadius: 3, cursor: 'pointer',
-          border: '1px solid var(--input-border)',
-          background: 'var(--input)',
-          padding: 1,
-          flexShrink: 0,
-        }}
-      />
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="input-base"
-        style={{ flex: 1, height: 22, fontFamily: 'monospace', fontSize: 10, textTransform: 'uppercase' }}
-      />
+      <ColorPicker value={value} onChange={onChange} compact />
     </div>
   )
 }

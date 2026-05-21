@@ -25,7 +25,11 @@ export const ANIMATION_GROUPS: {
     id: 'style',
     label: 'Style',
     color: '#22c55e',
-    keys: ['opacity', 'fillColor', 'strokeColor', 'strokeWidth', 'borderRadius', 'fontSize', 'letterSpacing', 'lineHeight'],
+    keys: [
+      'opacity', 'fillColor', 'strokeColor', 'strokeWidth', 'borderRadius',
+      'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
+      'fontSize', 'letterSpacing', 'lineHeight',
+    ],
   },
   {
     id: 'effects',
@@ -57,6 +61,10 @@ export const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   strokeColor: 'Stroke',
   strokeWidth: 'Stroke W',
   borderRadius: 'Radius',
+  borderTopLeftRadius: 'Radius TL',
+  borderTopRightRadius: 'Radius TR',
+  borderBottomRightRadius: 'Radius BR',
+  borderBottomLeftRadius: 'Radius BL',
   fontSize: 'Font Size',
   letterSpacing: 'Letter',
   lineHeight: 'Line H',
@@ -133,6 +141,10 @@ export function getStaticPropertyValue(layer: Layer, transform: TransformProps, 
   if (key === 'strokeColor') return layer.strokeColor
   if (key === 'strokeWidth') return layer.strokeWidth
   if (key === 'borderRadius') return layer.borderRadius
+  if (key === 'borderTopLeftRadius') return layer.borderTopLeftRadius ?? layer.borderRadius
+  if (key === 'borderTopRightRadius') return layer.borderTopRightRadius ?? layer.borderRadius
+  if (key === 'borderBottomRightRadius') return layer.borderBottomRightRadius ?? layer.borderRadius
+  if (key === 'borderBottomLeftRadius') return layer.borderBottomLeftRadius ?? layer.borderRadius
   if (key === 'fontSize') return layer.fontSize
   if (key === 'letterSpacing') return layer.letterSpacing
   if (key === 'lineHeight') return layer.lineHeight

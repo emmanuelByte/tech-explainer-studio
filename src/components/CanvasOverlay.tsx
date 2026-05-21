@@ -26,6 +26,8 @@ interface DragState {
   startH: number
   startBoxW: number
   startBoxH: number
+  startWorldScaleX: number
+  startWorldScaleY: number
   centerCx: number
   centerCy: number
   displayScale: number
@@ -1079,11 +1081,16 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const nextBoxH = bottom - top
       const nextCx = left + nextBoxW / 2
       const nextCy = top + nextBoxH / 2
-      const sx = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleX))
-      const sy = Math.max(0.01, Math.abs(d.props.scale * d.props.scaleY))
+      const sx = Math.max(0.01, Math.abs(d.startWorldScaleX))
+      const sy = Math.max(0.01, Math.abs(d.startWorldScaleY))
+      const localCenterDelta = worldDeltaToParentLocal(
+        nextCx - d.centerCx,
+        nextCy - d.centerCy,
+        parentWorldTransform(layer, layers, currentFrame),
+      )
 
-      const nextX = nextCx - canvasW / 2
-      const nextY = nextCy - canvasH / 2
+      const nextX = d.props.x + localCenterDelta.x
+      const nextY = d.props.y + localCenterDelta.y
       const nextW = pullsLeft || pullsRight ? nextBoxW / sx : undefined
       const nextH = pullsTop || pullsBottom ? nextBoxH / sy : undefined
       if (autoKeyframe) {
@@ -1243,6 +1250,13 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const animatedLayer = primaryBox?.animatedLayer
   const p = primaryBox?.transform
   const layerH = animatedLayer ? animatedLayer.type === 'line' ? (animatedLayer.strokeWidth || 2) : animatedLayer.height : 0
+  const layerBorderRadius = (target: Layer): number | string => {
+    const tl = target.borderTopLeftRadius ?? target.borderRadius
+    const tr = target.borderTopRightRadius ?? target.borderRadius
+    const br = target.borderBottomRightRadius ?? target.borderRadius
+    const bl = target.borderBottomLeftRadius ?? target.borderRadius
+    return tl === tr && tr === br && br === bl ? tl : `${tl}px ${tr}px ${br}px ${bl}px`
+  }
   const boxLeft = selectedBoxes.length ? isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.left)) : primaryBox!.left : 0
   const boxTop = selectedBoxes.length ? isMultiSelection ? Math.min(...selectedBoxes.map((box) => box.top)) : primaryBox!.top : 0
   const boxRight = selectedBoxes.length ? isMultiSelection ? Math.max(...selectedBoxes.map((box) => box.left + box.width)) : primaryBox!.left + primaryBox!.width : 0
@@ -1257,7 +1271,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       ? { clipPath: 'polygon(50% 0%, 0% 100%, 100% 100%)' }
       : !isMultiSelection && animatedLayer?.type === 'line'
         ? { borderRadius: boxH }
-        : {}
+        : !isMultiSelection && animatedLayer
+          ? { borderRadius: layerBorderRadius(animatedLayer) }
+          : {}
 
   function getCanvasPoint(clientX: number, clientY: number) {
     const rect = containerRef.current?.getBoundingClientRect()
@@ -1275,11 +1291,35 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       .find((box) => pointInBox(x, y, box))
   }
 
+  function layerIdFromRenderedPoint(clientX: number, clientY: number) {
+    if (typeof document === 'undefined') return null
+    const activeIds = new Set(
+      layers
+        .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
+        .map((item) => item.id),
+    )
+
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const layerElement = element.closest?.('[data-layer-id]') as HTMLElement | null
+      const layerId = layerElement?.dataset.layerId
+      if (layerId && activeIds.has(layerId)) return layerId
+    }
+    return null
+  }
+
+  function layerIdAtCanvasPoint(clientX: number, clientY: number) {
+    const renderedLayerId = layerIdFromRenderedPoint(clientX, clientY)
+    if (renderedLayerId) return renderedLayerId
+
+    const point = getCanvasPoint(clientX, clientY)
+    return hitLayerAtPoint(point.x, point.y)?.layer.id ?? null
+  }
+
   function orderTargetIds(layerId: string) {
     return selectedLayerIds.includes(layerId) ? selectedLayerIds : [layerId]
   }
 
-  function openOrderMenu(e: React.MouseEvent, layerId: string) {
+  function openOrderMenu(e: React.MouseEvent | React.PointerEvent, layerId: string) {
     e.preventDefault()
     e.stopPropagation()
     clearGuideUpdate()
@@ -1316,8 +1356,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     e.stopPropagation()
     const point = getCanvasPoint(e.clientX, e.clientY)
     if (e.ctrlKey && currentTool !== 'pen') {
-      const hit = hitLayerAtPoint(point.x, point.y)
-      if (hit) openOrderMenu(e, hit.layer.id)
+      // Ctrl-click can emit a follow-up contextmenu event on macOS. Do not open
+      // the menu on mousedown, otherwise that contextmenu can immediately close it.
       return
     }
     if (currentTool === 'pen') {
@@ -1401,25 +1441,26 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
   function onCanvasContextMenu(e: React.MouseEvent) {
     if (currentTool === 'pen') return
-    const point = getCanvasPoint(e.clientX, e.clientY)
-    const hit = hitLayerAtPoint(point.x, point.y)
-    if (hit) openOrderMenu(e, hit.layer.id)
+    const layerId = layerIdAtCanvasPoint(e.clientX, e.clientY)
+    if (layerId) openOrderMenu(e, layerId)
   }
 
-  function onOverlayMouseDownCapture(e: React.MouseEvent) {
-    if (currentTool === 'pen' || e.button !== 0 || !e.ctrlKey) return
-    if ((e.target as HTMLElement).closest('[data-layer-order-menu]')) return
-    const point = getCanvasPoint(e.clientX, e.clientY)
-    const hit = hitLayerAtPoint(point.x, point.y)
-    if (hit) openOrderMenu(e, hit.layer.id)
+  function openOrderMenuAtPoint(e: React.MouseEvent | React.PointerEvent) {
+    if (currentTool === 'pen') return false
+    if ((e.target as HTMLElement).closest('[data-layer-order-menu]')) return false
+    const layerId = layerIdAtCanvasPoint(e.clientX, e.clientY)
+    if (!layerId) return false
+    openOrderMenu(e, layerId)
+    return true
+  }
+
+  function onOverlayClickCapture(e: React.MouseEvent) {
+    if (!e.ctrlKey || e.button !== 0) return
+    openOrderMenuAtPoint(e)
   }
 
   function onOverlayContextMenuCapture(e: React.MouseEvent) {
-    if (currentTool === 'pen') return
-    if ((e.target as HTMLElement).closest('[data-layer-order-menu]')) return
-    const point = getCanvasPoint(e.clientX, e.clientY)
-    const hit = hitLayerAtPoint(point.x, point.y)
-    if (hit) openOrderMenu(e, hit.layer.id)
+    openOrderMenuAtPoint(e)
   }
 
   function onHandleMouseDown(e: React.MouseEvent, type: HandleType) {
@@ -1458,6 +1499,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           startH: childHit.animatedLayer.type === 'line' ? childHit.animatedLayer.strokeWidth || 2 : childHit.animatedLayer.height,
           startBoxW: childHit.width,
           startBoxH: childHit.height,
+          startWorldScaleX: childHit.worldScaleX,
+          startWorldScaleY: childHit.worldScaleY,
           centerCx: childHit.centerCx,
           centerCy: childHit.centerCy,
           displayScale: ds,
@@ -1490,6 +1533,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       startH: layerH,
       startBoxW: boxW,
       startBoxH: boxH,
+      startWorldScaleX: primaryBox?.worldScaleX ?? p.scale * p.scaleX,
+      startWorldScaleY: primaryBox?.worldScaleY ?? p.scale * p.scaleY,
       centerCx,
       centerCy,
       displayScale: ds,
@@ -1593,7 +1638,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   return (
     <div
       style={{ position: 'absolute', inset: 0, pointerEvents: 'all', overflow: 'visible', zIndex: 10 }}
-      onMouseDownCapture={onOverlayMouseDownCapture}
+      onClickCapture={onOverlayClickCapture}
       onContextMenuCapture={onOverlayContextMenuCapture}
     >
       <div
@@ -1754,7 +1799,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           }}
           onMouseDown={(e) => {
             if (e.button === 0 && e.ctrlKey) {
-              openOrderMenu(e, layer.id)
+              e.preventDefault()
+              e.stopPropagation()
               return
             }
             onHandleMouseDown(e, !isMultiSelection && perspectiveHeld.current ? 'perspective' : 'move')
@@ -1863,7 +1909,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                 inset: 0,
                 width: '100%',
                 height: '100%',
-                borderRadius: animatedLayer.borderRadius,
+                borderRadius: layerBorderRadius(animatedLayer),
                 background: 'rgba(255,255,255,0.08)',
                 overflow: 'hidden',
                 cursor: 'text',

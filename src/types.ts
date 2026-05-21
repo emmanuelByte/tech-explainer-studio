@@ -29,6 +29,7 @@ export type AnimatableProperty =
   | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
   | 'perspective' | 'originX' | 'originY' | 'opacity'
   | 'fillColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
+  | 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius'
   | 'fontSize' | 'letterSpacing' | 'lineHeight'
   | 'blur' | 'brightness' | 'contrast' | 'grayscale'
   | 'shadowX' | 'shadowY' | 'shadowBlur' | 'shadowSpread' | 'backdropBlur'
@@ -137,6 +138,11 @@ export interface Layer {
   strokeWidth: number
   // Shape
   borderRadius: number
+  borderTopLeftRadius?: number
+  borderTopRightRadius?: number
+  borderBottomRightRadius?: number
+  borderBottomLeftRadius?: number
+  borderRadiusLinked?: boolean
   pathData?: string
   pathClosed?: boolean
   // Shadow static props (color; position/size are keyframeable)
@@ -206,6 +212,8 @@ export interface MotionProject {
   thumbnail?: string
   createdAt: string
   updatedAt: string
+  colorPalettes?: ColorPalette[]
+  activeColorPaletteId?: string
   canvas: {
     width: number
     height: number
@@ -275,6 +283,25 @@ export interface TimelineMarker {
   color: string
 }
 
+export interface ColorPalette {
+  id: string
+  name: string
+  colors: string[]
+}
+
+export const DEFAULT_COLOR_PALETTES: ColorPalette[] = [
+  {
+    id: 'default',
+    name: 'Default',
+    colors: ['#000000', '#ffffff', '#0d99ff', '#6366f1', '#a855f7', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4'],
+  },
+  {
+    id: 'custom',
+    name: 'Custom',
+    colors: [],
+  },
+]
+
 export interface EditorState {
   projectId: string | null
   projectName: string
@@ -304,6 +331,8 @@ export interface EditorState {
   editorPanX: number
   editorPanY: number
   showOutsideCanvas: boolean
+  colorPalettes: ColorPalette[]
+  activeColorPaletteId: string
   editingTextLayerId: string | null
   textSelection: { layerId: string; start: number; end: number } | null
   activeInteractionCount: number

@@ -4,12 +4,23 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
+
+function normalizeHexColor(value: string) {
+  const trimmed = value.trim().toLowerCase()
+  const short = trimmed.match(/^#([0-9a-f]{3})$/i)
+  if (short) {
+    const [, hex] = short
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`.toLowerCase()
+  }
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
+  return null
+}
 
 function collectDescendants(layers: Layer[], parentId: string): Layer[] {
   const result: Layer[] = []
@@ -356,6 +367,39 @@ function removeTransformPropertyChange(layer: Layer, key: AnimatableProperty, fr
   }
 }
 
+function transformPropertyFrames(layer: Layer, key: AnimatableProperty): PropertyKeyframe[] {
+  if (!(key in DEFAULT_TRANSFORM)) return []
+  const prop = key as keyof TransformProps
+  const sorted = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
+  return sorted
+    .filter((kf) => {
+      if (sorted.length < 2) return false
+      const without = sorted.filter((item) => item.frame !== kf.frame)
+      if (!without.length) return false
+      const fallback = interpolateProps(kf.frame, without)
+      return kf.props[prop] !== fallback[prop]
+    })
+    .map((kf) => ({
+      id: uid(),
+      frame: kf.frame,
+      value: kf.props[prop],
+      easing: kf.easing,
+      bezier: kf.bezier ? [...kf.bezier] as [number, number, number, number] : undefined,
+    }))
+}
+
+function materializeTransformPropertyTrack(layer: Layer, key: AnimatableProperty, deletedFrames = new Set<number>()): Layer {
+  if (!(key in DEFAULT_TRANSFORM)) return layer
+  const frames = transformPropertyFrames(layer, key).filter((kf) => !deletedFrames.has(kf.frame))
+  return {
+    ...layer,
+    propertyKeyframes: {
+      ...(layer.propertyKeyframes ?? {}),
+      [key]: frames,
+    },
+  }
+}
+
 function getLayerLayoutSize(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
   const p = interpolateProps(frame, layer.keyframes)
   const rawWidth = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
@@ -545,6 +589,11 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     strokeColor: '#ffffff',
     strokeWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
     borderRadius: 0,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    borderRadiusLinked: true,
     pathData: type === 'path' ? 'M 20 180 L 100 20 L 180 180' : undefined,
     pathClosed: false,
     shadowEnabled: false,
@@ -647,6 +696,11 @@ interface Actions {
   setShowValueGraph: (show: boolean) => void
   setEditorViewport: (zoom: number, panX: number, panY: number) => void
   setShowOutsideCanvas: (show: boolean) => void
+  setActiveColorPalette: (id: string) => void
+  createColorPalette: (name: string) => string
+  deleteColorPalette: (id: string) => void
+  addColorToPalette: (color: string, paletteId?: string) => void
+  removeColorFromPalette: (color: string, paletteId?: string) => void
   setEditingTextLayerId: (id: string | null) => void
   setTextSelection: (selection: { layerId: string; start: number; end: number } | null) => void
   updateTextSelectionStyle: (layerId: string, style: Partial<Pick<Layer, 'fontFamily' | 'fontSize' | 'fontWeight' | 'textColor' | 'letterSpacing'>>) => void
@@ -709,6 +763,8 @@ export const useStore = create<Store>()(
       editorPanX: 0,
       editorPanY: 0,
       showOutsideCanvas: false,
+      colorPalettes: DEFAULT_COLOR_PALETTES,
+      activeColorPaletteId: 'custom',
       editingTextLayerId: null,
       textSelection: null,
       activeInteractionCount: 0,
@@ -748,6 +804,10 @@ export const useStore = create<Store>()(
           editorPanX: project.editor.panX ?? 0,
           editorPanY: project.editor.panY ?? 0,
           showOutsideCanvas: project.editor.showOutsideCanvas ?? false,
+          colorPalettes: project.colorPalettes?.length ? project.colorPalettes : DEFAULT_COLOR_PALETTES,
+          activeColorPaletteId: project.colorPalettes?.some((palette) => palette.id === project.activeColorPaletteId)
+            ? project.activeColorPaletteId!
+            : 'custom',
           editingTextLayerId: null,
           textSelection: null,
           activeInteractionCount: 0,
@@ -762,7 +822,9 @@ export const useStore = create<Store>()(
 
       _snapshot: () => {
         const { layers, _past } = get()
-        set({ _past: [..._past.slice(-49), JSON.stringify(layers)], _future: [] })
+        const snapshot = JSON.stringify(layers)
+        if (_past[_past.length - 1] === snapshot) return
+        set({ _past: [..._past.slice(-49), snapshot], _future: [] })
       },
 
       undo: () => {
@@ -1062,9 +1124,8 @@ export const useStore = create<Store>()(
                 const propertyFrames = nextLayer.propertyKeyframes?.[key] ?? []
                 const removedFromProperty = new Set(propertyFrames.filter((kf) => frames.has(kf.frame)).map((kf) => kf.frame))
                 nextLayer.propertyKeyframes![key] = propertyFrames.filter((kf) => !frames.has(kf.frame))
-                frames.forEach((frame) => {
-                  if (!removedFromProperty.has(frame)) nextLayer = removeTransformPropertyChange(nextLayer, key, frame)
-                })
+                const transformBackedFrames = new Set([...frames].filter((frame) => !removedFromProperty.has(frame)))
+                if (transformBackedFrames.size) nextLayer = materializeTransformPropertyTrack(nextLayer, key, transformBackedFrames)
               })
             }
             return nextLayer
@@ -1141,10 +1202,15 @@ export const useStore = create<Store>()(
         }))
       },
 
-      renameLayer: (id, name) =>
-        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, name } : l) })),
+      renameLayer: (id, name) => {
+        if (get().layers.find((l) => l.id === id)?.name === name) return
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, name } : l) }))
+      },
 
       updateLayerProp: (id, key, value) => {
+        if (Object.is(get().layers.find((l) => l.id === id)?.[key], value)) return
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
           const layers = s.layers.map((l) => l.id === id ? { ...l, [key]: value } : l)
           return { layers: normalizeLayerTree(s, layers, id, LAYOUT_PROP_KEYS.has(key)) }
@@ -1237,6 +1303,7 @@ export const useStore = create<Store>()(
           get().addPropertyKeyframe(id, key, currentFrame, value)
           return
         }
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
           const targetLayer = s.layers.find((layer) => layer.id === id)
           const layers = s.layers.map((l) => {
@@ -1271,7 +1338,7 @@ export const useStore = create<Store>()(
             if (layer.id !== layerId) return layer
             const existing = layer.propertyKeyframes?.[key] ?? []
             if (!existing.some((kf) => kf.frame === frame)) {
-              return removeTransformPropertyChange(layer, key, frame)
+              return materializeTransformPropertyTrack(layer, key, new Set([frame]))
             }
             return {
               ...layer,
@@ -1281,6 +1348,9 @@ export const useStore = create<Store>()(
               },
             }
           }),
+          selectedKeyframes: s.selectedKeyframes.filter((kf) =>
+            !(kf.layerId === layerId && kf.frame === frame && kf.propKey === key)
+          ),
         }))
       },
 
@@ -1305,6 +1375,7 @@ export const useStore = create<Store>()(
       },
 
       updatePropertyKeyframeEasing: (layerId, key, frame, easing, bezier) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((layer) => {
             if (layer.id !== layerId) return layer
@@ -1371,7 +1442,7 @@ export const useStore = create<Store>()(
                   ...(item.propertyKeyframes ?? {}),
                   [propKey]: [
                     ...(item.propertyKeyframes?.[propKey] ?? []).filter((kf) => kf.frame !== destination),
-                    { ...source, id: uid(), frame: destination },
+                    { ...source, id: uid(), frame: destination, bezier: source.bezier ? [...source.bezier] as [number, number, number, number] : undefined },
                   ].sort((a, b) => a.frame - b.frame),
                 },
               }
@@ -1382,7 +1453,7 @@ export const useStore = create<Store>()(
               ...item,
               keyframes: [
                 ...item.keyframes.filter((kf) => kf.frame !== destination),
-                { ...source, frame: destination, props: { ...source.props } },
+                { ...source, frame: destination, props: { ...source.props }, bezier: source.bezier ? [...source.bezier] as [number, number, number, number] : undefined },
               ].sort((a, b) => a.frame - b.frame),
             }
           }),
@@ -1408,7 +1479,7 @@ export const useStore = create<Store>()(
           const layers = s.layers.map((l) => {
             if (l.id !== layerId) return l
             const existing = l.keyframes.find((k) => k.frame === frame)
-            const kf: Keyframe = { frame, easing: (easing as Keyframe['easing']), props }
+            const kf: Keyframe = { frame, easing: (easing as Keyframe['easing']), props: { ...props } as TransformProps }
             const keyframes = existing
               ? l.keyframes.map((k) => k.frame === frame ? kf : k)
               : [...l.keyframes, kf].sort((a, b) => a.frame - b.frame)
@@ -1696,7 +1767,11 @@ export const useStore = create<Store>()(
         if (!first) return
         const idx = layers.findIndex((l) => l.id === first.id)
         const group = [...layers.slice(0, idx)].reverse().find((l) => (l.isGroup || l.type === 'group') && l.parentId === (first.parentId ?? null))
-        if (group) get().moveLayerToParent(selectedLayerIds, group.id)
+        if (group) {
+          const selected = new Set(selectedLayerIds)
+          const topChild = [...layers].reverse().find((layer) => layer.parentId === group.id && !selected.has(layer.id))
+          get().moveLayerToParent(selectedLayerIds, group.id, topChild?.id ?? null)
+        }
       },
 
       moveSelectedWithinParent: (direction) => {
@@ -1772,6 +1847,7 @@ export const useStore = create<Store>()(
       },
 
       updateKeyframeEasing: (layerId, frame, easing, bezier) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
@@ -1809,6 +1885,50 @@ export const useStore = create<Store>()(
       setShowValueGraph: (show) => set({ showValueGraph: show }),
       setEditorViewport: (zoom, panX, panY) => set({ editorZoom: zoom, editorPanX: panX, editorPanY: panY }),
       setShowOutsideCanvas: (show) => set({ showOutsideCanvas: show }),
+      setActiveColorPalette: (id) => set((s) => ({
+        activeColorPaletteId: s.colorPalettes.some((palette) => palette.id === id) ? id : s.activeColorPaletteId,
+      })),
+      createColorPalette: (name) => {
+        const id = uid()
+        const safeName = name.trim() || 'Palette'
+        set((s) => ({
+          colorPalettes: [...s.colorPalettes, { id, name: safeName, colors: [] }],
+          activeColorPaletteId: id,
+        }))
+        return id
+      },
+      deleteColorPalette: (id) => set((s) => {
+        if (s.colorPalettes.length <= 1) return {}
+        const next = s.colorPalettes.filter((palette) => palette.id !== id)
+        if (next.length === s.colorPalettes.length) return {}
+        return {
+          colorPalettes: next,
+          activeColorPaletteId: s.activeColorPaletteId === id ? next[0].id : s.activeColorPaletteId,
+        }
+      }),
+      addColorToPalette: (color, paletteId) => {
+        const normalized = normalizeHexColor(color)
+        if (!normalized) return
+        const targetId = paletteId ?? get().activeColorPaletteId
+        set((s) => ({
+          colorPalettes: s.colorPalettes.map((palette) => {
+            if (palette.id !== targetId) return palette
+            const existing = palette.colors.map((item) => item.toLowerCase())
+            if (existing.includes(normalized)) return palette
+            return { ...palette, colors: [normalized, ...palette.colors].slice(0, 64) }
+          }),
+        }))
+      },
+      removeColorFromPalette: (color, paletteId) => {
+        const normalized = normalizeHexColor(color)
+        if (!normalized) return
+        const targetId = paletteId ?? get().activeColorPaletteId
+        set((s) => ({
+          colorPalettes: s.colorPalettes.map((palette) => palette.id === targetId
+            ? { ...palette, colors: palette.colors.filter((item) => item.toLowerCase() !== normalized) }
+            : palette),
+        }))
+      },
       setEditingTextLayerId: (id) => set({ editingTextLayerId: id }),
       setTextSelection: (selection) => set({ textSelection: selection }),
       updateTextSelectionStyle: (layerId, style) => {
@@ -1852,7 +1972,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'motion-editor-v1',
-      version: 2,
+      version: 3,
       migrate: (persisted) => {
         const s = persisted as Partial<Store>
         return {
@@ -1866,6 +1986,8 @@ export const useStore = create<Store>()(
           editorPanX: s.editorPanX,
           editorPanY: s.editorPanY,
           showOutsideCanvas: s.showOutsideCanvas,
+          colorPalettes: s.colorPalettes?.length ? s.colorPalettes : DEFAULT_COLOR_PALETTES,
+          activeColorPaletteId: s.activeColorPaletteId ?? 'custom',
         }
       },
       partialize: (s) => ({
@@ -1879,6 +2001,8 @@ export const useStore = create<Store>()(
         editorPanX: s.editorPanX,
         editorPanY: s.editorPanY,
         showOutsideCanvas: s.showOutsideCanvas,
+        colorPalettes: s.colorPalettes,
+        activeColorPaletteId: s.activeColorPaletteId,
       }),
     }
   )
