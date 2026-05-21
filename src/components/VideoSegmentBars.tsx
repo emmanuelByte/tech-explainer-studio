@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Pause } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
-import { Layer, VideoSegment, LAYER_TYPE_COLOR } from '../types'
+import { Layer, SpeedEasing, VideoSegment, LAYER_TYPE_COLOR } from '../types'
 
 /* ──────────────────────────────────────────────────────────────
    Per-segment bars for a video layer's row in the Timeline.
@@ -48,6 +48,7 @@ export function VideoSegmentBars({
     setSegmentTimelineRange, setSegmentSourceRange, moveVideoSegment,
     setSegmentSpeed, splitVideoAt, freezeSegment, duplicateVideoSegment,
     removeVideoSegment, resetVideoCut, setCurrentFrame,
+    moveSegmentSpeedKeyframe, removeSegmentSpeedKeyframe, setSegmentSpeedKeyframeEasing,
     beginInteraction, endInteraction,
   } = useStore()
 
@@ -57,6 +58,7 @@ export function VideoSegmentBars({
   const dragRef = useRef<DragState | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; segmentId: string } | null>(null)
   const [speedSubmenuOpen, setSpeedSubmenuOpen] = useState(false)
+  const [kfMenu, setKfMenu] = useState<{ x: number; y: number; segmentId: string; frame: number; easing: SpeedEasing } | null>(null)
 
   const frameX = (f: number) => timelineOffset + f * fpx
 
@@ -223,6 +225,75 @@ export function VideoSegmentBars({
           </div>
         )
       })}
+
+      {/* Speed keyframe diamonds — rendered as siblings of segment bars so
+          they sit above the bars and can carry their own drag interactions.
+          Diamonds are color-coded: orange for normal speed change, blue for
+          freeze (value = 0). */}
+      {segments.flatMap((seg) => (seg.speedKeyframes ?? []).map((kf) => {
+        const x = frameX(kf.frame)
+        const isFreezeKf = kf.value === 0
+        const color = isFreezeKf ? '#3b82f6' : '#f59e0b'
+        return (
+          <SpeedKfDiamond
+            key={`${seg.id}-${kf.frame}`}
+            x={x}
+            top={rowH / 2 - barH / 2 - 10}
+            color={color}
+            value={kf.value}
+            easing={kf.easing}
+            isLinear={kf.easing === 'linear'}
+            onClick={(e) => {
+              e.stopPropagation()
+              setCurrentFrame(kf.frame)
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              setKfMenu({ x: e.clientX, y: e.clientY, segmentId: seg.id, frame: kf.frame, easing: kf.easing })
+            }}
+            onDragMove={(deltaFrames) => {
+              const next = kf.frame + Math.round(deltaFrames)
+              if (next !== kf.frame) moveSegmentSpeedKeyframe(layer.id, seg.id, kf.frame, next)
+            }}
+            fpx={fpx}
+          />
+        )
+      }))}
+
+      {/* Speed keyframe context menu */}
+      {kfMenu && createPortal(
+        <>
+          <div
+            onClick={() => setKfMenu(null)}
+            onContextMenu={(e) => { e.preventDefault(); setKfMenu(null) }}
+            style={{ position: 'fixed', inset: 0, zIndex: 4000 }}
+          />
+          <FlippablePopover
+            anchorX={kfMenu.x}
+            anchorY={kfMenu.y}
+            minWidth={180}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MenuItem
+              onClick={() => {
+                setSegmentSpeedKeyframeEasing(layer.id, kfMenu.segmentId, kfMenu.frame, kfMenu.easing === 'step' ? 'linear' : 'step')
+                setKfMenu(null)
+              }}
+            >
+              {kfMenu.easing === 'step' ? t('segment.easingLinear') : t('segment.easingStep')}
+            </MenuItem>
+            <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
+            <MenuItem
+              onClick={() => { removeSegmentSpeedKeyframe(layer.id, kfMenu.segmentId, kfMenu.frame); setKfMenu(null) }}
+              danger
+            >
+              {t('segment.deleteKeyframe')}
+            </MenuItem>
+          </FlippablePopover>
+        </>,
+        document.body,
+      )}
 
       {/* Context menu */}
       {contextMenu && createPortal(
@@ -447,5 +518,78 @@ function MenuItem({
       <span>{children}</span>
       {trailing}
     </button>
+  )
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Speed keyframe diamond on the timeline.
+     - Click → jump playhead to the keyframe
+     - Drag → move the keyframe along its parent segment
+     - Right-click → context menu (toggle easing, delete)
+   Linear-easing keyframes render with a hollow center to distinguish
+   them from step-easing diamonds.
+   ────────────────────────────────────────────────────────────── */
+function SpeedKfDiamond({
+  x, top, color, value, easing, isLinear, onClick, onContextMenu, onDragMove, fpx,
+}: {
+  x: number
+  top: number
+  color: string
+  value: number
+  easing: SpeedEasing
+  isLinear: boolean
+  onClick: (e: React.MouseEvent) => void
+  onContextMenu: (e: React.MouseEvent) => void
+  onDragMove: (deltaFrames: number) => void
+  fpx: number
+}) {
+  const dragRef = useRef<{ startX: number; didMove: boolean } | null>(null)
+
+  function onMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    dragRef.current = { startX: e.clientX, didMove: false }
+    function onMove(ev: MouseEvent) {
+      const d = dragRef.current
+      if (!d) return
+      const dx = ev.clientX - d.startX
+      const deltaFrames = Math.round(dx / Math.max(0.001, fpx))
+      if (Math.abs(deltaFrames) >= 1) {
+        d.didMove = true
+        onDragMove(deltaFrames)
+        d.startX = ev.clientX
+      }
+    }
+    function onUp(ev: MouseEvent) {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      const didMove = dragRef.current?.didMove
+      dragRef.current = null
+      if (!didMove) onClick(ev as unknown as React.MouseEvent)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      onContextMenu={onContextMenu}
+      title={`${value === 0 ? '❄ Freeze' : `${value.toFixed(2)}×`} · ${easing}`}
+      style={{
+        position: 'absolute',
+        left: x - 5,
+        top,
+        width: 10, height: 10,
+        background: isLinear ? 'transparent' : color,
+        border: `1.5px solid ${color}`,
+        transform: 'rotate(45deg)',
+        borderRadius: 1,
+        cursor: 'grab',
+        zIndex: 5,
+        transition: 'background 0.1s',
+      }}
+    />
   )
 }

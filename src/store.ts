@@ -394,9 +394,10 @@ function upsertTransformKeyframe(layer: Layer, frame: number, props: TransformPr
     bezier: existing?.bezier,
     props: { ...current, ...props },
   }
-  const keyframes = existing
-    ? layer.keyframes.map((kf) => kf.frame === frame ? keyframe : kf)
-    : [...layer.keyframes, keyframe].sort((a, b) => a.frame - b.frame)
+  const keyframes = [
+    ...layer.keyframes.filter((kf) => kf.frame !== frame),
+    keyframe,
+  ].sort((a, b) => a.frame - b.frame)
 
   const propertyKeyframes = { ...(layer.propertyKeyframes ?? {}) }
   ;(['x', 'y'] as const).forEach((key) => {
@@ -494,10 +495,6 @@ function setLayerBaseValue(layer: Layer, key: AnimatableProperty, value: number 
     return {
       ...layer,
       [key]: value,
-      propertyKeyframes: {
-        ...(layer.propertyKeyframes ?? {}),
-        [key]: (layer.propertyKeyframes[key] ?? []).map((kf) => ({ ...kf, value })),
-      },
     }
   }
 
@@ -1469,6 +1466,19 @@ export const useStore = create<Store>()(
           return
         }
 
+        if (selectedKeyframe && !selectedKeyframe.propKey && !(key in DEFAULT_TRANSFORM)) {
+          if (get().activeInteractionCount === 0) get()._snapshot()
+          set((s) => {
+            const layers = s.layers.map((layer) => (
+              layer.id === id
+                ? upsertPropertyKeyframe(layer, key, selectedKeyframe.frame, value)
+                : layer
+            ))
+            return { layers: normalizeLayerTree(s, layers, id, false) }
+          })
+          return
+        }
+
         if (selectedKeyframe?.propKey === key) {
           if (get().activeInteractionCount === 0) get()._snapshot()
           set((s) => ({
@@ -1523,6 +1533,32 @@ export const useStore = create<Store>()(
           get().addPropertyKeyframe(id, key, currentFrame, value)
           return
         }
+
+        const layerAtCurrentFrame = get().layers.find((layer) => layer.id === id)
+        const propertyFrames = layerAtCurrentFrame?.propertyKeyframes?.[key] ?? []
+        if (propertyFrames.some((kf) => kf.frame === currentFrame)) {
+          if (get().activeInteractionCount === 0) get()._snapshot()
+          set((s) => ({
+            layers: normalizeLayerTree(
+              s,
+              s.layers.map((layer) => {
+                if (layer.id !== id) return layer
+                return {
+                  ...layer,
+                  propertyKeyframes: {
+                    ...(layer.propertyKeyframes ?? {}),
+                    [key]: (layer.propertyKeyframes?.[key] ?? []).map((kf) =>
+                      kf.frame === currentFrame ? { ...kf, value } : kf
+                    ),
+                  },
+                }
+              }),
+              id
+            ),
+          }))
+          return
+        }
+
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
           const targetLayer = s.layers.find((layer) => layer.id === id)
@@ -1700,9 +1736,10 @@ export const useStore = create<Store>()(
             if (l.id !== layerId) return l
             const existing = l.keyframes.find((k) => k.frame === frame)
             const kf: Keyframe = { frame, easing: (easing as Keyframe['easing']), props: { ...props } as TransformProps }
-            const keyframes = existing
-              ? l.keyframes.map((k) => k.frame === frame ? kf : k)
-              : [...l.keyframes, kf].sort((a, b) => a.frame - b.frame)
+            const keyframes = [
+              ...l.keyframes.filter((k) => k.frame !== frame),
+              { ...kf, bezier: existing?.bezier },
+            ].sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
           })
           const target = s.layers.find((layer) => layer.id === layerId)
@@ -2418,9 +2455,12 @@ export const useStore = create<Store>()(
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
-            const keyframes = l.keyframes
-              .map((k) => k.frame === fromFrame ? { ...k, frame: toFrame } : k)
-              .sort((a, b) => a.frame - b.frame)
+            const moving = l.keyframes.filter((k) => k.frame === fromFrame).slice(-1)[0]
+            if (!moving) return l
+            const keyframes = [
+              ...l.keyframes.filter((k) => k.frame !== fromFrame && k.frame !== toFrame),
+              { ...moving, frame: toFrame },
+            ].sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
           }),
           selectedKeyframes: s.selectedKeyframes.map((kf) =>
@@ -2434,11 +2474,18 @@ export const useStore = create<Store>()(
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
+            const byFrame = new Map<number, Keyframe>()
+            l.keyframes.forEach((keyframe) => {
+              byFrame.set(
+                keyframe.frame,
+                keyframe.frame === frame
+                  ? { ...keyframe, easing, bezier: easing === 'custom' ? (bezier ?? keyframe.bezier ?? [0.25, 0.1, 0.25, 1]) : undefined }
+                  : keyframe
+              )
+            })
             return {
               ...l,
-              keyframes: l.keyframes.map((k) =>
-                k.frame === frame ? { ...k, easing, bezier: easing === 'custom' ? (bezier ?? k.bezier ?? [0.25, 0.1, 0.25, 1]) : undefined } : k
-              ),
+              keyframes: [...byFrame.values()].sort((a, b) => a.frame - b.frame),
             }
           }),
         }))

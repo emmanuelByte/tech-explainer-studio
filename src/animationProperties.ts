@@ -26,7 +26,7 @@ export const ANIMATION_GROUPS: {
     label: 'Style',
     color: '#22c55e',
     keys: [
-      'opacity', 'fillColor', 'strokeColor', 'strokeWidth', 'borderRadius',
+      'opacity', 'fillColor', 'textColor', 'strokeColor', 'strokeWidth', 'borderRadius',
       'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
       'fontSize', 'letterSpacing', 'lineHeight',
     ],
@@ -58,6 +58,7 @@ export const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   originY: 'Origin Y',
   opacity: 'Opacity',
   fillColor: 'Fill',
+  textColor: 'Text',
   strokeColor: 'Stroke',
   strokeWidth: 'Stroke W',
   borderRadius: 'Radius',
@@ -138,6 +139,7 @@ export function getStaticPropertyValue(layer: Layer, transform: TransformProps, 
   if (key === 'width') return layer.width
   if (key === 'height') return layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
   if (key === 'fillColor') return layer.fillColor
+  if (key === 'textColor') return layer.textColor
   if (key === 'strokeColor') return layer.strokeColor
   if (key === 'strokeWidth') return layer.strokeWidth
   if (key === 'borderRadius') return layer.borderRadius

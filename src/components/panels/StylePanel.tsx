@@ -2,7 +2,6 @@ import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
-import { SegmentControls } from './SegmentControls'
 import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
 import { ColorPicker } from '../ColorPicker'
@@ -435,9 +434,6 @@ export function StylePanel() {
         </>
       )}
 
-      {/* Video segment editor (trim / split / speed / freeze) */}
-      {layer.type === 'video' && <SegmentControls layer={sourceLayer} />}
-
       {/* Text options */}
       {layer.type === 'text' && (
         <>
@@ -471,7 +467,8 @@ export function StylePanel() {
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.size')}</span>
                 <ScrubField label={hasTextSelection && textMixed?.fontSize === null ? t('style.mixed') : ''} value={textMixed?.fontSize ?? layer.fontSize} min={6} step={1} sensitivity={1} precision={0}
                   onChange={(v) => {
-                    updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
+                    if (hasTextSelection) updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
+                    else setLayerAnimatedProperty(layer.id, 'fontSize', Math.round(v))
                     updateTextSizing({ fontSize: Math.round(v) } as Partial<Layer>)
                   }}
                   compact />
@@ -492,7 +489,10 @@ export function StylePanel() {
             <div className="flex items-center gap-2">
               <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
               <ColorPicker value={textMixed?.textColor ?? layer.textColor}
-                onChange={(value) => useStore.getState().updateTextSelectionStyle(layer.id, { textColor: value })}
+                onChange={(value) => {
+                  if (hasTextSelection) updateTextSelectionStyle(layer.id, { textColor: value })
+                  else setLayerAnimatedProperty(layer.id, 'textColor', value)
+                }}
               />
               {hasTextSelection && textMixed?.textColor === null && <span className="text-xs" style={{ color: 'var(--text3)' }}>{t('style.mixed')}</span>}
             </div>
@@ -514,7 +514,8 @@ export function StylePanel() {
                 <span className="text-xs" style={{ color: 'var(--text2)' }}>{t('style.letterSpacing')}</span>
                 <ScrubField label={hasTextSelection && textMixed?.letterSpacing === null ? t('style.mixed') : ''} value={textMixed?.letterSpacing ?? layer.letterSpacing} step={0.1} sensitivity={0.1} precision={2}
                   onChange={(v) => {
-                    updateTextSelectionStyle(layer.id, { letterSpacing: v })
+                    if (hasTextSelection) updateTextSelectionStyle(layer.id, { letterSpacing: v })
+                    else setLayerAnimatedProperty(layer.id, 'letterSpacing', v)
                     updateTextSizing({ letterSpacing: v } as Partial<Layer>)
                   }}
                   compact />

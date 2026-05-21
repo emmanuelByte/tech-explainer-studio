@@ -39,7 +39,9 @@ function easingProgress(easing: PairEasingType, t: number, bezier?: [number, num
 export function interpolateProps(frame: number, keyframes: Keyframe[]): TransformProps {
   if (keyframes.length === 0) return { ...DEFAULT_TRANSFORM }
 
-  const sorted = [...keyframes].sort((a, b) => a.frame - b.frame)
+  const byFrame = new Map<number, Keyframe>()
+  keyframes.forEach((keyframe) => byFrame.set(keyframe.frame, keyframe))
+  const sorted = [...byFrame.values()].sort((a, b) => a.frame - b.frame)
 
   if (frame <= sorted[0].frame) return { ...DEFAULT_TRANSFORM, ...sorted[0].props }
   if (frame >= sorted[sorted.length - 1].frame) return { ...DEFAULT_TRANSFORM, ...sorted[sorted.length - 1].props }

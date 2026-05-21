@@ -718,10 +718,9 @@ function TrackRow({
   )
 }
 
-function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
+function TimingModal({ state, fps, onClose, onApply }: {
   state: TimingModalState
   fps: number
-  totalFrames: number
   onClose: () => void
   onApply: (startSec: number, durationSec: number) => void
 }) {
@@ -732,8 +731,8 @@ function TimingModal({ state, fps, totalFrames, onClose, onApply }: {
   const startNumber = parseSeconds(start)
   const durationNumber = parseSeconds(duration)
   const valid = Number.isFinite(startNumber) && Number.isFinite(durationNumber) && startNumber >= 0 && durationNumber > 0
-  const startFrame = valid ? Math.min(totalFrames - 1, Math.max(0, Math.round(startNumber * fps))) : 0
-  const endFrame = valid ? Math.min(totalFrames, startFrame + Math.max(1, Math.round(durationNumber * fps))) : 0
+  const startFrame = valid ? Math.max(0, Math.round(startNumber * fps)) : 0
+  const endFrame = valid ? startFrame + Math.max(1, Math.round(durationNumber * fps)) : 0
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -1551,12 +1550,13 @@ export function Timeline() {
         <TimingModal
           state={timingModal}
           fps={fps}
-          totalFrames={totalFrames}
           onClose={() => setTimingModal(null)}
           onApply={(startSec, durationSec) => {
-            const startFrame = Math.min(totalFrames - 1, Math.max(0, Math.round(startSec * fps)))
+            const startFrame = Math.max(0, Math.round(startSec * fps))
             const durationFrames = Math.max(1, Math.round(durationSec * fps))
-            setLayerRange(timingModal.layerId, startFrame, Math.min(totalFrames, startFrame + durationFrames))
+            const endFrame = startFrame + durationFrames
+            if (endFrame > totalFrames) setTotalFrames(endFrame)
+            setLayerRange(timingModal.layerId, startFrame, endFrame)
             setTimingModal(null)
           }}
         />

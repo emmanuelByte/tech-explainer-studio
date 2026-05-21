@@ -302,8 +302,10 @@ function EditorScreen({ projectId }: { projectId: string }) {
       useStore.setState({ projectUpdatedAt: project.updatedAt })
       if (history) await saveHistorySnapshot(project)
       setSaveStatus('saved')
+      return true
     } catch {
       setSaveStatus('failed')
+      return false
     }
   }
 
@@ -366,9 +368,18 @@ function EditorScreen({ projectId }: { projectId: string }) {
     pushRoute({ name: 'home' })
   }
 
+  async function openExport() {
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = null
+    }
+    const saved = await forceSave(false)
+    if (saved) setShowExport(true)
+  }
+
   return (
     <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
-      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onExportMp4={() => setShowExport(true)} onOpenAi={() => setShowAi((v) => !v)} />
+      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onExportMp4={() => void openExport()} onOpenAi={() => setShowAi((v) => !v)} />
       <div className="relative flex-1 min-h-0 overflow-hidden">
         <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: timelinePanelHeight }}>
           <LayersPanel />

@@ -5,12 +5,13 @@ import { Modal } from './Modal'
 
 export function ExportModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
-  const { canvasPreset, customWidth, customHeight, totalFrames, fps } = useStore()
+  const { projectId, canvasPreset, customWidth, customHeight, totalFrames, fps } = useStore()
   const [copied, setCopied] = useState(false)
   const isCustom = canvasPreset.name === 'Custom'
   const w = isCustom ? customWidth : canvasPreset.width
   const h = isCustom ? customHeight : canvasPreset.height
-  const cmd = `npx remotion render src/remotion/index.ts EditorComposition out/video.mp4 --width=${w} --height=${h} --frames=0-${totalFrames - 1}`
+  const propsArg = projectId ? ` --props=data/projects/${projectId}.json` : ''
+  const cmd = `npx remotion render src/remotion/index.tsx EditorComposition out/video.mp4${propsArg} --public-dir=data --frames=0-${totalFrames - 1}`
 
   function copyCmd() {
     navigator.clipboard.writeText(cmd)

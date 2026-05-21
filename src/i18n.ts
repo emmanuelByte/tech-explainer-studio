@@ -126,6 +126,7 @@ export const resources = {
         fx: 'FX',
         motion: 'Motion',
         animate: 'Animate',
+        video: 'Video',
       },
       layers: {
         title: 'Layers',
@@ -704,6 +705,7 @@ export const resources = {
         fx: 'FX',
         motion: 'Motion',
         animate: 'Animace',
+        video: 'Video',
       },
       layers: {
         title: 'Vrstvy',

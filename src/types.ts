@@ -28,7 +28,7 @@ export type AnimatableProperty =
   | 'x' | 'y' | 'z' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
   | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
   | 'perspective' | 'originX' | 'originY' | 'opacity'
-  | 'fillColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
+  | 'fillColor' | 'textColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
   | 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius'
   | 'fontSize' | 'letterSpacing' | 'lineHeight'
   | 'blur' | 'brightness' | 'contrast' | 'grayscale'
