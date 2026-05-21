@@ -1,4 +1,4 @@
-import { CANVAS_PRESETS, DEFAULT_COLOR_PALETTES, DEFAULT_TRANSFORM, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem, TransformProps } from './types'
+import { CANVAS_PRESETS, DEFAULT_COLOR_PALETTES, DEFAULT_TRANSFORM, Layer, MotionProject, ProjectHistorySnapshot, ProjectIndexItem, TransformProps, VideoSegment } from './types'
 import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
@@ -103,8 +103,75 @@ function nearestReasonableTransformValue(layer: Layer, frameIndex: number, key: 
   return DEFAULT_TRANSFORM[key]
 }
 
-function sanitizeLayer(layer: Layer): Layer {
+function clampFrame(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function sourceDurationFramesForLayer(layer: Layer, fps: number, fallbackFrames: number) {
+  const fromMetadata = layer.sourceDurationFrames
+  const fromSeconds = layer.videoDuration && Number.isFinite(layer.videoDuration)
+    ? Math.max(0, Math.round(layer.videoDuration * fps))
+    : undefined
+  const fromSegments = layer.videoSegments?.length
+    ? Math.max(...layer.videoSegments.map((segment) => Math.max(segment.sourceStartFrame, segment.sourceEndFrame)))
+    : undefined
+  return Math.max(0, Math.round(fromMetadata ?? fromSeconds ?? fromSegments ?? fallbackFrames))
+}
+
+function normalizeVideoSegments(segments: VideoSegment[], sourceDurationFrames: number, totalFrames: number) {
+  const sourceMax = Math.max(0, sourceDurationFrames)
+  let previousEnd = 0
+  return [...segments]
+    .sort((a, b) => a.timelineStartFrame - b.timelineStartFrame || a.timelineEndFrame - b.timelineEndFrame)
+    .map((segment) => {
+      const timelineStartFrame = clampFrame(segment.timelineStartFrame, previousEnd, Math.max(previousEnd, totalFrames - 1))
+      const timelineEndFrame = clampFrame(segment.timelineEndFrame, timelineStartFrame + 1, Math.max(timelineStartFrame + 1, totalFrames))
+      previousEnd = timelineEndFrame
+      const sourceStartFrame = clampFrame(segment.sourceStartFrame, 0, sourceMax)
+      const sourceEndFrame = clampFrame(segment.sourceEndFrame, sourceStartFrame, sourceMax)
+      return {
+        id: segment.id || uuid(),
+        timelineStartFrame,
+        timelineEndFrame,
+        sourceStartFrame,
+        sourceEndFrame,
+      }
+    })
+    .filter((segment) => segment.timelineEndFrame > segment.timelineStartFrame)
+}
+
+function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number) {
+  if (layer.type !== 'video') return layer
+  const startFrame = clampFrame(layer.startFrame ?? 0, 0, Math.max(0, totalFrames - 1))
+  const endFrame = clampFrame(layer.endFrame ?? startFrame + 1, startFrame + 1, Math.max(startFrame + 1, totalFrames))
+  const fallbackDuration = Math.max(1, endFrame - startFrame)
+  const sourceDurationFrames = sourceDurationFramesForLayer(layer, fps, fallbackDuration)
+  if (Array.isArray(layer.videoSegments) && layer.videoSegments.length === 0) {
+    return { ...layer, sourceDurationFrames, videoSegments: [] }
+  }
+  const rawSegments = layer.videoSegments?.length
+    ? layer.videoSegments
+    : [{
+        id: uuid(),
+        timelineStartFrame: startFrame,
+        timelineEndFrame: endFrame,
+        sourceStartFrame: 0,
+        sourceEndFrame: Math.min(sourceDurationFrames || fallbackDuration, fallbackDuration),
+      }]
+  const videoSegments = normalizeVideoSegments(rawSegments, sourceDurationFrames, totalFrames)
+  if (!videoSegments.length) return { ...layer, sourceDurationFrames, videoSegments: [] }
   return {
+    ...layer,
+    sourceDurationFrames,
+    videoSegments,
+    startFrame: Math.min(...videoSegments.map((segment) => segment.timelineStartFrame)),
+    endFrame: Math.max(...videoSegments.map((segment) => segment.timelineEndFrame)),
+  }
+}
+
+function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
+  const sanitized = {
     ...layer,
     keyframes: layer.keyframes.map((kf, frameIndex) => {
       const props = { ...DEFAULT_TRANSFORM, ...kf.props }
@@ -127,17 +194,20 @@ function sanitizeLayer(layer: Layer): Layer {
       ])) as Layer['propertyKeyframes']
       : layer.propertyKeyframes,
   }
+  return normalizeVideoLayer(sanitized, fps, totalFrames)
 }
 
 function sanitizeProject(project: MotionProject): MotionProject {
   const colorPalettes = project.colorPalettes?.length ? project.colorPalettes : DEFAULT_COLOR_PALETTES
+  const fps = project.canvas.fps || 30
+  const totalFrames = Math.max(1, project.canvas.durationFrames || 1)
   return {
     ...project,
     colorPalettes,
     activeColorPaletteId: colorPalettes.some((palette) => palette.id === project.activeColorPaletteId)
       ? project.activeColorPaletteId
       : 'custom',
-    layers: project.layers.map(sanitizeLayer),
+    layers: project.layers.map((layer) => sanitizeLayer(layer, fps, totalFrames)),
   }
 }
 

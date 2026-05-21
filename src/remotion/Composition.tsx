@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Sequence, useCurrentFrame, useVideoConfig } from 'remotion'
-import { Layer, GradientStop, FillType } from '../types'
+import { Layer, GradientStop, FillType, VideoSegment } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
@@ -257,10 +257,26 @@ function buildLayerDropShadow(layer: Layer, p: ReturnType<typeof resolveLayerAni
   return `drop-shadow(${x} ${y} ${blur} ${layer.shadowColor})`
 }
 
-function TimelineSyncedVideo({ src, frame, startFrame, style }: {
+function activeSegmentAt(layer: Layer, frame: number) {
+  return layer.videoSegments?.find((segment) =>
+    frame >= segment.timelineStartFrame && frame < segment.timelineEndFrame
+  ) ?? null
+}
+
+function sourceTimeAt(segment: VideoSegment, frame: number, fps: number) {
+  if (fps <= 0) return 0
+  const timelineDuration = Math.max(1, segment.timelineEndFrame - segment.timelineStartFrame)
+  const sourceDuration = segment.sourceEndFrame - segment.sourceStartFrame
+  if (sourceDuration <= 0) return segment.sourceStartFrame / fps
+  const progress = Math.max(0, Math.min(1, (frame - segment.timelineStartFrame) / timelineDuration))
+  return (segment.sourceStartFrame + progress * sourceDuration) / fps
+}
+
+function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
+  layerId: string
   src: string
   frame: number
-  startFrame: number
+  segment: VideoSegment
   style: React.CSSProperties
 }) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -273,7 +289,7 @@ function TimelineSyncedVideo({ src, frame, startFrame, style }: {
     const video = videoRef.current
     if (!video || fps <= 0) return
 
-    const targetTime = Math.max(0, (frame - startFrame) / fps)
+    const targetTime = Math.max(0, sourceTimeAt(segment, frame, fps))
     pendingTargetRef.current = targetTime
 
     // duration === NaN means metadata isn't loaded yet; browsers silently
@@ -282,7 +298,13 @@ function TimelineSyncedVideo({ src, frame, startFrame, style }: {
     const isReady = () =>
       Number.isFinite(video.duration) && video.duration > 0 && video.readyState >= 2;
 
+    const updateSourceDuration = () => {
+      if (!Number.isFinite(video.duration) || video.duration <= 0) return
+      useStore.getState().setLayerSourceDuration(layerId, Math.max(0, Math.round(video.duration * fps)))
+    }
+
     const seek = () => {
+      updateSourceDuration()
       const target = pendingTargetRef.current
       if (!Number.isFinite(target)) return
       if (Number.isFinite(video.duration) && target > video.duration) return
@@ -301,7 +323,7 @@ function TimelineSyncedVideo({ src, frame, startFrame, style }: {
       return
     }
 
-    const onReady = () => { if (isReady()) { seek()} }
+    const onReady = () => { if (isReady()) seek() }
     video.addEventListener('loadedmetadata', onReady)
     video.addEventListener('durationchange', onReady)
     video.addEventListener('loadeddata', onReady)
@@ -322,7 +344,7 @@ function TimelineSyncedVideo({ src, frame, startFrame, style }: {
       video.removeEventListener('canplay', onReady)
       video.removeEventListener('progress', onReady)
     }
-  }, [fps, frame, src, startFrame])
+  }, [fps, frame, layerId, src, segment.sourceStartFrame, segment.sourceEndFrame, segment.timelineStartFrame, segment.timelineEndFrame])
 
   // Use a native <video> element instead of Remotion's <Video> because
   // Remotion auto-appends `#t=start,end` media fragment to the URL when
@@ -414,6 +436,8 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   }
 
   if (animatedLayer.type === 'video' && animatedLayer.src) {
+    const activeSegment = activeSegmentAt(animatedLayer, frame)
+    if (!activeSegment) return null
     const radius = layerBorderRadius(animatedLayer)
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
     return (
@@ -430,9 +454,10 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', zIndex: 0 }}>
           <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
             <TimelineSyncedVideo
+              layerId={animatedLayer.id}
               src={animatedLayer.src}
               frame={frame}
-              startFrame={animatedLayer.startFrame ?? 0}
+              segment={activeSegment}
               style={{
                 position: 'absolute',
                 inset: 0,

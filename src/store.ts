@@ -22,8 +22,91 @@ function normalizeHexColor(value: string) {
   return null
 }
 
-function todoVideoSegmentAction(): never {
-  throw new Error('TODO: video segment action is not implemented yet.')
+function clampInt(value: number, min: number, max: number) {
+  if (!Number.isFinite(value)) return min
+  return Math.max(min, Math.min(max, Math.round(value)))
+}
+
+function sourceDurationFramesForLayer(layer: Layer, fps: number, fallbackFrames?: number) {
+  const fromMetadata = layer.sourceDurationFrames
+  const fromSeconds = layer.videoDuration && Number.isFinite(layer.videoDuration)
+    ? Math.max(0, Math.round(layer.videoDuration * fps))
+    : undefined
+  const fromSegments = layer.videoSegments?.length
+    ? Math.max(...layer.videoSegments.map((segment) => Math.max(segment.sourceStartFrame, segment.sourceEndFrame)))
+    : undefined
+  return Math.max(0, Math.round(fromMetadata ?? fromSeconds ?? fromSegments ?? fallbackFrames ?? 0))
+}
+
+function videoLayerEnvelope(layer: Layer) {
+  const segments = layer.videoSegments ?? []
+  if (!segments.length) return { startFrame: layer.startFrame, endFrame: layer.endFrame }
+  return {
+    startFrame: Math.min(...segments.map((segment) => segment.timelineStartFrame)),
+    endFrame: Math.max(...segments.map((segment) => segment.timelineEndFrame)),
+  }
+}
+
+function normalizeVideoSegments(segments: VideoSegment[], sourceDurationFrames: number, totalFrames: number) {
+  const sourceMax = Math.max(0, sourceDurationFrames)
+  let previousEnd = 0
+  return [...segments]
+    .sort((a, b) => a.timelineStartFrame - b.timelineStartFrame || a.timelineEndFrame - b.timelineEndFrame)
+    .map((segment) => {
+      const timelineStartFrame = clampInt(segment.timelineStartFrame, previousEnd, Math.max(previousEnd, totalFrames - 1))
+      const timelineEndFrame = clampInt(segment.timelineEndFrame, timelineStartFrame + 1, Math.max(timelineStartFrame + 1, totalFrames))
+      previousEnd = timelineEndFrame
+      const sourceStartFrame = clampInt(segment.sourceStartFrame, 0, sourceMax)
+      const sourceEndFrame = clampInt(segment.sourceEndFrame, sourceStartFrame, sourceMax)
+      return {
+        id: segment.id || uid(),
+        timelineStartFrame,
+        timelineEndFrame,
+        sourceStartFrame,
+        sourceEndFrame,
+      }
+    })
+    .filter((segment) => segment.timelineEndFrame > segment.timelineStartFrame)
+}
+
+function makeDefaultVideoSegment(layer: Layer, fps: number, totalFrames: number): VideoSegment {
+  const timelineStartFrame = clampInt(layer.startFrame ?? 0, 0, Math.max(0, totalFrames - 1))
+  const timelineEndFrame = clampInt(layer.endFrame ?? timelineStartFrame + 1, timelineStartFrame + 1, Math.max(timelineStartFrame + 1, totalFrames))
+  const timelineDuration = Math.max(1, timelineEndFrame - timelineStartFrame)
+  const sourceDurationFrames = sourceDurationFramesForLayer(layer, fps, timelineDuration)
+  return {
+    id: uid(),
+    timelineStartFrame,
+    timelineEndFrame,
+    sourceStartFrame: 0,
+    sourceEndFrame: Math.min(sourceDurationFrames || timelineDuration, timelineDuration),
+  }
+}
+
+function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number): Layer {
+  if (layer.type !== 'video') return layer
+  const sourceDurationFrames = sourceDurationFramesForLayer(layer, fps, Math.max(1, (layer.endFrame ?? 1) - (layer.startFrame ?? 0)))
+  if (Array.isArray(layer.videoSegments) && layer.videoSegments.length === 0) {
+    return { ...layer, sourceDurationFrames, videoSegments: [] }
+  }
+  const rawSegments = layer.videoSegments?.length ? layer.videoSegments : [makeDefaultVideoSegment(layer, fps, totalFrames)]
+  const videoSegments = normalizeVideoSegments(rawSegments, sourceDurationFrames, totalFrames)
+  const envelope = videoLayerEnvelope({ ...layer, videoSegments })
+  return {
+    ...layer,
+    sourceDurationFrames,
+    videoSegments,
+    ...envelope,
+  }
+}
+
+function retimeVideoSegments(layer: Layer, oldStart: number, newStart: number, scale: number): Layer['videoSegments'] {
+  if (!layer.videoSegments?.length) return layer.videoSegments
+  return layer.videoSegments.map((segment) => ({
+    ...segment,
+    timelineStartFrame: retimeFrame(segment.timelineStartFrame, oldStart, newStart, scale),
+    timelineEndFrame: retimeFrame(segment.timelineEndFrame, oldStart, newStart, scale),
+  }))
 }
 
 function collectDescendants(layers: Layer[], parentId: string): Layer[] {
@@ -831,6 +914,9 @@ export const useStore = create<Store>()(
           _past: [],
           _future: [],
         })
+        set((s) => ({
+          layers: s.layers.map((layer) => normalizeVideoLayer(layer, s.fps, s.totalFrames)),
+        }))
       },
 
       createEmptyProjectState: (project) => get().loadProject(project),
@@ -990,38 +1076,62 @@ export const useStore = create<Store>()(
         const width = naturalWidth && naturalHeight ? Math.max(1, Math.round(naturalWidth * scale)) : 320
         const height = naturalWidth && naturalHeight ? Math.max(1, Math.round(width / aspect)) : 180
         const videoFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * fps)) : totalFrames
+        const endFrame = Math.min(totalFrames, videoFrames)
         set((s) => ({
           layers: [
             ...s.layers,
-            makeLayer('video', {
+            normalizeVideoLayer(makeLayer('video', {
               name,
               src,
               imageFit: 'contain',
               videoNaturalWidth: naturalWidth,
               videoNaturalHeight: naturalHeight,
               videoDuration: duration,
+              sourceDurationFrames: videoFrames,
+              videoSegments: [{
+                id: uid(),
+                timelineStartFrame: 0,
+                timelineEndFrame: endFrame,
+                sourceStartFrame: 0,
+                sourceEndFrame: Math.min(videoFrames, endFrame),
+              }],
               width,
               height,
-              endFrame: Math.min(totalFrames, videoFrames),
-            }),
+              endFrame,
+            }), fps, totalFrames),
           ],
         }))
       },
 
       replaceVideoSource: (id, src, naturalWidth, naturalHeight, duration) => {
         get()._snapshot()
-        set((s) => ({
-          layers: s.layers.map((layer) => layer.id === id && layer.type === 'video'
-            ? {
+        set((s) => {
+          const videoFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * s.fps)) : undefined
+          return {
+            layers: s.layers.map((layer) => {
+              if (layer.id !== id || layer.type !== 'video') return layer
+              const startFrame = layer.startFrame ?? 0
+              const endFrame = Math.min(s.totalFrames, startFrame + (videoFrames ?? Math.max(1, (layer.endFrame ?? s.totalFrames) - startFrame)))
+              return normalizeVideoLayer({
                 ...layer,
                 src,
                 videoNaturalWidth: naturalWidth,
                 videoNaturalHeight: naturalHeight,
                 videoDuration: duration,
-              }
-            : layer
-          ),
-        }))
+                sourceDurationFrames: videoFrames,
+                videoSegments: [{
+                  id: uid(),
+                  timelineStartFrame: startFrame,
+                  timelineEndFrame: endFrame,
+                  sourceStartFrame: 0,
+                  sourceEndFrame: Math.min(videoFrames ?? Math.max(1, endFrame - startFrame), Math.max(1, endFrame - startFrame)),
+                }],
+                startFrame,
+                endFrame,
+              }, s.fps, s.totalFrames)
+            }),
+          }
+        })
       },
 
       deleteLayer: (id) => {
@@ -1567,7 +1677,17 @@ export const useStore = create<Store>()(
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
-          layers: s.layers.map((l) => l.id === layerId ? { ...l, startFrame, endFrame } : l),
+          layers: s.layers.map((l) => {
+            if (l.id !== layerId) return l
+            if (l.type !== 'video' || !l.videoSegments?.length) return { ...l, startFrame, endFrame }
+            const oldStart = l.startFrame ?? 0
+            const oldEnd = l.endFrame ?? s.totalFrames
+            const scale = Math.max(1, endFrame - startFrame) / Math.max(1, oldEnd - oldStart)
+            return normalizeVideoLayer({
+              ...l,
+              videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
+            }, s.fps, s.totalFrames)
+          }),
         }))
       },
 
@@ -1597,6 +1717,7 @@ export const useStore = create<Store>()(
                     .map((kf) => ({ ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) }))
                     .sort((a, b) => a.frame - b.frame),
                   propertyKeyframes: retimePropertyKeyframes(l, oldStart, startFrame, scale),
+                  videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
                 }
               }),
               selectedKeyframes: s.selectedKeyframes.map((kf) =>
@@ -1612,13 +1733,15 @@ export const useStore = create<Store>()(
               const newKeyframes = sorted
                 .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames?.[i] ?? kf.frame + delta) }))
                 .sort((a, b) => a.frame - b.frame)
-              return {
+              const nextLayer = {
                 ...l,
                 startFrame,
                 endFrame,
                 keyframes: newKeyframes,
                 propertyKeyframes: shiftPropertyKeyframes(l, delta),
+                videoSegments: retimeVideoSegments(l, l.startFrame ?? 0, startFrame, Math.max(1, endFrame - startFrame) / Math.max(1, (l.endFrame ?? s.totalFrames) - (l.startFrame ?? 0))),
               }
+              return l.type === 'video' ? normalizeVideoLayer(nextLayer, s.fps, s.totalFrames) : nextLayer
             }),
             selectedKeyframes: s.selectedKeyframes.map((kf) =>
               kf.layerId === layerId ? { ...kf, frame: Math.max(0, kf.frame + delta) } : kf
@@ -1642,23 +1765,210 @@ export const useStore = create<Store>()(
       },
 
       setLayerSourceDuration: (layerId, durationFrames) => {
+        const sourceDurationFrames = Math.max(0, Math.round(durationFrames))
+        set((s) => {
+          let changed = false
+          const layers = s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            if (layer.sourceDurationFrames === sourceDurationFrames) return layer
+            changed = true
+            return normalizeVideoLayer({ ...layer, sourceDurationFrames }, s.fps, s.totalFrames)
+          })
+          return changed ? { layers } : {}
+        })
+      },
+
+      splitVideoAt: (layerId, frame) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
-          layers: s.layers.map((layer) => layer.id === layerId && layer.type === 'video'
-            ? { ...layer, sourceDurationFrames: Math.max(0, Math.round(durationFrames)) }
-            : layer
-          ),
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const segments = normalized.videoSegments ?? []
+            const index = segments.findIndex((segment) => frame > segment.timelineStartFrame && frame < segment.timelineEndFrame)
+            if (index < 0) return normalized
+            const segment = segments[index]
+            const speed = get().selectSegmentSpeed(segment)
+            const sourceCut = clampInt(segment.sourceStartFrame + speed * (frame - segment.timelineStartFrame), 0, sourceDurationFramesForLayer(normalized, s.fps))
+            const nextSegments = [
+              ...segments.slice(0, index),
+              { ...segment, id: uid(), timelineEndFrame: frame, sourceEndFrame: sourceCut },
+              { ...segment, id: uid(), timelineStartFrame: frame, sourceStartFrame: sourceCut },
+              ...segments.slice(index + 1),
+            ]
+            return normalizeVideoLayer({ ...normalized, videoSegments: nextSegments }, s.fps, s.totalFrames)
+          }),
         }))
       },
 
-      splitVideoAt: () => todoVideoSegmentAction(),
-      removeVideoSegment: () => todoVideoSegmentAction(),
-      duplicateVideoSegment: () => todoVideoSegmentAction(),
-      setSegmentTimelineRange: () => todoVideoSegmentAction(),
-      setSegmentSourceRange: () => todoVideoSegmentAction(),
-      moveVideoSegment: () => todoVideoSegmentAction(),
-      setSegmentSpeed: () => todoVideoSegmentAction(),
-      freezeSegment: () => todoVideoSegmentAction(),
-      resetVideoCut: () => todoVideoSegmentAction(),
+      removeVideoSegment: (layerId, segmentId) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const nextSegments = (layer.videoSegments ?? []).filter((segment) => segment.id !== segmentId)
+            return nextSegments.length
+              ? normalizeVideoLayer({ ...layer, videoSegments: nextSegments }, s.fps, s.totalFrames)
+              : { ...layer, videoSegments: [] }
+          }),
+        }))
+      },
+
+      duplicateVideoSegment: (layerId, segmentId) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const segments = normalized.videoSegments ?? []
+            const index = segments.findIndex((segment) => segment.id === segmentId)
+            if (index < 0) return normalized
+            const segment = segments[index]
+            const duration = Math.max(1, segment.timelineEndFrame - segment.timelineStartFrame)
+            const timelineStartFrame = segment.timelineEndFrame
+            const timelineEndFrame = Math.min(s.totalFrames, timelineStartFrame + duration)
+            if (timelineEndFrame <= timelineStartFrame) return normalized
+            const copy = { ...segment, id: uid(), timelineStartFrame, timelineEndFrame }
+            const shifted = segments.slice(index + 1).map((item) => ({
+              ...item,
+              timelineStartFrame: item.timelineStartFrame + (timelineEndFrame - timelineStartFrame),
+              timelineEndFrame: item.timelineEndFrame + (timelineEndFrame - timelineStartFrame),
+            }))
+            return normalizeVideoLayer({ ...normalized, videoSegments: [...segments.slice(0, index + 1), copy, ...shifted] }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      setSegmentTimelineRange: (layerId, segmentId, startFrame, endFrame, opts) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const segments = normalized.videoSegments ?? []
+            const index = segments.findIndex((segment) => segment.id === segmentId)
+            if (index < 0) return normalized
+            const previousEnd = index > 0 ? segments[index - 1].timelineEndFrame : 0
+            const nextStart = index < segments.length - 1 ? segments[index + 1].timelineStartFrame : s.totalFrames
+            const start = clampInt(startFrame, previousEnd, Math.max(previousEnd, nextStart - 1))
+            const end = clampInt(endFrame, start + 1, nextStart)
+            const sourceDuration = sourceDurationFramesForLayer(normalized, s.fps)
+            const current = segments[index]
+            const oldSpeed = get().selectSegmentSpeed(current)
+            const nextSourceEnd = opts?.preserveSpeed
+              ? clampInt(current.sourceStartFrame + (end - start) * oldSpeed, current.sourceStartFrame, sourceDuration)
+              : current.sourceEndFrame
+            return normalizeVideoLayer({
+              ...normalized,
+              videoSegments: segments.map((segment) => segment.id === segmentId
+                ? { ...segment, timelineStartFrame: start, timelineEndFrame: end, sourceEndFrame: nextSourceEnd }
+                : segment),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      setSegmentSourceRange: (layerId, segmentId, sourceStartFrame, sourceEndFrame) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const sourceDuration = sourceDurationFramesForLayer(normalized, s.fps)
+            const start = clampInt(sourceStartFrame, 0, sourceDuration)
+            const end = clampInt(sourceEndFrame, start, sourceDuration)
+            return normalizeVideoLayer({
+              ...normalized,
+              videoSegments: (normalized.videoSegments ?? []).map((segment) => segment.id === segmentId
+                ? { ...segment, sourceStartFrame: start, sourceEndFrame: end }
+                : segment),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      moveVideoSegment: (layerId, segmentId, deltaFrames) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const segments = normalized.videoSegments ?? []
+            const index = segments.findIndex((segment) => segment.id === segmentId)
+            if (index < 0) return normalized
+            const segment = segments[index]
+            const previousEnd = index > 0 ? segments[index - 1].timelineEndFrame : 0
+            const nextStart = index < segments.length - 1 ? segments[index + 1].timelineStartFrame : s.totalFrames
+            const duration = segment.timelineEndFrame - segment.timelineStartFrame
+            const start = clampInt(segment.timelineStartFrame + deltaFrames, previousEnd, Math.max(previousEnd, nextStart - duration))
+            return normalizeVideoLayer({
+              ...normalized,
+              videoSegments: segments.map((item) => item.id === segmentId
+                ? { ...item, timelineStartFrame: start, timelineEndFrame: start + duration }
+                : item),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      setSegmentSpeed: (layerId, segmentId, speed) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
+            const sourceDuration = sourceDurationFramesForLayer(normalized, s.fps)
+            const clampedSpeed = Math.max(0.25, Math.min(4, speed))
+            return normalizeVideoLayer({
+              ...normalized,
+              videoSegments: (normalized.videoSegments ?? []).map((segment) => {
+                if (segment.id !== segmentId) return segment
+                const timelineDuration = Math.max(1, segment.timelineEndFrame - segment.timelineStartFrame)
+                return {
+                  ...segment,
+                  sourceEndFrame: clampInt(segment.sourceStartFrame + timelineDuration * clampedSpeed, segment.sourceStartFrame, sourceDuration),
+                }
+              }),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      freezeSegment: (layerId, segmentId) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => layer.id === layerId && layer.type === 'video'
+            ? normalizeVideoLayer({
+                ...layer,
+                videoSegments: (layer.videoSegments ?? []).map((segment) => segment.id === segmentId
+                  ? { ...segment, sourceEndFrame: segment.sourceStartFrame }
+                  : segment),
+              }, s.fps, s.totalFrames)
+            : layer),
+        }))
+      },
+
+      resetVideoCut: (layerId) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            const startFrame = clampInt(layer.startFrame ?? 0, 0, Math.max(0, s.totalFrames - 1))
+            const sourceDuration = sourceDurationFramesForLayer(layer, s.fps, Math.max(1, (layer.endFrame ?? s.totalFrames) - startFrame))
+            const timelineDuration = Math.max(1, Math.min(sourceDuration || s.totalFrames - startFrame, s.totalFrames - startFrame))
+            return normalizeVideoLayer({
+              ...layer,
+              videoSegments: [{
+                id: uid(),
+                timelineStartFrame: startFrame,
+                timelineEndFrame: startFrame + timelineDuration,
+                sourceStartFrame: 0,
+                sourceEndFrame: Math.min(sourceDuration || timelineDuration, timelineDuration),
+              }],
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
 
       reorderLayersById: (orderedIds) => {
         get()._snapshot()
