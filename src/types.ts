@@ -103,12 +103,35 @@ export interface PropertyKeyframe {
   bezier?: [number, number, number, number]
 }
 
+/**
+ * Easing for a speed keyframe. `step` = speed is held constant until the
+ * next keyframe (hard freeze / instant change). `linear` = speed ramps
+ * linearly to the next keyframe value (smooth slow-down or speed-up).
+ */
+export type SpeedEasing = 'step' | 'linear'
+
+/**
+ * A keyframe of speed playback over the composition timeline.
+ * `frame` is the absolute composition frame at which `value` takes effect.
+ * `easing` controls how the speed transitions to the NEXT keyframe.
+ */
+export interface SpeedKeyframe {
+  frame: number
+  value: number
+  easing: SpeedEasing
+}
+
 export interface VideoSegment {
   id: string
   timelineStartFrame: number
   timelineEndFrame: number
   sourceStartFrame: number
   sourceEndFrame: number
+  /**
+   * Optional speed keyframes that override the default 1× playback.
+   * If empty / undefined, the segment plays at 1× from sourceStartFrame.
+   */
+  speedKeyframes?: SpeedKeyframe[]
 }
 
 export interface Layer {

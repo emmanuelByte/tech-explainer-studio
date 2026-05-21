@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
+import { SegmentControls } from './SegmentControls'
 import { ScrubField } from './ScrubField'
 import { resolveLayerAnimation } from '../../animationProperties'
 import { ColorPicker } from '../ColorPicker'
@@ -433,6 +434,9 @@ export function StylePanel() {
           </div>
         </>
       )}
+
+      {/* Video segment editor (trim / split / speed / freeze) */}
+      {layer.type === 'video' && <SegmentControls layer={sourceLayer} />}
 
       {/* Text options */}
       {layer.type === 'text' && (

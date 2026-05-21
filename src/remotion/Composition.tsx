@@ -263,13 +263,13 @@ function activeSegmentAt(layer: Layer, frame: number) {
   ) ?? null
 }
 
+// Delegate to the shared integrator so segments with speed keyframes
+// (including freeze / speed-ramp / 2× etc.) play back identically here
+// as the panel UI displays them.
+import { sourceTimeAt as integratedSourceTimeAt } from './videoSegments'
 function sourceTimeAt(segment: VideoSegment, frame: number, fps: number) {
   if (fps <= 0) return 0
-  const timelineDuration = Math.max(1, segment.timelineEndFrame - segment.timelineStartFrame)
-  const sourceDuration = segment.sourceEndFrame - segment.sourceStartFrame
-  if (sourceDuration <= 0) return segment.sourceStartFrame / fps
-  const progress = Math.max(0, Math.min(1, (frame - segment.timelineStartFrame) / timelineDuration))
-  return (segment.sourceStartFrame + progress * sourceDuration) / fps
+  return integratedSourceTimeAt(segment, frame, fps)
 }
 
 function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
@@ -344,7 +344,7 @@ function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
       video.removeEventListener('canplay', onReady)
       video.removeEventListener('progress', onReady)
     }
-  }, [fps, frame, layerId, src, segment.sourceStartFrame, segment.sourceEndFrame, segment.timelineStartFrame, segment.timelineEndFrame])
+  }, [fps, frame, layerId, src, segment.sourceStartFrame, segment.sourceEndFrame, segment.timelineStartFrame, segment.timelineEndFrame, segment.speedKeyframes])
 
   // Use a native <video> element instead of Remotion's <Video> because
   // Remotion auto-appends `#t=start,end` media fragment to the URL when

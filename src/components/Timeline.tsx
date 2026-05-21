@@ -4,6 +4,7 @@ import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, 
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { AnimatableProperty, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
   DndContext, closestCenter, DragEndEvent,
@@ -544,26 +545,43 @@ function TrackRow({
   const hasMultipleKf = layer.keyframes.length >= 2
   const barH = Math.min(18, Math.max(12, Math.round(rowH * 0.42)))
 
+  // Video layers with materialised segments render per-segment bars instead
+  // of one continuous bar; everything else (keyframes, group bracket, etc.)
+  // stays identical.
+  const isVideoWithSegments = layer.type === 'video' && (layer.videoSegments?.length ?? 0) > 0
+
   return (
     <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'var(--hover)' : 'transparent', cursor: 'pointer' }}>
       {/* Main bar row */}
       <div style={{ height: rowH, position: 'relative' }}>
-        {/* Layer time bar */}
-        <div
-          style={{
-            position: 'absolute', left: barLeft, width: barW,
-            top: rowH / 2 - barH / 2, height: barH,
-            background: color + '33', borderRadius: 3, border: `1px solid ${color}66`, userSelect: 'none',
-          }}
-          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
-        >
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
-            style={{ position: 'absolute', left: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
-            style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: 'grab' }} />
-          <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
-            style={{ position: 'absolute', right: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
-        </div>
+        {isVideoWithSegments ? (
+          <VideoSegmentBars
+            layer={layer}
+            fpx={fpx}
+            timelineOffset={timelineOffset}
+            rowH={rowH}
+            currentFrame={currentFrame}
+            color={color}
+            onClickLayer={onClick}
+          />
+        ) : (
+          /* Layer time bar */
+          <div
+            style={{
+              position: 'absolute', left: barLeft, width: barW,
+              top: rowH / 2 - barH / 2, height: barH,
+              background: color + '33', borderRadius: 3, border: `1px solid ${color}66`, userSelect: 'none',
+            }}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); onBarContextMenu(e, layer.id) }}
+          >
+            <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'left') }}
+              style={{ position: 'absolute', left: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '3px 0 0 3px', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
+            <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'move') }}
+              style={{ position: 'absolute', left: BAR_HANDLE_W, right: BAR_HANDLE_W, top: 0, height: '100%', cursor: 'grab' }} />
+            <div onMouseDown={(e) => { e.stopPropagation(); onBarMouseDown(e, layer.id, 'right') }}
+              style={{ position: 'absolute', right: -2, top: -1, width: BAR_HANDLE_W + 4, height: 'calc(100% + 2px)', cursor: 'ew-resize', background: color, borderRadius: '0 3px 3px 0', zIndex: 8, boxShadow: `0 0 0 1px ${color}88` }} />
+          </div>
+        )}
 
         {/* Keyframe connector */}
         {hasMultipleKf && (() => {

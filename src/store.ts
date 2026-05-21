@@ -4,10 +4,18 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
+import {
+  speedAtFrame as computeSpeedAtFrame,
+  integrateSpeed,
+  upsertSpeedKeyframe,
+  removeSpeedKeyframe,
+  moveSpeedKeyframe,
+  setSpeedKeyframeEasing,
+} from './remotion/videoSegments'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -47,6 +55,28 @@ function videoLayerEnvelope(layer: Layer) {
   }
 }
 
+function normalizeSpeedKeyframes(
+  keyframes: SpeedKeyframe[] | undefined,
+  timelineStartFrame: number,
+  timelineEndFrame: number,
+): SpeedKeyframe[] | undefined {
+  if (!keyframes || keyframes.length === 0) return undefined
+  const clamped = keyframes
+    .map((kf) => ({
+      frame: clampInt(kf.frame, timelineStartFrame, Math.max(timelineStartFrame, timelineEndFrame - 1)),
+      value: Math.max(0, Number.isFinite(kf.value) ? kf.value : 1),
+      easing: kf.easing === 'linear' ? 'linear' as const : 'step' as const,
+    }))
+    .sort((a, b) => a.frame - b.frame)
+  // Deduplicate keyframes at the same frame — keep the last one.
+  const dedup: SpeedKeyframe[] = []
+  for (const kf of clamped) {
+    if (dedup.length && dedup[dedup.length - 1].frame === kf.frame) dedup[dedup.length - 1] = kf
+    else dedup.push(kf)
+  }
+  return dedup.length ? dedup : undefined
+}
+
 function normalizeVideoSegments(segments: VideoSegment[], sourceDurationFrames: number, totalFrames: number) {
   const sourceMax = Math.max(0, sourceDurationFrames)
   let previousEnd = 0
@@ -58,12 +88,29 @@ function normalizeVideoSegments(segments: VideoSegment[], sourceDurationFrames: 
       previousEnd = timelineEndFrame
       const sourceStartFrame = clampInt(segment.sourceStartFrame, 0, sourceMax)
       const sourceEndFrame = clampInt(segment.sourceEndFrame, sourceStartFrame, sourceMax)
+
+      // Migrate legacy "derived speed" segments: if no speed keyframes exist
+      // but the source/timeline ratio implies a non-1× speed, materialise a
+      // single step keyframe at the segment's start to preserve playback.
+      let speedKeyframes = normalizeSpeedKeyframes(segment.speedKeyframes, timelineStartFrame, timelineEndFrame)
+      if (!speedKeyframes) {
+        const timelineDur = timelineEndFrame - timelineStartFrame
+        const sourceDur = sourceEndFrame - sourceStartFrame
+        if (timelineDur > 0 && sourceDur > 0) {
+          const ratio = sourceDur / timelineDur
+          if (Math.abs(ratio - 1) > 0.001) {
+            speedKeyframes = [{ frame: timelineStartFrame, value: ratio, easing: 'step' }]
+          }
+        }
+      }
+
       return {
         id: segment.id || uid(),
         timelineStartFrame,
         timelineEndFrame,
         sourceStartFrame,
         sourceEndFrame,
+        ...(speedKeyframes ? { speedKeyframes } : {}),
       }
     })
     .filter((segment) => segment.timelineEndFrame > segment.timelineStartFrame)
@@ -753,7 +800,21 @@ interface Actions {
   setLayerRange: (layerId: string, startFrame: number, endFrame: number, keyframeFrames?: number[]) => void
   // Video segments
   selectActiveSegment: (layerId: string, frame: number) => VideoSegment | null
-  selectSegmentSpeed: (segment: VideoSegment) => number
+  /**
+   * Returns the active speed of a segment at the given composition frame.
+   * If `frame` is omitted, returns the speed at `currentFrame`.
+   * If the playhead is outside the segment, returns the speed at the
+   * nearest segment boundary (start or end).
+   */
+  selectSegmentSpeed: (segment: VideoSegment, frame?: number) => number
+  /** Upsert a speed keyframe at `frame` (creates one or replaces existing). */
+  setSegmentSpeedKeyframe: (layerId: string, segmentId: string, frame: number, value: number, easing?: SpeedEasing) => void
+  /** Remove a speed keyframe at `frame`. */
+  removeSegmentSpeedKeyframe: (layerId: string, segmentId: string, frame: number) => void
+  /** Move a speed keyframe from one frame to another (preserves value/easing). */
+  moveSegmentSpeedKeyframe: (layerId: string, segmentId: string, fromFrame: number, toFrame: number) => void
+  /** Change easing on an existing speed keyframe. */
+  setSegmentSpeedKeyframeEasing: (layerId: string, segmentId: string, frame: number, easing: SpeedEasing) => void
   setLayerSourceDuration: (layerId: string, durationFrames: number) => void
   splitVideoAt: (layerId: string, frame: number) => void
   removeVideoSegment: (layerId: string, segmentId: string) => void
@@ -1758,10 +1819,13 @@ export const useStore = create<Store>()(
         ) ?? null
       },
 
-      selectSegmentSpeed: (segment) => {
-        const timelineDuration = segment.timelineEndFrame - segment.timelineStartFrame
-        if (timelineDuration <= 0) return 0
-        return (segment.sourceEndFrame - segment.sourceStartFrame) / timelineDuration
+      selectSegmentSpeed: (segment, frame) => {
+        const f = frame ?? get().currentFrame
+        const clamped = Math.max(
+          segment.timelineStartFrame,
+          Math.min(Math.max(segment.timelineStartFrame, segment.timelineEndFrame - 1), f),
+        )
+        return computeSpeedAtFrame(segment, clamped)
       },
 
       setLayerSourceDuration: (layerId, durationFrames) => {
@@ -1788,12 +1852,26 @@ export const useStore = create<Store>()(
             const index = segments.findIndex((segment) => frame > segment.timelineStartFrame && frame < segment.timelineEndFrame)
             if (index < 0) return normalized
             const segment = segments[index]
-            const speed = get().selectSegmentSpeed(segment)
-            const sourceCut = clampInt(segment.sourceStartFrame + speed * (frame - segment.timelineStartFrame), 0, sourceDurationFramesForLayer(normalized, s.fps))
+            // Compute the SOURCE frame at the cut point by integrating speed
+            // keyframes from segment start to the cut frame. This honours any
+            // speed changes the user already inserted.
+            const offsetFrames = frame - segment.timelineStartFrame
+            const sourceFramesConsumed = integrateSpeed(segment, offsetFrames)
+            const sourceCut = clampInt(segment.sourceStartFrame + sourceFramesConsumed, 0, sourceDurationFramesForLayer(normalized, s.fps))
+            // Split speed keyframes between the two halves
+            const allKfs = segment.speedKeyframes ?? []
+            const firstHalfKfs = allKfs.filter((kf) => kf.frame < frame)
+            const secondHalfKfs = allKfs.filter((kf) => kf.frame >= frame)
             const nextSegments = [
               ...segments.slice(0, index),
-              { ...segment, id: uid(), timelineEndFrame: frame, sourceEndFrame: sourceCut },
-              { ...segment, id: uid(), timelineStartFrame: frame, sourceStartFrame: sourceCut },
+              {
+                ...segment, id: uid(), timelineEndFrame: frame, sourceEndFrame: sourceCut,
+                speedKeyframes: firstHalfKfs.length ? firstHalfKfs : undefined,
+              },
+              {
+                ...segment, id: uid(), timelineStartFrame: frame, sourceStartFrame: sourceCut,
+                speedKeyframes: secondHalfKfs.length ? secondHalfKfs : undefined,
+              },
               ...segments.slice(index + 1),
             ]
             return normalizeVideoLayer({ ...normalized, videoSegments: nextSegments }, s.fps, s.totalFrames)
@@ -1854,14 +1932,27 @@ export const useStore = create<Store>()(
             const end = clampInt(endFrame, start + 1, nextStart)
             const sourceDuration = sourceDurationFramesForLayer(normalized, s.fps)
             const current = segments[index]
-            const oldSpeed = get().selectSegmentSpeed(current)
+            // When preserving speed during a timeline resize:
+            //  - Shift speed keyframes by the start delta so they follow the segment
+            //  - Recompute sourceEnd by integrating speed over the new timeline duration
+            // When NOT preserving speed: keep source range, change timeline only (slip).
+            const startDelta = start - current.timelineStartFrame
+            const shiftedKfs = opts?.preserveSpeed && current.speedKeyframes
+              ? current.speedKeyframes.map((kf) => ({ ...kf, frame: kf.frame + startDelta }))
+              : current.speedKeyframes
+            const segmentWithShifted: VideoSegment = {
+              ...current,
+              timelineStartFrame: start,
+              timelineEndFrame: end,
+              speedKeyframes: shiftedKfs,
+            }
             const nextSourceEnd = opts?.preserveSpeed
-              ? clampInt(current.sourceStartFrame + (end - start) * oldSpeed, current.sourceStartFrame, sourceDuration)
+              ? clampInt(current.sourceStartFrame + integrateSpeed(segmentWithShifted, end - start), current.sourceStartFrame, sourceDuration)
               : current.sourceEndFrame
             return normalizeVideoLayer({
               ...normalized,
               videoSegments: segments.map((segment) => segment.id === segmentId
-                ? { ...segment, timelineStartFrame: start, timelineEndFrame: end, sourceEndFrame: nextSourceEnd }
+                ? { ...segment, timelineStartFrame: start, timelineEndFrame: end, sourceEndFrame: nextSourceEnd, speedKeyframes: shiftedKfs }
                 : segment),
             }, s.fps, s.totalFrames)
           }),
@@ -1901,32 +1992,45 @@ export const useStore = create<Store>()(
             const nextStart = index < segments.length - 1 ? segments[index + 1].timelineStartFrame : s.totalFrames
             const duration = segment.timelineEndFrame - segment.timelineStartFrame
             const start = clampInt(segment.timelineStartFrame + deltaFrames, previousEnd, Math.max(previousEnd, nextStart - duration))
+            const actualDelta = start - segment.timelineStartFrame
             return normalizeVideoLayer({
               ...normalized,
               videoSegments: segments.map((item) => item.id === segmentId
-                ? { ...item, timelineStartFrame: start, timelineEndFrame: start + duration }
+                ? {
+                  ...item,
+                  timelineStartFrame: start,
+                  timelineEndFrame: start + duration,
+                  // Shift speed keyframes along with the segment so their absolute
+                  // positions on the comp timeline move together with the clip.
+                  speedKeyframes: item.speedKeyframes?.map((kf) => ({ ...kf, frame: kf.frame + actualDelta })),
+                }
                 : item),
             }, s.fps, s.totalFrames)
           }),
         }))
       },
 
+      /**
+       * Set segment speed at the current playhead. Inserts (or replaces) a
+       * step keyframe at currentFrame. The playhead is clamped to within
+       * the segment, so changing speed when scrubbed inside the segment
+       * "takes effect" from that frame onward.
+       */
       setSegmentSpeed: (layerId, segmentId, speed) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
+        const clampedSpeed = Math.max(0, Math.min(4, speed))
+        const frame = get().currentFrame
         set((s) => ({
           layers: s.layers.map((layer) => {
             if (layer.id !== layerId || layer.type !== 'video') return layer
-            const normalized = normalizeVideoLayer(layer, s.fps, s.totalFrames)
-            const sourceDuration = sourceDurationFramesForLayer(normalized, s.fps)
-            const clampedSpeed = Math.max(0.25, Math.min(4, speed))
             return normalizeVideoLayer({
-              ...normalized,
-              videoSegments: (normalized.videoSegments ?? []).map((segment) => {
+              ...layer,
+              videoSegments: (layer.videoSegments ?? []).map((segment) => {
                 if (segment.id !== segmentId) return segment
-                const timelineDuration = Math.max(1, segment.timelineEndFrame - segment.timelineStartFrame)
+                const clampedFrame = clampInt(frame, segment.timelineStartFrame, Math.max(segment.timelineStartFrame, segment.timelineEndFrame - 1))
                 return {
                   ...segment,
-                  sourceEndFrame: clampInt(segment.sourceStartFrame + timelineDuration * clampedSpeed, segment.sourceStartFrame, sourceDuration),
+                  speedKeyframes: upsertSpeedKeyframe(segment, { frame: clampedFrame, value: clampedSpeed, easing: 'step' }),
                 }
               }),
             }, s.fps, s.totalFrames)
@@ -1934,17 +2038,102 @@ export const useStore = create<Store>()(
         }))
       },
 
+      /**
+       * Freeze the segment from the current playhead onward by inserting
+       * a step keyframe with value=0 at currentFrame.
+       */
       freezeSegment: (layerId, segmentId) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
+        const frame = get().currentFrame
         set((s) => ({
           layers: s.layers.map((layer) => layer.id === layerId && layer.type === 'video'
             ? normalizeVideoLayer({
                 ...layer,
-                videoSegments: (layer.videoSegments ?? []).map((segment) => segment.id === segmentId
-                  ? { ...segment, sourceEndFrame: segment.sourceStartFrame }
-                  : segment),
+                videoSegments: (layer.videoSegments ?? []).map((segment) => {
+                  if (segment.id !== segmentId) return segment
+                  const clampedFrame = clampInt(frame, segment.timelineStartFrame, Math.max(segment.timelineStartFrame, segment.timelineEndFrame - 1))
+                  return {
+                    ...segment,
+                    speedKeyframes: upsertSpeedKeyframe(segment, { frame: clampedFrame, value: 0, easing: 'step' }),
+                  }
+                }),
               }, s.fps, s.totalFrames)
             : layer),
+        }))
+      },
+
+      setSegmentSpeedKeyframe: (layerId, segmentId, frame, value, easing) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        const clampedSpeed = Math.max(0, Math.min(4, value))
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            return normalizeVideoLayer({
+              ...layer,
+              videoSegments: (layer.videoSegments ?? []).map((segment) => {
+                if (segment.id !== segmentId) return segment
+                const clampedFrame = clampInt(frame, segment.timelineStartFrame, Math.max(segment.timelineStartFrame, segment.timelineEndFrame - 1))
+                return {
+                  ...segment,
+                  speedKeyframes: upsertSpeedKeyframe(segment, {
+                    frame: clampedFrame,
+                    value: clampedSpeed,
+                    easing: easing ?? 'step',
+                  }),
+                }
+              }),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      removeSegmentSpeedKeyframe: (layerId, segmentId, frame) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            return normalizeVideoLayer({
+              ...layer,
+              videoSegments: (layer.videoSegments ?? []).map((segment) => {
+                if (segment.id !== segmentId) return segment
+                const next = removeSpeedKeyframe(segment, frame)
+                return { ...segment, speedKeyframes: next.length ? next : undefined }
+              }),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      moveSegmentSpeedKeyframe: (layerId, segmentId, fromFrame, toFrame) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            return normalizeVideoLayer({
+              ...layer,
+              videoSegments: (layer.videoSegments ?? []).map((segment) => {
+                if (segment.id !== segmentId) return segment
+                const clampedTo = clampInt(toFrame, segment.timelineStartFrame, Math.max(segment.timelineStartFrame, segment.timelineEndFrame - 1))
+                return { ...segment, speedKeyframes: moveSpeedKeyframe(segment, fromFrame, clampedTo) }
+              }),
+            }, s.fps, s.totalFrames)
+          }),
+        }))
+      },
+
+      setSegmentSpeedKeyframeEasing: (layerId, segmentId, frame, easing) => {
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (layer.id !== layerId || layer.type !== 'video') return layer
+            return normalizeVideoLayer({
+              ...layer,
+              videoSegments: (layer.videoSegments ?? []).map((segment) => {
+                if (segment.id !== segmentId) return segment
+                return { ...segment, speedKeyframes: setSpeedKeyframeEasing(segment, frame, easing) }
+              }),
+            }, s.fps, s.totalFrames)
+          }),
         }))
       },
 

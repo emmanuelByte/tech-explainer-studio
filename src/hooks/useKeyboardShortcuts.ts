@@ -294,6 +294,27 @@ export function useKeyboardShortcuts() {
         e.preventDefault()
         selectedLayerIds.forEach((id) => store.duplicateLayer(id))
       }
+
+      // Video segment shortcuts — operate on the selected video layer (under playhead)
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        const videoLayerId = selectedLayerIds.find((id) => layers.find((l) => l.id === id)?.type === 'video')
+        if (videoLayerId) {
+          e.preventDefault()
+          store.splitVideoAt(videoLayerId, currentFrame)
+        }
+        return
+      }
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && (e.key === 'F' || e.key === 'f')) {
+        const videoLayerId = selectedLayerIds.find((id) => layers.find((l) => l.id === id)?.type === 'video')
+        if (videoLayerId) {
+          const seg = store.selectActiveSegment(videoLayerId, currentFrame)
+          if (seg) {
+            e.preventDefault()
+            store.freezeSegment(videoLayerId, seg.id)
+          }
+        }
+        return
+      }
     }
 
     window.addEventListener('keydown', onKeyDown)
