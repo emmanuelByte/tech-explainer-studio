@@ -170,6 +170,36 @@ function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number) {
   }
 }
 
+function isGroupLayer(layer: Layer) {
+  return layer.type === 'group' || layer.isGroup
+}
+
+function withGroupTimeEnvelopes(layers: Layer[], totalFrames: number) {
+  let next = layers
+  for (let pass = 0; pass < layers.length; pass += 1) {
+    const byParent = new Map<string, Layer[]>()
+    next.forEach((layer) => {
+      if (!layer.parentId) return
+      byParent.set(layer.parentId, [...(byParent.get(layer.parentId) ?? []), layer])
+    })
+
+    let changed = false
+    next = next.map((layer) => {
+      if (!isGroupLayer(layer)) return layer
+      const children = byParent.get(layer.id) ?? []
+      if (!children.length) return layer
+      const startFrame = Math.max(0, Math.min(...children.map((child) => child.startFrame ?? 0)))
+      const endFrame = Math.max(startFrame + 1, Math.min(totalFrames, Math.max(...children.map((child) => child.endFrame ?? totalFrames))))
+      if (layer.startFrame === startFrame && layer.endFrame === endFrame) return layer
+      changed = true
+      return { ...layer, startFrame, endFrame }
+    })
+
+    if (!changed) break
+  }
+  return next
+}
+
 function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
   const sanitized = {
     ...layer,
@@ -207,7 +237,10 @@ function sanitizeProject(project: MotionProject): MotionProject {
     activeColorPaletteId: colorPalettes.some((palette) => palette.id === project.activeColorPaletteId)
       ? project.activeColorPaletteId
       : 'custom',
-    layers: project.layers.map((layer) => sanitizeLayer(layer, fps, totalFrames)),
+    layers: withGroupTimeEnvelopes(
+      project.layers.map((layer) => sanitizeLayer(layer, fps, totalFrames)),
+      totalFrames,
+    ),
   }
 }
 

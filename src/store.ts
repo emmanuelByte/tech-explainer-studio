@@ -341,6 +341,32 @@ function fitAutoGroups(layers: Layer[], frame: number, canvasWidth: number, canv
   return next
 }
 
+function withGroupTimeEnvelopes(layers: Layer[], totalFrames: number) {
+  let next = layers
+  for (let pass = 0; pass < layers.length; pass += 1) {
+    const byParent = new Map<string, Layer[]>()
+    next.forEach((layer) => {
+      if (!layer.parentId) return
+      byParent.set(layer.parentId, [...(byParent.get(layer.parentId) ?? []), layer])
+    })
+
+    let changed = false
+    next = next.map((layer) => {
+      if (!isGroupLayer(layer)) return layer
+      const children = byParent.get(layer.id) ?? []
+      if (!children.length) return layer
+      const startFrame = Math.max(0, Math.min(...children.map((child) => child.startFrame ?? 0)))
+      const endFrame = Math.max(startFrame + 1, Math.min(totalFrames, Math.max(...children.map((child) => child.endFrame ?? totalFrames))))
+      if (layer.startFrame === startFrame && layer.endFrame === endFrame) return layer
+      changed = true
+      return { ...layer, startFrame, endFrame }
+    })
+
+    if (!changed) break
+  }
+  return next
+}
+
 function withAutoFitGroups(state: EditorState, layers: Layer[], skipIds = new Set<string>()) {
   const { width, height } = getCanvasSize(state)
   return fitAutoGroups(layers, state.currentFrame, width, height, state.totalFrames, skipIds)
@@ -673,7 +699,10 @@ function normalizeLayoutGroups(state: EditorState, layers: Layer[], changedId?: 
 }
 
 function normalizeLayerTree(state: EditorState, layers: Layer[], changedId?: string, includeAllLayouts = false, skipAutoFitIds = new Set<string>()) {
-  return withAutoFitGroups(state, normalizeLayoutGroups(state, layers, changedId, includeAllLayouts), skipAutoFitIds)
+  return withGroupTimeEnvelopes(
+    withAutoFitGroups(state, normalizeLayoutGroups(state, layers, changedId, includeAllLayouts), skipAutoFitIds),
+    state.totalFrames,
+  )
 }
 
 const LAYOUT_PROP_KEYS = new Set<keyof Layer>([
@@ -976,7 +1005,10 @@ export const useStore = create<Store>()(
           _future: [],
         })
         set((s) => ({
-          layers: s.layers.map((layer) => normalizeVideoLayer(layer, s.fps, s.totalFrames)),
+          layers: withGroupTimeEnvelopes(
+            s.layers.map((layer) => normalizeVideoLayer(layer, s.fps, s.totalFrames)),
+            s.totalFrames,
+          ),
         }))
       },
 
@@ -1737,8 +1769,8 @@ export const useStore = create<Store>()(
 
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
-        set((s) => ({
-          layers: s.layers.map((l) => {
+        set((s) => {
+          const layers = s.layers.map((l) => {
             if (l.id !== layerId) return l
             if (l.type !== 'video' || !l.videoSegments?.length) return { ...l, startFrame, endFrame }
             const oldStart = l.startFrame ?? 0
@@ -1748,8 +1780,9 @@ export const useStore = create<Store>()(
               ...l,
               videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
             }, s.fps, s.totalFrames)
-          }),
-        }))
+          })
+          return { layers: withGroupTimeEnvelopes(layers, s.totalFrames) }
+        })
       },
 
       setLayerRange: (layerId, startFrame, endFrame, keyframeFrames) => {
@@ -1765,45 +1798,47 @@ export const useStore = create<Store>()(
             const oldDuration = Math.max(1, oldEnd - oldStart)
             const nextDuration = Math.max(1, endFrame - startFrame)
             const scale = nextDuration / oldDuration
+            const layers = s.layers.map((l) => {
+              if (!targetIds.has(l.id)) return l
+              const nextStart = l.id === layerId ? startFrame : retimeFrame(l.startFrame ?? 0, oldStart, startFrame, scale)
+              const nextEnd = l.id === layerId ? endFrame : retimeFrame(l.endFrame ?? s.totalFrames, oldStart, startFrame, scale)
+              return {
+                ...l,
+                startFrame: Math.min(nextStart, nextEnd - 1),
+                endFrame: Math.max(nextStart + 1, nextEnd),
+                keyframes: l.keyframes
+                  .map((kf) => ({ ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) }))
+                  .sort((a, b) => a.frame - b.frame),
+                propertyKeyframes: retimePropertyKeyframes(l, oldStart, startFrame, scale),
+                videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
+              }
+            })
             return {
-              layers: s.layers.map((l) => {
-                if (!targetIds.has(l.id)) return l
-                const nextStart = l.id === layerId ? startFrame : retimeFrame(l.startFrame ?? 0, oldStart, startFrame, scale)
-                const nextEnd = l.id === layerId ? endFrame : retimeFrame(l.endFrame ?? s.totalFrames, oldStart, startFrame, scale)
-                return {
-                  ...l,
-                  startFrame: Math.min(nextStart, nextEnd - 1),
-                  endFrame: Math.max(nextStart + 1, nextEnd),
-                  keyframes: l.keyframes
-                    .map((kf) => ({ ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) }))
-                    .sort((a, b) => a.frame - b.frame),
-                  propertyKeyframes: retimePropertyKeyframes(l, oldStart, startFrame, scale),
-                  videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
-                }
-              }),
+              layers: withGroupTimeEnvelopes(layers, s.totalFrames),
               selectedKeyframes: s.selectedKeyframes.map((kf) =>
                 targetIds.has(kf.layerId) ? { ...kf, frame: retimeFrame(kf.frame, oldStart, startFrame, scale) } : kf
               ),
             }
           }
           const delta = startFrame - (target.startFrame ?? 0)
+          const layers = s.layers.map((l) => {
+            if (l.id !== layerId) return l
+            const sorted = [...l.keyframes].sort((a, b) => a.frame - b.frame)
+            const newKeyframes = sorted
+              .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames?.[i] ?? kf.frame + delta) }))
+              .sort((a, b) => a.frame - b.frame)
+            const nextLayer = {
+              ...l,
+              startFrame,
+              endFrame,
+              keyframes: newKeyframes,
+              propertyKeyframes: shiftPropertyKeyframes(l, delta),
+              videoSegments: retimeVideoSegments(l, l.startFrame ?? 0, startFrame, Math.max(1, endFrame - startFrame) / Math.max(1, (l.endFrame ?? s.totalFrames) - (l.startFrame ?? 0))),
+            }
+            return l.type === 'video' ? normalizeVideoLayer(nextLayer, s.fps, s.totalFrames) : nextLayer
+          })
           return {
-            layers: s.layers.map((l) => {
-              if (l.id !== layerId) return l
-              const sorted = [...l.keyframes].sort((a, b) => a.frame - b.frame)
-              const newKeyframes = sorted
-                .map((kf, i) => ({ ...kf, frame: Math.max(0, keyframeFrames?.[i] ?? kf.frame + delta) }))
-                .sort((a, b) => a.frame - b.frame)
-              const nextLayer = {
-                ...l,
-                startFrame,
-                endFrame,
-                keyframes: newKeyframes,
-                propertyKeyframes: shiftPropertyKeyframes(l, delta),
-                videoSegments: retimeVideoSegments(l, l.startFrame ?? 0, startFrame, Math.max(1, endFrame - startFrame) / Math.max(1, (l.endFrame ?? s.totalFrames) - (l.startFrame ?? 0))),
-              }
-              return l.type === 'video' ? normalizeVideoLayer(nextLayer, s.fps, s.totalFrames) : nextLayer
-            }),
+            layers: withGroupTimeEnvelopes(layers, s.totalFrames),
             selectedKeyframes: s.selectedKeyframes.map((kf) =>
               kf.layerId === layerId ? { ...kf, frame: Math.max(0, kf.frame + delta) } : kf
             ),
