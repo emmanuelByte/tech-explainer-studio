@@ -29,3 +29,4 @@ scripts
 plan
 .claude
 out
+out/*
