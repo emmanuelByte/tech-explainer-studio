@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  ChevronRight, Circle, Diamond, Film, Folder, Image as ImageIcon, Layers, PenLine, Slash, Square, Triangle, Type,
+  ChevronRight, Circle, Diamond, Film, Folder, Image as ImageIcon, Layers, Music, PenLine, Slash, Square, Triangle, Type,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
@@ -16,6 +16,7 @@ const TYPE_ICON: Record<LayerType, LucideIcon> = {
   text: Type,
   image: ImageIcon,
   video: Film,
+  audio: Music,
   group: Folder,
 }
 

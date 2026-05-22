@@ -1,11 +1,11 @@
-export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'video' | 'group'
+export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'video' | 'audio' | 'group'
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
 export type PairEasingType = EasingType | 'custom'
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
 export type SizeMode = 'fixed' | 'fit-content' | 'fill-canvas'
 export type ImageFit = 'contain' | 'cover' | 'fill' | 'scale-down'
 export type ImageKind = 'raster' | 'svg'
-export type AssetKind = 'image' | 'video'
+export type AssetKind = 'image' | 'video' | 'audio'
 export type LayoutMode = 'none' | 'flex' | 'grid'
 export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
@@ -202,6 +202,10 @@ export interface Layer {
   videoDuration?: number
   videoSegments?: VideoSegment[]
   sourceDurationFrames?: number
+  /** Audio-only: playback gain 0..1 (default 1). Applied as `audio.volume`. */
+  audioVolume?: number
+  /** Audio-only: mute the layer's playback (transport silent, layer still visible/scheduled). */
+  audioMuted?: boolean
   svgStrokeColor?: string
   svgFillColor?: string
   svgFillEnabled?: boolean
@@ -301,6 +305,7 @@ export const LAYER_TYPE_COLOR: Record<LayerType, string> = {
   text: '#f59e0b',
   image: '#a855f7',
   video: '#ef4444',
+  audio: '#10b981',
   group: '#60a5fa',
 }
 

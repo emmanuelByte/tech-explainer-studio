@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Diamond, Minus, Pause, Plus, RotateCcw, Scissors, Trash2, Triangle } from 'lucide-react'
+import { Diamond, Minus, Pause, Plus, RotateCcw, Scissors, Trash2, Triangle, Volume2, VolumeX } from 'lucide-react'
 import { useStore } from '../../store'
 import { Layer, SpeedEasing, VideoSegment } from '../../types'
 import { Section, Row, NumField } from './_panelKit'
@@ -26,7 +26,7 @@ function formatSeconds(seconds: number, precision = 2): string {
 }
 
 export function SegmentControls({ layer }: { layer: Layer }) {
-  if (layer.type !== 'video') return null
+  if (layer.type !== 'video' && layer.type !== 'audio') return null
   return <SegmentControlsInner layer={layer} />
 }
 
@@ -38,8 +38,9 @@ function SegmentControlsInner({ layer }: { layer: Layer }) {
     splitVideoAt, removeVideoSegment, duplicateVideoSegment,
     setSegmentSourceRange, setSegmentSpeed, freezeSegment, resetVideoCut,
     setSegmentSpeedKeyframe, removeSegmentSpeedKeyframe, setSegmentSpeedKeyframeEasing,
-    setCurrentFrame,
+    setCurrentFrame, updateLayerProp,
   } = useStore()
+  const isAudio = layer.type === 'audio'
 
   const segments = layer.videoSegments ?? []
   const activeSegment = selectActiveSegment(layer.id, currentFrame)
@@ -83,6 +84,46 @@ function SegmentControlsInner({ layer }: { layer: Layer }) {
 
   return (
     <Section title={t('segment.title')}>
+      {/* Volume / mute row — audio layers only */}
+      {isAudio && (
+        <Row label={t('segment.volume')}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0 }}>
+            <button
+              type="button"
+              onClick={() => updateLayerProp(layer.id, 'audioMuted', !layer.audioMuted)}
+              title={layer.audioMuted ? t('segment.unmute') : t('segment.mute')}
+              style={{
+                width: 22, height: 22, flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: layer.audioMuted ? 'rgba(239,68,68,0.15)' : 'transparent',
+                color: layer.audioMuted ? '#ef4444' : 'var(--text2)',
+                border: `1px solid ${layer.audioMuted ? '#ef4444' : 'var(--input-border)'}`,
+                borderRadius: 3, cursor: 'pointer', padding: 0,
+              }}
+            >
+              {layer.audioMuted ? <VolumeX size={12} /> : <Volume2 size={12} />}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={layer.audioVolume ?? 1}
+              disabled={layer.audioMuted}
+              onChange={(e) => updateLayerProp(layer.id, 'audioVolume', parseFloat(e.target.value))}
+              className="figma-range"
+              style={{ flex: 1, opacity: layer.audioMuted ? 0.4 : 1 }}
+            />
+            <span style={{
+              fontSize: 10, color: 'var(--text2)', minWidth: 32, textAlign: 'right',
+              fontVariantNumeric: 'tabular-nums',
+            }}>
+              {layer.audioMuted ? '—' : `${Math.round((layer.audioVolume ?? 1) * 100)}%`}
+            </span>
+          </div>
+        </Row>
+      )}
+
       {/* Index header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',

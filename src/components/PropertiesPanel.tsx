@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Clapperboard, Film, Palette, SlidersHorizontal, Sparkles } from 'lucide-react'
+import { Clapperboard, Film, Music, Palette, SlidersHorizontal, Sparkles } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
 import { TransformPanel } from './panels/TransformPanel'
@@ -19,6 +19,7 @@ const BASE_TABS: { id: Tab; labelKey: string; icon: LucideIcon }[] = [
   { id: 'presets', labelKey: 'panels.motion', icon: Clapperboard },
 ]
 const VIDEO_TAB = { id: 'video' as const, labelKey: 'panels.video', icon: Film }
+const AUDIO_TAB = { id: 'video' as const, labelKey: 'panels.audio', icon: Music }
 
 export function PropertiesPanel() {
   const { t } = useTranslation()
@@ -26,9 +27,11 @@ export function PropertiesPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('transform')
 
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
-  const isVideo = layer?.type === 'video'
-  // The Video tab is only present for video layers; build the tab list dynamically.
-  const TABS = isVideo ? [VIDEO_TAB, ...BASE_TABS] : BASE_TABS
+  const isVideo = layer?.type === 'video' || layer?.type === 'audio'
+  // The media tab is only present for video/audio layers; build the tab list
+  // dynamically and pick the appropriate label/icon ("Video" vs "Audio").
+  const mediaTab = layer?.type === 'audio' ? AUDIO_TAB : VIDEO_TAB
+  const TABS = isVideo ? [mediaTab, ...BASE_TABS] : BASE_TABS
 
   // When the selection switches to a video layer, jump straight to the Video
   // tab so the user can immediately edit trim/speed. When the selection

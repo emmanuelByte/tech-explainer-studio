@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pause } from 'lucide-react'
+import { Pause, Scissors } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import { useStore } from '../store'
 import { Layer, SpeedEasing, VideoSegment, LAYER_TYPE_COLOR } from '../types'
@@ -59,6 +59,9 @@ export function VideoSegmentBars({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; segmentId: string } | null>(null)
   const [speedSubmenuOpen, setSpeedSubmenuOpen] = useState(false)
   const [kfMenu, setKfMenu] = useState<{ x: number; y: number; segmentId: string; frame: number; easing: SpeedEasing } | null>(null)
+  // CapCut-style hover-split: which segment is currently hovered. If it also
+  // contains the playhead, we render a scissors affordance above the playhead.
+  const [hoveredSegmentId, setHoveredSegmentId] = useState<string | null>(null)
 
   const frameX = (f: number) => timelineOffset + f * fpx
 
@@ -153,10 +156,20 @@ export function VideoSegmentBars({
         const containsPlayhead = currentFrame >= seg.timelineStartFrame && currentFrame < seg.timelineEndFrame
         const segColor = isFrozen ? '#3b82f6' : baseColor
 
+        const showSplitAffordance = hoveredSegmentId === seg.id && containsPlayhead
+          && currentFrame > seg.timelineStartFrame
+          && currentFrame < seg.timelineEndFrame - 1
+        // Position of scissors button INSIDE the bar (bar-local coordinates).
+        // The bar starts at `left = frameX(timelineStart) + GAP/2`, so the
+        // playhead at frame F sits at local x = (F - timelineStart) * fpx - GAP/2.
+        const playheadLocalX = (currentFrame - seg.timelineStartFrame) * fpx - SEG_GAP_PX / 2
+
         return (
           <div
             key={seg.id}
             data-segment-id={seg.id}
+            onMouseEnter={() => setHoveredSegmentId(seg.id)}
+            onMouseLeave={() => setHoveredSegmentId((id) => id === seg.id ? null : id)}
             onContextMenu={(e) => {
               e.preventDefault()
               e.stopPropagation()
@@ -179,7 +192,7 @@ export function VideoSegmentBars({
               borderRadius: 3,
               cursor: 'pointer',
               userSelect: 'none',
-              overflow: 'hidden',
+              overflow: 'visible', // allow scissors affordance to peek above the bar
             }}
             title={t('segment.slipHint')}
           >
@@ -221,6 +234,42 @@ export function VideoSegmentBars({
               >
                 {speedBadge(speed)}
               </div>
+            )}
+
+            {/* CapCut-style hover-split affordance: visible only when this
+                segment is hovered AND the playhead is currently over it.
+                A scissors button hovers above the playhead column. Click
+                splits the segment at the playhead. */}
+            {showSplitAffordance && (
+              <button
+                type="button"
+                onMouseDown={(e) => { e.stopPropagation() }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  splitVideoAt(layer.id, currentFrame)
+                }}
+                title={t('segment.splitAtPlayhead')}
+                style={{
+                  position: 'absolute',
+                  left: playheadLocalX - 9, // 18px wide → center on playhead
+                  top: -22,
+                  width: 18, height: 18,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'var(--panel)',
+                  color: 'var(--accent)',
+                  border: '1px solid var(--accent)',
+                  borderRadius: '50%',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.35)',
+                  cursor: 'pointer',
+                  zIndex: 6,
+                  padding: 0,
+                  transition: 'transform 0.08s ease',
+                }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1.1)' }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(1)' }}
+              >
+                <Scissors size={10} />
+              </button>
             )}
           </div>
         )

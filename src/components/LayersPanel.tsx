@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
-  Film, Layers, Library, Lock, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
+  Film, Layers, Library, Lock, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
   Type, Unlock,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -24,9 +24,10 @@ import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
 import { VideoLibraryModal } from './VideoLibraryModal'
+import { AudioLibraryModal } from './AudioLibraryModal'
 import { LibraryModal } from './LibraryModal'
 import { ColorPicker } from './ColorPicker'
-import type { ImageAsset, VideoAsset } from '../assetStorage'
+import type { AudioAsset, ImageAsset, VideoAsset } from '../assetStorage'
 import { useToast } from './Toast'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
@@ -81,6 +82,7 @@ const TYPE_ICONS: Record<LayerType, LucideIcon> = {
   rectangle: Square, ellipse: Circle, line: Slash,
   triangle: Triangle, path: PenLine, text: Type, image: ImageIcon,
   video: Film,
+  audio: Music,
   group: Folder,
 }
 
@@ -283,7 +285,7 @@ export function LayersPanel() {
   const {
     layers, selectedLayerIds,
     selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo,
-    replaceImageSource, replaceVideoSource,
+    replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
   } = useStore()
@@ -294,9 +296,11 @@ export function LayersPanel() {
   const [showIcons, setShowIcons] = useState(false)
   const [showImages, setShowImages] = useState(false)
   const [showVideos, setShowVideos] = useState(false)
+  const [showAudios, setShowAudios] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
   const [replaceImageLayerId, setReplaceImageLayerId] = useState<string | null>(null)
   const [replaceVideoLayerId, setReplaceVideoLayerId] = useState<string | null>(null)
+  const [replaceAudioLayerId, setReplaceAudioLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
   const hoverRef = useRef<{ targetId: string; startedAt: number } | null>(null)
@@ -458,6 +462,26 @@ export function LayersPanel() {
     setShowVideos(false)
   }
 
+  function addAudioAsset(asset: AudioAsset) {
+    if (replaceAudioLayerId) {
+      replaceAudioSource(replaceAudioLayerId, asset.url, asset.duration)
+      setReplaceAudioLayerId(null)
+    } else {
+      addGeneratedLayer('audio', {
+        parentId: insertionParentId(),
+        name: asset.name,
+        src: asset.url,
+        videoDuration: asset.duration,
+        audioVolume: 1,
+        audioMuted: false,
+        width: 1,
+        height: 1,
+        fillType: 'none',
+      })
+    }
+    setShowAudios(false)
+  }
+
   function addIconLayer(choice: IconPick) {
     addGeneratedLayer('image', {
       parentId: insertionParentId(),
@@ -613,6 +637,7 @@ export function LayersPanel() {
             <AddMenuItem label={t('layers.text')} icon={Type} onClick={addTextLayer} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.audio')} icon={Music} onClick={() => { setShowAudios(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.library')} icon={Library} onClick={() => { setShowLibrary(true); setAddMenuOpen(false) }} />
           </div>
@@ -764,6 +789,15 @@ export function LayersPanel() {
             setReplaceVideoLayerId(null)
           }}
           onPick={addVideoAsset}
+        />
+      )}
+      {showAudios && (
+        <AudioLibraryModal
+          onClose={() => {
+            setShowAudios(false)
+            setReplaceAudioLayerId(null)
+          }}
+          onPick={addAudioAsset}
         />
       )}
     </div>

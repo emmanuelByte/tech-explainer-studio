@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Sequence, useCurrentFrame, useVideoConfig } from 'remotion'
+import { OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
 import { Layer, GradientStop, FillType, VideoSegment } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
@@ -369,6 +369,85 @@ function TimelineSyncedVideo({ layerId, src, frame, segment, style }: {
   )
 }
 
+/**
+ * Audio counterpart of TimelineSyncedVideo. Same seek/sync logic, but
+ * renders an HTMLAudioElement and respects `volume` + `muted` props.
+ * Audio layers don't render visually — the parent LayerElement gives
+ * this component zero-size container styles.
+ */
+function TimelineSyncedAudio({ layerId, src, frame, segment, volume, muted }: {
+  layerId: string
+  src: string
+  frame: number
+  segment: VideoSegment
+  volume: number
+  muted: boolean
+}) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const { fps } = useVideoConfig()
+  const pendingTargetRef = useRef(0)
+  const reportedSourceDurationRef = useRef<number | null>(null)
+
+  // Apply volume + muted whenever they change.
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio) return
+    audio.volume = Math.max(0, Math.min(1, volume))
+    audio.muted = muted
+  }, [volume, muted])
+
+  useEffect(() => {
+    const audio = audioRef.current
+    if (!audio || fps <= 0) return
+
+    const targetTime = Math.max(0, sourceTimeAt(segment, frame, fps))
+    pendingTargetRef.current = targetTime
+
+    const isReady = () =>
+      Number.isFinite(audio.duration) && audio.duration > 0 && audio.readyState >= 2
+
+    const updateSourceDuration = () => {
+      if (!Number.isFinite(audio.duration) || audio.duration <= 0) return
+      const sourceDurationFrames = Math.max(0, Math.round(audio.duration * fps))
+      if (reportedSourceDurationRef.current === sourceDurationFrames) return
+      reportedSourceDurationRef.current = sourceDurationFrames
+      useStore.getState().setLayerSourceDuration(layerId, sourceDurationFrames)
+    }
+
+    const seek = () => {
+      updateSourceDuration()
+      const target = pendingTargetRef.current
+      if (!Number.isFinite(target)) return
+      if (Number.isFinite(audio.duration) && target > audio.duration) return
+      const tolerance = Math.min(0.005, 1 / (fps * 4))
+      if (Math.abs(audio.currentTime - target) <= tolerance) return
+      try { audio.currentTime = target } catch { /* retry later */ }
+    }
+
+    if (isReady()) { seek(); return }
+
+    const onReady = () => { if (isReady()) seek() }
+    audio.addEventListener('loadedmetadata', onReady)
+    audio.addEventListener('durationchange', onReady)
+    audio.addEventListener('loadeddata', onReady)
+    audio.addEventListener('canplay', onReady)
+    audio.addEventListener('progress', onReady)
+
+    if (audio.preload === 'none') audio.preload = 'metadata'
+    if (audio.readyState === 0) { try { audio.load() } catch { /* ignore */ } }
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', onReady)
+      audio.removeEventListener('durationchange', onReady)
+      audio.removeEventListener('loadeddata', onReady)
+      audio.removeEventListener('canplay', onReady)
+      audio.removeEventListener('progress', onReady)
+    }
+  }, [fps, frame, layerId, src, segment.sourceStartFrame, segment.sourceEndFrame, segment.timelineStartFrame, segment.timelineEndFrame, segment.speedKeyframes])
+
+  return <audio ref={audioRef} src={src} preload="auto" />
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex }: {
   layer: Layer
   frame: number
@@ -439,11 +518,36 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     )
   }
 
+  if (animatedLayer.type === 'audio' && animatedLayer.src) {
+    const activeSegment = activeSegmentAt(animatedLayer, frame)
+    if (!activeSegment) return null
+    const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
+    return (
+      // Audio has no visible footprint, but we still need the wrapper so
+      // selection / clicks work. Use absolute 0×0 box positioned off-canvas
+      // — the HTMLAudioElement plays via the parent Player's pause/play state.
+      <div data-layer-id={animatedLayer.id} style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none' }}>
+        <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
+          <TimelineSyncedAudio
+            layerId={animatedLayer.id}
+            src={animatedLayer.src}
+            frame={frame}
+            segment={activeSegment}
+            volume={animatedLayer.audioVolume ?? 1}
+            muted={!!animatedLayer.audioMuted}
+          />
+        </Sequence>
+      </div>
+    )
+  }
+
   if (animatedLayer.type === 'video' && animatedLayer.src) {
     const activeSegment = activeSegmentAt(animatedLayer, frame)
     if (!activeSegment) return null
     const radius = layerBorderRadius(animatedLayer)
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
+    const isRendering = getRemotionEnvironment().isRendering
+    const activeSegmentDuration = Math.max(1, activeSegment.timelineEndFrame - activeSegment.timelineStartFrame)
     return (
       <div
         data-layer-id={animatedLayer.id}
@@ -456,24 +560,45 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         onClick={handleClick}
       >
         <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', borderRadius: 'inherit', zIndex: 0 }}>
-          <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
-            <TimelineSyncedVideo
-              layerId={animatedLayer.id}
-              src={animatedLayer.src}
-              frame={frame}
-              segment={activeSegment}
-              style={{
-                position: 'absolute',
-                inset: 0,
-                width: '100%',
-                height: '100%',
-                objectFit: animatedLayer.imageFit ?? 'contain',
-                display: 'block',
-                borderRadius: 'inherit',
-                pointerEvents: 'none',
-              }}
-            />
-          </Sequence>
+          {isRendering ? (
+            <Sequence from={activeSegment.timelineStartFrame} durationInFrames={activeSegmentDuration} layout="none">
+              <OffthreadVideo
+                src={animatedLayer.src}
+                startFrom={Math.max(0, Math.round(activeSegment.sourceStartFrame))}
+                endAt={Math.max(1, Math.round(activeSegment.sourceEndFrame))}
+                muted
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: animatedLayer.imageFit ?? 'contain',
+                  display: 'block',
+                  borderRadius: 'inherit',
+                  pointerEvents: 'none',
+                }}
+              />
+            </Sequence>
+          ) : (
+            <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
+              <TimelineSyncedVideo
+                layerId={animatedLayer.id}
+                src={animatedLayer.src}
+                frame={frame}
+                segment={activeSegment}
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: '100%',
+                  height: '100%',
+                  objectFit: animatedLayer.imageFit ?? 'contain',
+                  display: 'block',
+                  borderRadius: 'inherit',
+                  pointerEvents: 'none',
+                }}
+              />
+            </Sequence>
+          )}
         </div>
       </div>
     )

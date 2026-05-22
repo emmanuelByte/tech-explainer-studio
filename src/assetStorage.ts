@@ -18,6 +18,7 @@ export interface LocalAsset {
 
 export type ImageAsset = LocalAsset & { kind?: 'image'; imageKind: ImageKind }
 export type VideoAsset = LocalAsset & { kind: 'video'; imageKind: 'raster' }
+export type AudioAsset = LocalAsset & { kind: 'audio'; imageKind: 'raster' }
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init)
@@ -83,6 +84,23 @@ export function listVideoAssets() {
   return listAssets().then((assets) => assets.filter((asset) => asset.kind === 'video') as VideoAsset[])
 }
 
+export function listAudioAssets() {
+  return listAssets().then((assets) => assets.filter((asset) => asset.kind === 'audio') as AudioAsset[])
+}
+
+/** Probe an audio file URL/dataUrl for its duration via an HTMLAudioElement. */
+export function measureAudio(dataUrl: string) {
+  return new Promise<{ duration?: number }>((resolve) => {
+    const audio = document.createElement('audio')
+    audio.preload = 'metadata'
+    audio.onloadedmetadata = () => {
+      resolve({ duration: Number.isFinite(audio.duration) ? audio.duration : undefined })
+    }
+    audio.onerror = () => resolve({})
+    audio.src = dataUrl
+  })
+}
+
 export async function uploadImageAsset(file: File) {
   const dataUrl = await readFileAsDataUrl(file)
   const size = await measureImage(dataUrl)
@@ -115,6 +133,24 @@ export async function uploadVideoAsset(file: File) {
       imageKind: 'raster',
       dataUrl,
       ...size,
+    }),
+  })
+}
+
+export async function uploadAudioAsset(file: File) {
+  const dataUrl = await readFileAsDataUrl(file)
+  const meta = await measureAudio(dataUrl)
+  return requestJson<AudioAsset>('/api/assets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: file.name.replace(/\.[^.]+$/, ''),
+      fileName: file.name,
+      mimeType: file.type || 'audio/mpeg',
+      kind: 'audio',
+      imageKind: 'raster',
+      dataUrl,
+      ...meta,
     }),
   })
 }

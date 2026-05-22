@@ -5,7 +5,7 @@ import { extname, resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
 
 type StoredImageKind = 'raster' | 'svg'
-type StoredAssetKind = 'image' | 'video'
+type StoredAssetKind = 'image' | 'video' | 'audio'
 
 interface StoredAsset {
   id: string
@@ -91,6 +91,13 @@ function extensionForAsset(payload: UploadAssetPayload) {
   if (payload.mimeType === 'video/quicktime') return '.mov'
   if (payload.mimeType === 'video/x-m4v') return '.m4v'
   if (payload.mimeType?.startsWith('video/')) return '.mp4'
+  if (payload.mimeType === 'audio/mpeg') return '.mp3'
+  if (payload.mimeType === 'audio/mp4' || payload.mimeType === 'audio/x-m4a') return '.m4a'
+  if (payload.mimeType === 'audio/wav' || payload.mimeType === 'audio/x-wav') return '.wav'
+  if (payload.mimeType === 'audio/ogg') return '.ogg'
+  if (payload.mimeType === 'audio/webm') return '.weba'
+  if (payload.mimeType === 'audio/flac') return '.flac'
+  if (payload.mimeType?.startsWith('audio/')) return '.mp3'
   return '.jpg'
 }
 
@@ -110,9 +117,14 @@ async function saveAsset(root: string, payload: UploadAssetPayload) {
   if (!payload.dataUrl) throw new Error('Missing asset data.')
   const parsed = parseDataUrl(payload.dataUrl)
   const mimeType = payload.mimeType || parsed.mimeType
-  const kind: StoredAssetKind = payload.kind || (mimeType.startsWith('video/') ? 'video' : 'image')
+  const kind: StoredAssetKind = payload.kind || (
+    mimeType.startsWith('video/') ? 'video' :
+    mimeType.startsWith('audio/') ? 'audio' :
+    'image'
+  )
   if (kind === 'image' && !mimeType.startsWith('image/')) throw new Error('Only image files are supported for image assets.')
   if (kind === 'video' && !mimeType.startsWith('video/')) throw new Error('Only video files are supported for video assets.')
+  if (kind === 'audio' && !mimeType.startsWith('audio/')) throw new Error('Only audio files are supported for audio assets.')
 
   await ensureAssetDir(root)
   const now = new Date().toISOString()
@@ -125,7 +137,7 @@ async function saveAsset(root: string, payload: UploadAssetPayload) {
 
   const asset: StoredAsset = {
     id,
-    name: (payload.name || payload.fileName || (kind === 'video' ? 'Video' : 'Image')).replace(/\.[^.]+$/, ''),
+    name: (payload.name || payload.fileName || (kind === 'video' ? 'Video' : kind === 'audio' ? 'Audio' : 'Image')).replace(/\.[^.]+$/, ''),
     fileName,
     mimeType,
     kind,
