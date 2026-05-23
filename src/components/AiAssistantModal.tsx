@@ -155,7 +155,7 @@ function clampFrameToLayerRange(frame: number, layer: Layer) {
   return Math.max(start, Math.min(end, Math.round(frame)))
 }
 
-function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame: number) {
+export function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame: number) {
   const byId = new Map(layers.map((layer) => [layer.id, layer]))
   const childrenByParent = childIdsByParent(layers)
   const animationTargets = animationTargetLayerIds(layers, selectedLayerIds)
@@ -208,12 +208,14 @@ function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame:
   }
 }
 
-function layerTarget(actionLayerId: string, targetLayerIds: string[], layers: Layer[]) {
+function layerTarget(actionLayerId: string, targetLayerIds: string[], layers: Layer[], allowAnyExplicitLayer = false) {
   const id = actionLayerId === 'selected' ? targetLayerIds[0] : actionLayerId
-  return layers.find((layer) => layer.id === id) ? id : null
+  if (!id) return null
+  if (targetLayerIds.includes(id)) return id
+  return allowAnyExplicitLayer && actionLayerId !== 'selected' && layers.find((layer) => layer.id === id) ? id : null
 }
 
-function applyAiActions(response: AiResponse) {
+export function applyAiActions(response: AiResponse, options: { allowAnyExplicitLayer?: boolean } = {}) {
   const store = useStore.getState()
   const createdIds: string[] = []
   const clientIdMap = new Map<string, string>()
@@ -269,7 +271,7 @@ function applyAiActions(response: AiResponse) {
     }
 
     if (action.type === 'update_layer') {
-      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers)
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
       if (!id) return
       Object.entries(action.props ?? {}).forEach(([key, value]) => {
         if (LAYER_PROPS.has(key as keyof Layer)) store.updateLayerProp(id, key as keyof Layer, value as never)
@@ -283,7 +285,7 @@ function applyAiActions(response: AiResponse) {
     }
 
     if (action.type === 'add_keyframe') {
-      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers)
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
       const layer = id ? latest.layers.find((item) => item.id === id) : null
       if (!id || !layer) return
       const base = resolveLayerAnimation(layer, latest.currentFrame).transform
@@ -304,6 +306,23 @@ function applyAiActions(response: AiResponse) {
   })
 
   if (createdIds.length) useStore.getState().selectLayers(createdIds)
+}
+
+export function runAsSingleHistoryAction(apply: () => void) {
+  const before = useStore.getState()
+  const beforeLayers = JSON.stringify(before.layers)
+  const beforePast = before._past
+  apply()
+  const after = useStore.getState()
+  const afterLayers = JSON.stringify(after.layers)
+  if (beforeLayers === afterLayers) {
+    useStore.setState({ _past: beforePast })
+    return
+  }
+  const nextPast = beforePast[beforePast.length - 1] === beforeLayers
+    ? beforePast
+    : [...beforePast.slice(-49), beforeLayers]
+  useStore.setState({ _past: nextPast, _future: [] })
 }
 
 export function AiAssistantModal({ onClose }: { onClose: () => void }) {
@@ -395,9 +414,13 @@ export function AiAssistantModal({ onClose }: { onClose: () => void }) {
           canvas.height,
           { fitToCanvas: true },
         )
-        insertLibraryLayers(result.layers, { fitToTimeline: true, rootLayerIds: result.rootLayerIds })
+        runAsSingleHistoryAction(() => {
+          insertLibraryLayers(result.layers, { fitToTimeline: true, rootLayerIds: result.rootLayerIds })
+        })
       } else {
-        applyAiActions(parsed)
+        runAsSingleHistoryAction(() => {
+          applyAiActions(parsed)
+        })
       }
 
       setMessage(parsed.message || t('ai.applied'))

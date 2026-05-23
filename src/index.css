@@ -153,6 +153,157 @@ button:disabled { cursor: default; opacity: 0.4; }
   opacity: 0.88;
 }
 
+/* ── AI ChatKit dock ───────────────────────────────────── */
+/* Figma-style side panel. Tokens:
+   --ai-accent: warm ŘemesloBot orange used as a brand cue for the
+   assistant. Kept distinct from --accent (Figma blue) so the panel
+   reads as a guest dock without breaking the editor's tool palette. */
+.ai-chat-dock {
+  --ai-accent: #f25f22;
+  --ai-accent-bg: rgba(242, 95, 34, 0.10);
+  --ai-accent-bg-strong: rgba(242, 95, 34, 0.16);
+  position: fixed;
+  top: 40px;
+  right: 0;
+  bottom: 0;
+  width: min(380px, calc(100vw - 48px));
+  z-index: 2600;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  box-shadow: -1px 0 0 var(--border), -12px 0 32px rgba(0, 0, 0, 0.10);
+}
+
+:root:not(.dark) .ai-chat-dock {
+  box-shadow: -1px 0 0 var(--border);
+}
+
+/* Header — matches the editor's 36px topbar/panel-header rhythm */
+.ai-chat-dock-header {
+  height: 36px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.ai-chat-dock-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.ai-chat-dock-title-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ai-accent-bg);
+  color: var(--ai-accent);
+  flex-shrink: 0;
+}
+
+.ai-chat-dock-title span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mode bar — segmented control like Figma's design-mode tabs */
+.ai-chat-mode-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.ai-chat-mode-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  width: 100%;
+}
+
+.ai-chat-mode {
+  flex: 1;
+  height: 24px;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  transition: background 0.1s, color 0.1s, box-shadow 0.1s;
+}
+
+.ai-chat-mode:hover {
+  color: var(--text);
+}
+
+.ai-chat-mode.active {
+  background: var(--panel);
+  color: var(--ai-accent);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--border);
+}
+
+:root.dark .ai-chat-mode.active {
+  background: var(--input);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--border2);
+}
+
+.ai-chat-mode svg {
+  opacity: 0.8;
+}
+
+.ai-chat-mode.active svg {
+  opacity: 1;
+}
+
+/* Padded wrapper keeps the composer + start screen from kissing the panel
+   walls — ChatKit lives inside a shadow DOM so this is the only way to
+   give it breathing room. */
+.ai-chatkit-wrap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  padding: 6px 8px 10px;
+  background: var(--panel);
+}
+
+.ai-chatkit-frame {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  display: block;
+  background: transparent;
+}
+
 /* ── Add menu item (popup menus) ────────────────────────── */
 .add-menu-item {
   color: var(--text);

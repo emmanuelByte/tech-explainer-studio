@@ -101,7 +101,7 @@ npx remotion render src/remotion/index.ts EditorComposition out/video.mp4
 
 ## Optional AI Assistant
 
-The editor includes an optional local AI assistant modal. It has two modes: graphic generation, which asks the model for inline HTML and converts it into editable layers, and animation, which asks the model for safe editor actions/keyframes.
+The editor includes optional AI help. The top bar AI button opens a full-height ChatKit panel on the right side, so you can keep chatting without covering the canvas. The older local AI endpoint is still available for editor actions and prompt experiments.
 
 To enable it, copy the example config:
 
@@ -114,13 +114,14 @@ Then add your model and API key:
 ```json
 {
   "model": "gpt-4.1-mini",
-  "apiKey": "sk-..."
+  "apiKey": "sk-...",
+  "chatkitWorkflowId": "wf_..."
 }
 ```
 
 Restart the dev server after changing the config.
 
-`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/ai-assist` endpoint, and the Vite dev server makes the OpenAI request. The server selects `public/ai-graphic-prompt.md` or `public/ai-animation-prompt.md` based on the selected modal mode.
+`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/chatkit/session` endpoint, and the Vite dev server creates a short-lived ChatKit session token using your OpenAI key and `chatkitWorkflowId`. You can also set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_CHATKIT_WORKFLOW_ID` as environment variables.
 
 ## Project Storage
 

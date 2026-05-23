@@ -12,7 +12,7 @@ import { PreviewCanvas } from './components/PreviewCanvas'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { Timeline } from './components/Timeline'
 import { ExportModal } from './components/ExportModal'
-import { AiAssistantModal } from './components/AiAssistantModal'
+import { AiChatPanel } from './components/AiChatPanel'
 import { HomeScreen } from './components/HomeScreen'
 import { SettingsModal } from './components/SettingsModal'
 import { SelectionTracker } from './components/SelectionTracker'
@@ -394,7 +394,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
         </div>
         <Timeline />
       </div>
-      {showAi && <AiAssistantModal onClose={() => setShowAi(false)} />}
+      {showAi && <AiChatPanel onClose={() => setShowAi(false)} />}
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
     </div>
   )
