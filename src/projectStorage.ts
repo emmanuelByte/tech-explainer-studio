@@ -171,9 +171,40 @@ function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number) {
 }
 
 function normalizeHtmlTextMetrics(layer: Layer) {
-  if (!layer.htmlText || !Number.isFinite(layer.lineHeight) || layer.lineHeight <= 4) return layer
+  if (!layer.htmlText) return layer
+  let next = layer.type === 'text' && layer.sizeMode !== 'fit-content'
+    ? { ...layer, sizeMode: 'fit-content' as const }
+    : layer
+  if (!Number.isFinite(next.lineHeight) || next.lineHeight <= 4) return next
   const fontSize = Number.isFinite(layer.fontSize) && layer.fontSize > 0 ? layer.fontSize : 16
-  return { ...layer, lineHeight: Math.max(0.1, layer.lineHeight / fontSize) }
+  return { ...next, lineHeight: Math.max(0.1, next.lineHeight / fontSize) }
+}
+
+function normalizeCssColor(value: string) {
+  const trimmed = value?.trim()
+  if (!trimmed) return value
+  const short = trimmed.match(/^#([0-9a-f]{3})$/i)
+  if (short) {
+    const [, hex] = short
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`.toLowerCase()
+  }
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed.toLowerCase()
+  const rgb = trimmed.match(/^rgba?\(\s*([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s*[,/]\s*[\d.]+%?)?\s*\)$/i)
+  if (!rgb) return value
+  const toHex = (raw: string) => Math.max(0, Math.min(255, Math.round(Number(raw))))
+    .toString(16)
+    .padStart(2, '0')
+  return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`.toLowerCase()
+}
+
+function normalizeLayerColors(layer: Layer) {
+  return {
+    ...layer,
+    fillColor: normalizeCssColor(layer.fillColor),
+    textColor: normalizeCssColor(layer.textColor),
+    strokeColor: normalizeCssColor(layer.strokeColor),
+    gradientStops: layer.gradientStops.map((stop) => ({ ...stop, color: normalizeCssColor(stop.color) })),
+  }
 }
 
 function isGroupLayer(layer: Layer) {
@@ -207,7 +238,7 @@ function withGroupTimeEnvelopes(layers: Layer[], totalFrames: number) {
 }
 
 function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
-  const sanitized = normalizeHtmlTextMetrics({
+  const sanitized = normalizeLayerColors(normalizeHtmlTextMetrics({
     ...layer,
     keyframes: layer.keyframes.map((kf, frameIndex) => {
       const props = { ...DEFAULT_TRANSFORM, ...kf.props }
@@ -229,7 +260,7 @@ function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
         })),
       ])) as Layer['propertyKeyframes']
       : layer.propertyKeyframes,
-  })
+  }))
   return normalizeVideoLayer(sanitized, fps, totalFrames)
 }
 

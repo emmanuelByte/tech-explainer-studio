@@ -297,7 +297,20 @@ function smoothPoint(points: EditablePathPoint[], index: number, closed: boolean
 }
 
 function getMovementLayerIds(layers: Layer[], selectedIds: string[]) {
-  return selectedIds.filter((id) => layers.some((layer) => layer.id === id))
+  const byId = new Map(layers.map((layer) => [layer.id, layer]))
+  const selected = new Set(selectedIds)
+  return selectedIds.filter((id) => {
+    const layer = byId.get(id)
+    if (!layer || layer.locked) return false
+    let parentId = layer.parentId ?? null
+    const seen = new Set<string>()
+    while (parentId && !seen.has(parentId)) {
+      if (selected.has(parentId)) return false
+      seen.add(parentId)
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
+    return true
+  })
 }
 
 function snapValue(value: number, guides: number[]) {
@@ -1238,7 +1251,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   }, [currentTool])
 
   // ── After all hooks — safe to bail out ──────────────────
-  const selectedBoxes = selectedLayerIds
+  const selectedBoxes = getMovementLayerIds(layers, selectedLayerIds)
     .map((id) => layers.find((l) => l.id === id))
     .filter((item): item is Layer => Boolean(item))
     .map((selectedLayer) => getLayerBox(selectedLayer, layers, currentFrame, canvasW, canvasH))

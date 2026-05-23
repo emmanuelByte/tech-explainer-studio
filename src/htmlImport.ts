@@ -26,7 +26,20 @@ function isTransparent(color: string) {
 }
 
 function cssColor(color: string, fallback = 'transparent') {
-  return isTransparent(color) ? fallback : color
+  if (isTransparent(color)) return fallback
+  const trimmed = color.trim()
+  const short = trimmed.match(/^#([0-9a-f]{3})$/i)
+  if (short) {
+    const [, hex] = short
+    return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`.toLowerCase()
+  }
+  if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed.toLowerCase()
+  const rgb = trimmed.match(/^rgba?\(\s*([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s*[,/]\s*[\d.]+%?)?\s*\)$/i)
+  if (!rgb) return trimmed
+  const toHex = (raw: string) => Math.max(0, Math.min(255, Math.round(Number(raw))))
+    .toString(16)
+    .padStart(2, '0')
+  return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`.toLowerCase()
 }
 
 function radius(style: CSSStyleDeclaration) {
@@ -142,7 +155,7 @@ function makeLayer(type: LayerType, overrides: Partial<Layer>, totalFrames: numb
     clipChildren: false,
     width: type === 'text' ? 200 : 100,
     height: type === 'text' ? 40 : 100,
-    sizeMode: 'fixed',
+    sizeMode: type === 'text' ? 'fit-content' : 'fixed',
     layoutMode: 'none',
     layoutDirection: 'row',
     layoutGap: 12,
@@ -235,6 +248,7 @@ function textLayer(name: string, text: string, rect: DOMRect, parentRect: DOMRec
     parentId,
     width: Math.max(1, rect.width),
     height: Math.max(1, rect.height),
+    sizeMode: 'fit-content',
     fillType: 'none',
     fillColor: 'transparent',
     text,

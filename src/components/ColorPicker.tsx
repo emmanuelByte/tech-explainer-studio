@@ -12,6 +12,24 @@ function normalizeHexColor(value: string) {
     return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`.toLowerCase()
   }
   if (/^#[0-9a-f]{6}$/i.test(trimmed)) return trimmed
+  const rgb = trimmed.match(/^rgba?\(\s*([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s+|,\s*)([\d.]+)(?:\s*[,/]\s*[\d.]+%?)?\s*\)$/i)
+  if (rgb) {
+    const toHex = (raw: string) => Math.max(0, Math.min(255, Math.round(Number(raw))))
+      .toString(16)
+      .padStart(2, '0')
+    return `#${toHex(rgb[1])}${toHex(rgb[2])}${toHex(rgb[3])}`.toLowerCase()
+  }
+  if (typeof document !== 'undefined') {
+    const probe = document.createElement('span')
+    probe.style.color = ''
+    probe.style.color = trimmed
+    if (probe.style.color) {
+      document.body.appendChild(probe)
+      const computed = getComputedStyle(probe).color
+      probe.remove()
+      if (computed && computed !== trimmed) return normalizeHexColor(computed)
+    }
+  }
   return null
 }
 

@@ -101,7 +101,7 @@ npx remotion render src/remotion/index.ts EditorComposition out/video.mp4
 
 ## Optional AI Assistant
 
-The editor includes an optional local AI assistant modal. It can help create layers or modify selected layers based on a prompt.
+The editor includes an optional local AI assistant modal. It has two modes: graphic generation, which asks the model for inline HTML and converts it into editable layers, and animation, which asks the model for safe editor actions/keyframes.
 
 To enable it, copy the example config:
 
@@ -120,7 +120,7 @@ Then add your model and API key:
 
 Restart the dev server after changing the config.
 
-`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/ai-assist` endpoint, and the Vite dev server makes the OpenAI request.
+`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/ai-assist` endpoint, and the Vite dev server makes the OpenAI request. The server selects `public/ai-graphic-prompt.md` or `public/ai-animation-prompt.md` based on the selected modal mode.
 
 ## Project Storage
 

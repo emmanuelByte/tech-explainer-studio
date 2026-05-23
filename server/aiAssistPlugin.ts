@@ -12,8 +12,11 @@ async function readAiConfig(root: string) {
   return { apiKey, model }
 }
 
-async function readAiPrompt(root: string) {
-  return readFile(resolve(root, 'public', 'ai-assistant-prompt.md'), 'utf-8')
+async function readAiPrompt(root: string, mode: unknown) {
+  const fileName = mode === 'graphic'
+    ? 'ai-graphic-prompt.md'
+    : 'ai-animation-prompt.md'
+  return readFile(resolve(root, 'public', fileName), 'utf-8')
 }
 
 function extractOutputText(data: unknown) {
@@ -39,8 +42,8 @@ export function aiAssistPlugin() {
         if (req.method !== 'POST') return next()
         try {
           const { apiKey, model } = await readAiConfig(server.config.root)
-          const instructions = await readAiPrompt(server.config.root)
           const body = JSON.parse(await readBody(req)) as unknown
+          const instructions = await readAiPrompt(server.config.root, (body as { mode?: unknown }).mode)
           const response = await fetch('https://api.openai.com/v1/responses', {
             method: 'POST',
             headers: {

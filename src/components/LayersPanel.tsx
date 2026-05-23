@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
   Film, Layers, Library, Lock, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
@@ -290,7 +290,9 @@ export function LayersPanel() {
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null)
   const [dropHint, setDropHint] = useState<DropHint | null>(null)
   const [convertModal, setConvertModal] = useState<ConvertGroupModal | null>(null)
   const [showIcons, setShowIcons] = useState(false)
@@ -323,6 +325,25 @@ export function LayersPanel() {
     window.addEventListener('mousedown', close)
     return () => window.removeEventListener('mousedown', close)
   }, [addMenuOpen])
+
+  useLayoutEffect(() => {
+    if (!menu) {
+      setMenuPosition(null)
+      return
+    }
+    const element = menuRef.current
+    if (!element) return
+    const margin = 8
+    const width = element.offsetWidth || 190
+    const height = element.offsetHeight || 320
+    const left = Math.max(margin, Math.min(menu.x, window.innerWidth - width - margin))
+    const top = Math.max(margin, Math.min(menu.y, window.innerHeight - height - margin))
+    setMenuPosition((current) => (
+      current && Math.abs(current.left - left) < 0.5 && Math.abs(current.top - top) < 0.5
+        ? current
+        : { left, top }
+    ))
+  }, [menu])
 
   function getDropIntent(event: DragMoveEvent | DragEndEvent): DropHint | null {
     const { active, over } = event
@@ -680,7 +701,22 @@ export function LayersPanel() {
       </div>
       {menu && (
         <div
-          style={{ position: 'fixed', left: menu.x, top: menu.y, zIndex: 2500, minWidth: 190, background: 'var(--panel)', border: '1px solid var(--border)', borderRadius: 6, boxShadow: '0 8px 24px rgba(0,0,0,0.35)', padding: '4px 0' }}
+          ref={menuRef}
+          style={{
+            position: 'fixed',
+            left: menuPosition?.left ?? menu.x,
+            top: menuPosition?.top ?? menu.y,
+            zIndex: 2500,
+            minWidth: 190,
+            maxHeight: 'calc(100vh - 16px)',
+            overflowY: 'auto',
+            background: 'var(--panel)',
+            border: '1px solid var(--border)',
+            borderRadius: 6,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+            padding: '4px 0',
+            visibility: menuPosition ? 'visible' : 'hidden',
+          }}
           onClick={(e) => e.stopPropagation()}
           onMouseLeave={() => setMenu(null)}
         >

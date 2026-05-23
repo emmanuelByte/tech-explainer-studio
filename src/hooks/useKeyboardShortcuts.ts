@@ -28,10 +28,19 @@ let layerClipboard: { layers: Layer[]; rootLayerIds: string[]; pasteCount: numbe
 let clipboardKind: 'keyframe' | 'layer' | null = null
 
 function getKeyboardMoveLayerIds(layers: ReturnType<typeof useStore.getState>['layers'], selectedIds: string[]) {
+  const byId = new Map(layers.map((layer) => [layer.id, layer]))
+  const selected = new Set(selectedIds)
   const ids = new Set<string>()
   selectedIds.forEach((id) => {
-    const layer = layers.find((item) => item.id === id)
+    const layer = byId.get(id)
     if (!layer || layer.locked) return
+    let parentId = layer.parentId ?? null
+    const seen = new Set<string>()
+    while (parentId && !seen.has(parentId)) {
+      if (selected.has(parentId)) return
+      seen.add(parentId)
+      parentId = byId.get(parentId)?.parentId ?? null
+    }
     ids.add(id)
   })
   return [...ids]

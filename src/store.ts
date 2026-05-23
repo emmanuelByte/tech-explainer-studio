@@ -185,6 +185,35 @@ function collectAncestorIds(layers: Layer[], layerId: string) {
   return result
 }
 
+const TRANSFORM_PROP_KEYS = new Set<keyof TransformProps>(Object.keys(DEFAULT_TRANSFORM) as (keyof TransformProps)[])
+
+function staticizeLayerAnimation(layer: Layer, frame: number) {
+  const sampleFrame = clampInt(frame, layer.startFrame ?? 0, layer.endFrame ?? frame)
+  const baseFrame = Math.max(0, Math.round(layer.startFrame ?? 0))
+  const currentTransform = interpolateProps(sampleFrame, layer.keyframes)
+  const staticTransform: TransformProps = { ...DEFAULT_TRANSFORM, ...currentTransform }
+  const staticLayer: Layer = { ...layer }
+
+  Object.keys(layer.propertyKeyframes ?? {}).forEach((rawKey) => {
+    const key = rawKey as AnimatableProperty
+    if (!layer.propertyKeyframes?.[key]?.length) return
+    const value = getAnimatedPropertyValue(layer, key, sampleFrame, currentTransform)
+    if (TRANSFORM_PROP_KEYS.has(key as keyof TransformProps)) {
+      staticTransform[key as keyof TransformProps] = value as never
+      return
+    }
+    if (key in staticLayer) {
+      ;(staticLayer as unknown as Record<string, number | string>)[key] = value
+    }
+  })
+
+  return {
+    ...staticLayer,
+    keyframes: [{ frame: baseFrame, easing: 'linear' as const, props: staticTransform }],
+    propertyKeyframes: {},
+  }
+}
+
 function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
@@ -888,6 +917,7 @@ interface Actions {
   resizeLayerBox: (layerId: string, frame: number, props: TransformProps, size: { width?: number; height?: number }) => void
   removeKeyframe: (layerId: string, frame: number) => void
   clearLayerKeyframes: (layerId: string) => void
+  clearLayerAndDescendantKeyframes: (layerId: string) => void
   moveKeyframe: (layerId: string, fromFrame: number, toFrame: number) => void
   updateKeyframeEasing: (layerId: string, frame: number, easing: PairEasingType, bezier?: [number, number, number, number]) => void
   // Time range
@@ -2581,16 +2611,37 @@ export const useStore = create<Store>()(
       },
 
       clearLayerKeyframes: (layerId) => {
-        const target = get().layers.find((layer) => layer.id === layerId)
+        const { layers, currentFrame } = get()
+        const target = layers.find((layer) => layer.id === layerId)
         if (!target || (!target.keyframes.length && !Object.values(target.propertyKeyframes ?? {}).some((frames) => frames?.length))) return
         get()._snapshot()
         set((s) => ({
           layers: s.layers.map((layer) =>
             layer.id === layerId
-              ? { ...layer, keyframes: [], propertyKeyframes: {} }
+              ? staticizeLayerAnimation(layer, currentFrame)
               : layer
           ),
           selectedKeyframes: s.selectedKeyframes.filter((kf) => kf.layerId !== layerId),
+        }))
+      },
+
+      clearLayerAndDescendantKeyframes: (layerId) => {
+        const { layers } = get()
+        const target = layers.find((layer) => layer.id === layerId)
+        if (!target) return
+        const ids = new Set([target.id, ...collectDescendants(layers, layerId).map((layer) => layer.id)])
+        const hasKeyframes = layers.some((layer) =>
+          ids.has(layer.id) && (layer.keyframes.length || Object.values(layer.propertyKeyframes ?? {}).some((frames) => frames?.length))
+        )
+        if (!hasKeyframes) return
+        get()._snapshot()
+        set((s) => ({
+          layers: s.layers.map((layer) =>
+            ids.has(layer.id)
+              ? staticizeLayerAnimation(layer, s.currentFrame)
+              : layer
+          ),
+          selectedKeyframes: s.selectedKeyframes.filter((kf) => !ids.has(kf.layerId)),
         }))
       },
 
