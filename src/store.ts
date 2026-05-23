@@ -725,8 +725,64 @@ const TYPE_NAMES: Record<LayerType, string> = {
   group: 'Group',
 }
 
-function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}): Layer {
+const DEFAULT_TEXT = 'Edit text'
+const DEFAULT_TEXT_FONT_SIZE = 48
+const DEFAULT_TEXT_LINE_HEIGHT = 1.2
+
+function estimateTextLayerSize(text: string, fontSize: number, lineHeight: number, letterSpacing: number, fontFamily = 'Inter', fontWeight = '600') {
+  if (typeof document !== 'undefined') {
+    const probe = document.createElement('div')
+    probe.textContent = text || 'Text'
+    probe.style.position = 'fixed'
+    probe.style.left = '-100000px'
+    probe.style.top = '0'
+    probe.style.visibility = 'hidden'
+    probe.style.pointerEvents = 'none'
+    probe.style.boxSizing = 'border-box'
+    probe.style.display = 'inline-block'
+    probe.style.width = 'max-content'
+    probe.style.height = 'auto'
+    probe.style.padding = '0 8px'
+    probe.style.whiteSpace = 'pre-wrap'
+    probe.style.wordBreak = 'break-word'
+    probe.style.fontFamily = fontFamily
+    probe.style.fontSize = `${fontSize}px`
+    probe.style.fontWeight = fontWeight
+    probe.style.lineHeight = String(lineHeight)
+    probe.style.letterSpacing = `${letterSpacing}px`
+    document.body.appendChild(probe)
+    const rect = probe.getBoundingClientRect()
+    probe.remove()
+    return {
+      width: Math.ceil(rect.width),
+      height: Math.ceil(rect.height),
+    }
+  }
+  const lines = (text || 'Text').split('\n')
+  const longest = Math.max(...lines.map((line) => line.length), 1)
   return {
+    width: Math.ceil(longest * (fontSize * 0.58 + letterSpacing) + 16),
+    height: Math.ceil(lines.length * fontSize * lineHeight),
+  }
+}
+
+function withTextFitContentSize(layer: Layer): Layer {
+  if (layer.type !== 'text' || (layer.sizeMode ?? 'fixed') !== 'fit-content') return layer
+  const next = estimateTextLayerSize(layer.text, layer.fontSize, layer.lineHeight, layer.letterSpacing, layer.fontFamily, layer.fontWeight)
+  if (layer.width === next.width && layer.height === next.height) return layer
+  return { ...layer, width: next.width, height: next.height }
+}
+
+function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}): Layer {
+  const textSize = estimateTextLayerSize(
+    String(overrides.text ?? DEFAULT_TEXT),
+    Number(overrides.fontSize ?? DEFAULT_TEXT_FONT_SIZE),
+    Number(overrides.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT),
+    Number(overrides.letterSpacing ?? 0),
+    String(overrides.fontFamily ?? 'Inter'),
+    String(overrides.fontWeight ?? '600'),
+  )
+  return withTextFitContentSize({
     id: uid(),
     name: TYPE_NAMES[type],
     type,
@@ -737,9 +793,9 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     isGroup: type === 'group',
     autoFit: false,
     clipChildren: false,
-    width: type === 'text' ? 400 : type === 'line' ? 200 : type === 'video' ? 320 : 200,
-    height: type === 'text' ? 80 : type === 'line' ? 4 : type === 'path' ? 200 : type === 'video' ? 180 : 140,
-    sizeMode: 'fixed',
+    width: type === 'text' ? textSize.width : type === 'line' ? 200 : type === 'video' ? 320 : 200,
+    height: type === 'text' ? textSize.height : type === 'line' ? 4 : type === 'path' ? 200 : type === 'video' ? 180 : 140,
+    sizeMode: type === 'text' ? 'fit-content' : 'fixed',
     layoutMode: 'none',
     layoutDirection: 'row',
     layoutGap: 12,
@@ -754,6 +810,11 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     strokeEnabled: type === 'line' || type === 'path',
     strokeColor: '#ffffff',
     strokeWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
+    strokeTopWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
+    strokeRightWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
+    strokeBottomWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
+    strokeLeftWidth: type === 'line' ? 2 : type === 'path' ? 4 : 0,
+    strokeWidthLinked: true,
     borderRadius: 0,
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
@@ -765,13 +826,13 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     shadowEnabled: false,
     shadowColor: 'rgba(0,0,0,0.5)',
     shadowFollowsPerspective: false,
-    text: type === 'text' ? 'Edit text' : '',
+    text: type === 'text' ? DEFAULT_TEXT : '',
     fontFamily: 'Inter',
-    fontSize: 48,
+    fontSize: DEFAULT_TEXT_FONT_SIZE,
     fontWeight: '600',
     textAlign: 'center',
     letterSpacing: 0,
-    lineHeight: 1.2,
+    lineHeight: DEFAULT_TEXT_LINE_HEIGHT,
     textColor: type === 'text' ? '#000000' : '#ffffff',
     textSpans: [],
     textRevealMode: 'plain',
@@ -784,7 +845,7 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     endFrame: 150,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
     ...overrides,
-  }
+  })
 }
 
 interface Actions {
@@ -794,7 +855,7 @@ interface Actions {
   // Layers
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
-  insertLibraryLayers: (layers: Layer[], options?: { frameOffset?: number; fitToTimeline?: boolean; rootLayerIds?: string[] }) => string[]
+  insertLibraryLayers: (layers: Layer[], options?: { frameOffset?: number; fitToTimeline?: boolean; rootLayerIds?: string[]; parentId?: string | null }) => string[]
   addImage: (src: string, name: string, imageKind?: 'raster' | 'svg', naturalWidth?: number, naturalHeight?: number) => void
   replaceImageSource: (id: string, src: string, imageKind: ImageKind, naturalWidth?: number, naturalHeight?: number) => void
   addVideo: (src: string, name: string, naturalWidth?: number, naturalHeight?: number, duration?: number) => void
@@ -1112,12 +1173,23 @@ export const useStore = create<Store>()(
           .map((layer) => layer.id))
           .map((id) => idMap.get(id))
           .filter((id): id is string => Boolean(id))
+        const insertOnTop = sourceLayers.some((layer) => layer.htmlText || layer.htmlImportOrder === 'bottom-up')
 
-        set((s) => ({
-          layers: [...s.layers, ...copies],
-          selectedLayerIds: roots,
-          selectedKeyframes: [],
-        }))
+        set((s) => {
+          const parent = options.parentId ? s.layers.find((layer) => layer.id === options.parentId) : null
+          const targetParentId = parent && (parent.type === 'group' || parent.isGroup) ? parent.id : null
+          const rootSet = new Set(roots)
+          const combinedForWorld = targetParentId ? [...s.layers, ...copies] : s.layers
+          const nextCopies = targetParentId
+            ? copies.map((copy) => rootSet.has(copy.id) ? reparentLayerAtFrame(copy, combinedForWorld, s.currentFrame, targetParentId) : copy)
+            : copies
+          const layers = insertOnTop ? [...nextCopies, ...s.layers] : [...s.layers, ...nextCopies]
+          return {
+            layers: normalizeLayerTree(s, layers, targetParentId ?? undefined, true),
+            selectedLayerIds: roots,
+            selectedKeyframes: [],
+          }
+        })
         return roots
       },
 
@@ -1500,7 +1572,7 @@ export const useStore = create<Store>()(
         if (Object.is(get().layers.find((l) => l.id === id)?.[key], value)) return
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
-          const layers = s.layers.map((l) => l.id === id ? { ...l, [key]: value } : l)
+          const layers = s.layers.map((l) => l.id === id ? withTextFitContentSize({ ...l, [key]: value }) : l)
           return { layers: normalizeLayerTree(s, layers, id, LAYOUT_PROP_KEYS.has(key)) }
         })
       },
@@ -1636,7 +1708,7 @@ export const useStore = create<Store>()(
           const layers = s.layers.map((l) => {
             if (l.id !== id) return l
             const target = key === 'x' || key === 'y' ? ensureGroupOrigin(l) : l
-            return setLayerBaseValue(target, key, value, currentFrame)
+            return withTextFitContentSize(setLayerBaseValue(target, key, value, currentFrame))
           })
           const shouldLayout = key !== 'x' && key !== 'y'
           const skipAutoFitIds = !shouldLayout ? autoFitSkipIdsForMove(s.layers, [id]) : new Set<string>()

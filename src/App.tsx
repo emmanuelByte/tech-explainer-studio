@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertTriangle, Check, Circle, CircleDot, Download, FileJson, Hand, History,
+  AlertTriangle, Check, Circle, CircleDot, Code2, Download, FileJson, Hand, History,
   Home, LoaderCircle, Moon, MousePointer2, PenLine, Redo2, Save, Slash, Square,
   Settings, Sparkles, Sun, Triangle, Type, Undo2,
 } from 'lucide-react'
@@ -16,6 +16,7 @@ import { AiAssistantModal } from './components/AiAssistantModal'
 import { HomeScreen } from './components/HomeScreen'
 import { SettingsModal } from './components/SettingsModal'
 import { SelectionTracker } from './components/SelectionTracker'
+import { HtmlImportModal } from './components/HtmlImportModal'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
@@ -204,6 +205,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
   const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool, autoKeyframe, setAutoKeyframe } = useStore()
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showHtmlImport, setShowHtmlImport] = useState(false)
 
   function exportProject() {
     const project = projectFromStore()
@@ -238,6 +240,9 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
       <div className="flex items-center gap-1 flex-shrink-0">
         <button onClick={() => setShowHistory(true)} className="icon-btn" title={t('topbar.history')}><History size={14} /></button>
         <button onClick={onOpenAi} className="icon-btn" title={t('topbar.ai')}><Sparkles size={14} /></button>
+        <button onClick={() => setShowHtmlImport(true)} className="pill-btn" title={t('layers.importHtml')} style={{ height: 28, padding: '0 9px', fontSize: 11 }}>
+          <Code2 size={13} />HTML
+        </button>
         <button onClick={exportProject} className="icon-btn" title={t('topbar.project')}><FileJson size={14} /></button>
         <button
           onClick={() => setAutoKeyframe(!autoKeyframe)}
@@ -259,6 +264,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
 
       {showHistory && <HistoryModal onClose={() => setShowHistory(false)} onRestore={async (snapshot) => { useStore.getState().loadProject(snapshot.project); await upsertProject(snapshot.project); setShowHistory(false) }} />}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showHtmlImport && <HtmlImportModal onClose={() => setShowHtmlImport(false)} />}
     </header>
   )
 }

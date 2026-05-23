@@ -152,12 +152,20 @@ function offsetRootLayers(layers: Layer[], rootIds: string[], offset: number) {
   })
 }
 
+function selectedPasteParentId(store: ReturnType<typeof useStore.getState>) {
+  if (store.selectedLayerIds.length !== 1) return null
+  const layer = store.layers.find((item) => item.id === store.selectedLayerIds[0])
+  return layer && (layer.type === 'group' || layer.isGroup) ? layer.id : null
+}
+
 function pasteLayerClipboard(store: ReturnType<typeof useStore.getState>) {
   if (!layerClipboard?.layers.length) return false
+  const parentId = selectedPasteParentId(store)
   layerClipboard.pasteCount += 1
   const offset = 24 * layerClipboard.pasteCount
   store.insertLibraryLayers(offsetRootLayers(layerClipboard.layers, layerClipboard.rootLayerIds, offset), {
     rootLayerIds: layerClipboard.rootLayerIds,
+    parentId,
   })
   clipboardKind = 'layer'
   return true

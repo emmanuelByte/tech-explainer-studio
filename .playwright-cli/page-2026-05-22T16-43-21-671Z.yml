@@ -1,0 +1,291 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - strong [ref=e6]: MotionEditor
+    - button "Settings" [ref=e7] [cursor=pointer]:
+      - img [ref=e8]
+    - button "Import" [ref=e11] [cursor=pointer]:
+      - img [ref=e12]
+      - text: Import
+    - button "Light" [ref=e15] [cursor=pointer]:
+      - img [ref=e16]
+      - text: Light
+    - button "New Project" [ref=e22] [cursor=pointer]:
+      - img [ref=e23]
+      - text: New Project
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - img [ref=e27]
+        - textbox "Search projects" [ref=e30]
+      - combobox [ref=e31]:
+        - option "Last modified" [selected]
+        - option "Date created"
+        - option "Name (A-Z)"
+      - button "Grid" [ref=e32] [cursor=pointer]:
+        - img [ref=e33]
+        - text: Grid
+    - generic [ref=e35]:
+      - generic [ref=e36] [cursor=pointer]:
+        - checkbox [ref=e37]
+        - generic [ref=e38]:
+          - generic [ref=e39]:
+            - textbox [active] [ref=e300]: ŘemesloBot - dodavatelské slevy v okolí
+            - generic [ref=e41]:
+              - button "Duplicate" [ref=e42]
+              - button "Export" [ref=e43]
+              - button "Delete" [ref=e44]
+          - generic [ref=e45]: Instagram Post 1080x1080
+          - generic [ref=e46]: 9m ago · 30s · 60fps · 255 layers
+      - generic [ref=e47] [cursor=pointer]:
+        - checkbox [ref=e48]
+        - generic [ref=e49]:
+          - generic [ref=e50]:
+            - button "ŘemesloBot - sjednocené UI mockupy" [ref=e51]
+            - generic [ref=e52]:
+              - button "Duplicate" [ref=e53]
+              - button "Export" [ref=e54]
+              - button "Delete" [ref=e55]
+          - generic [ref=e56]: YouTube 1920x1080
+          - generic [ref=e57]: 9m ago · 10s · 60fps · 178 layers
+      - generic [ref=e58] [cursor=pointer]:
+        - checkbox [ref=e59]
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - button "ŘemesloBot - hlas založí zakázku" [ref=e62]
+            - generic [ref=e63]:
+              - button "Duplicate" [ref=e64]
+              - button "Export" [ref=e65]
+              - button "Delete" [ref=e66]
+          - generic [ref=e67]: Instagram Post 1080x1080
+          - generic [ref=e68]: 2 hours ago · 30s · 60fps · 110 layers
+      - generic [ref=e69] [cursor=pointer]:
+        - checkbox [ref=e70]
+        - generic [ref=e71]:
+          - generic [ref=e72]:
+            - button "ŘemesloBot - účtenky a poznámky" [ref=e73]
+            - generic [ref=e74]:
+              - button "Duplicate" [ref=e75]
+              - button "Export" [ref=e76]
+              - button "Delete" [ref=e77]
+          - generic [ref=e78]: Instagram Post 1080x1080
+          - generic [ref=e79]: 3 hours ago · 30s · 60fps · 88 layers
+      - generic [ref=e80] [cursor=pointer]:
+        - checkbox [ref=e81]
+        - generic [ref=e82]:
+          - generic [ref=e83]:
+            - button "ŘemesloBot Promo — Interactive Vector Remake V10" [ref=e84]
+            - generic [ref=e85]:
+              - button "Duplicate" [ref=e86]
+              - button "Export" [ref=e87]
+              - button "Delete" [ref=e88]
+          - generic [ref=e89]: YouTube 1920x1080
+          - generic [ref=e90]: 4 hours ago · 95s · 60fps · 368 layers
+      - generic [ref=e91] [cursor=pointer]:
+        - checkbox [ref=e92]
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - button "ŘemesloBot Promo - Frame-by-Frame CRM Automation Rebuild" [ref=e95]
+            - generic [ref=e96]:
+              - button "Duplicate" [ref=e97]
+              - button "Export" [ref=e98]
+              - button "Delete" [ref=e99]
+          - generic [ref=e100]: YouTube 1920x1080
+          - generic [ref=e101]: 4 hours ago · 95s · 60fps · 104 layers
+      - generic [ref=e102] [cursor=pointer]:
+        - checkbox [ref=e103]
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - button "ŘemesloBot - core funkce doplněné" [ref=e106]
+            - generic [ref=e107]:
+              - button "Duplicate" [ref=e108]
+              - button "Export" [ref=e109]
+              - button "Delete" [ref=e110]
+          - generic [ref=e111]: Instagram Post 1080x1080
+          - generic [ref=e112]: 5 hours ago · 73s · 60fps · 216 layers
+      - generic [ref=e113] [cursor=pointer]:
+        - checkbox [ref=e114]
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - button "claude chat" [ref=e117]
+            - generic [ref=e118]:
+              - button "Duplicate" [ref=e119]
+              - button "Export" [ref=e120]
+              - button "Delete" [ref=e121]
+          - generic [ref=e122]: YouTube 1920x1080
+          - generic [ref=e123]: 7 hours ago · 12s · 30fps · 65 layers
+      - generic [ref=e124] [cursor=pointer]:
+        - checkbox [ref=e125]
+        - generic [ref=e126]:
+          - generic [ref=e127]:
+            - button "ŘemesloBot promo (3D)" [ref=e128]
+            - generic [ref=e129]:
+              - button "Duplicate" [ref=e130]
+              - button "Export" [ref=e131]
+              - button "Delete" [ref=e132]
+          - generic [ref=e133]: YouTube 1920x1080
+          - generic [ref=e134]: 9 hours ago · 105s · 30fps · 90 layers
+      - generic [ref=e135] [cursor=pointer]:
+        - checkbox [ref=e136]
+        - generic [ref=e137]:
+          - generic [ref=e138]:
+            - button "ŘemesloBot promo (auto-generated)" [ref=e139]
+            - generic [ref=e140]:
+              - button "Duplicate" [ref=e141]
+              - button "Export" [ref=e142]
+              - button "Delete" [ref=e143]
+          - generic [ref=e144]: YouTube 1920x1080
+          - generic [ref=e145]: 9 hours ago · 95s · 30fps · 44 layers
+      - generic [ref=e146] [cursor=pointer]:
+        - checkbox [ref=e147]
+        - generic [ref=e148]:
+          - generic [ref=e149]:
+            - button "v8" [ref=e150]
+            - generic [ref=e151]:
+              - button "Duplicate" [ref=e152]
+              - button "Export" [ref=e153]
+              - button "Delete" [ref=e154]
+          - generic [ref=e155]: YouTube 1920x1080
+          - generic [ref=e156]: 23 hours ago · 95s · 60fps · 138 layers
+      - generic [ref=e157] [cursor=pointer]:
+        - checkbox [ref=e158]
+        - generic [ref=e159]:
+          - generic [ref=e160]:
+            - button "ŘemesloBot — Reference Ad Adaptation V7 Light 40s" [ref=e161]
+            - generic [ref=e162]:
+              - button "Duplicate" [ref=e163]
+              - button "Export" [ref=e164]
+              - button "Delete" [ref=e165]
+          - generic [ref=e166]: YouTube 1920x1080
+          - generic [ref=e167]: 23 hours ago · 40s · 60fps · 148 layers
+      - generic [ref=e168] [cursor=pointer]:
+        - checkbox [ref=e169]
+        - generic [ref=e170]:
+          - generic [ref=e171]:
+            - button "ŘemesloBot Promo - Editable Beside-Inspired Motion" [ref=e172]
+            - generic [ref=e173]:
+              - button "Duplicate" [ref=e174]
+              - button "Export" [ref=e175]
+              - button "Delete" [ref=e176]
+          - generic [ref=e177]: YouTube 1920×1080 1920x1080
+          - generic [ref=e178]: 23 hours ago · 95s · 60fps · 90 layers
+      - generic [ref=e179] [cursor=pointer]:
+        - checkbox [ref=e180]
+        - generic [ref=e181]:
+          - generic [ref=e182]:
+            - button "ŘemesloBot AI Motion — V4 Premium 40s" [ref=e183]
+            - generic [ref=e184]:
+              - button "Duplicate" [ref=e185]
+              - button "Export" [ref=e186]
+              - button "Delete" [ref=e187]
+          - generic [ref=e188]: YouTube 1920x1080
+          - generic [ref=e189]: 1 days ago · 40s · 60fps · 128 layers
+      - generic [ref=e190] [cursor=pointer]:
+        - checkbox [ref=e191]
+        - generic [ref=e192]:
+          - generic [ref=e193]:
+            - button "ŘemesloBot Mobile AI Showcase" [ref=e194]
+            - generic [ref=e195]:
+              - button "Duplicate" [ref=e196]
+              - button "Export" [ref=e197]
+              - button "Delete" [ref=e198]
+          - generic [ref=e199]: Instagram Post 1080x1080
+          - generic [ref=e200]: 1 days ago · 24s · 60fps · 55 layers
+      - generic [ref=e201] [cursor=pointer]:
+        - checkbox [ref=e202]
+        - generic [ref=e203]:
+          - generic [ref=e204]:
+            - button "ŘemesloBot AI-first Motion Rig — V3 40s Action" [ref=e205]
+            - generic [ref=e206]:
+              - button "Duplicate" [ref=e207]
+              - button "Export" [ref=e208]
+              - button "Delete" [ref=e209]
+          - generic [ref=e210]: YouTube 1920x1080
+          - generic [ref=e211]: 1 days ago · 40s · 60fps · 426 layers
+      - generic [ref=e212] [cursor=pointer]:
+        - checkbox [ref=e213]
+        - generic [ref=e214]:
+          - generic [ref=e215]:
+            - button "ŘemesloBot AI-first Motion Rig — V2 Max Energy" [ref=e216]
+            - generic [ref=e217]:
+              - button "Duplicate" [ref=e218]
+              - button "Export" [ref=e219]
+              - button "Delete" [ref=e220]
+          - generic [ref=e221]: YouTube 1920x1080
+          - generic [ref=e222]: 1 days ago · 26s · 60fps · 205 layers
+      - generic [ref=e223] [cursor=pointer]:
+        - checkbox [ref=e224]
+        - generic [ref=e225]:
+          - generic [ref=e226]:
+            - button "ŘemesloBot AI-first Motion Rig" [ref=e227]
+            - generic [ref=e228]:
+              - button "Duplicate" [ref=e229]
+              - button "Export" [ref=e230]
+              - button "Delete" [ref=e231]
+          - generic [ref=e232]: YouTube 1920x1080
+          - generic [ref=e233]: 1 days ago · 95s · 60fps · 39 layers
+      - generic [ref=e234] [cursor=pointer]:
+        - checkbox [ref=e235]
+        - generic [ref=e236]:
+          - generic [ref=e237]:
+            - button "ŘemesloBot (kopie)" [ref=e238]
+            - generic [ref=e239]:
+              - button "Duplicate" [ref=e240]
+              - button "Export" [ref=e241]
+              - button "Delete" [ref=e242]
+          - generic [ref=e243]: Instagram Post 1080x1080
+          - generic [ref=e244]: 1 days ago · 65s · 60fps · 154 layers
+      - generic [ref=e245] [cursor=pointer]:
+        - checkbox [ref=e246]
+        - generic [ref=e247]:
+          - generic [ref=e248]:
+            - button "ŘemesloBot" [ref=e249]
+            - generic [ref=e250]:
+              - button "Duplicate" [ref=e251]
+              - button "Export" [ref=e252]
+              - button "Delete" [ref=e253]
+          - generic [ref=e254]: Instagram Post 1080x1080
+          - generic [ref=e255]: 1 days ago · 53s · 60fps · 159 layers
+      - generic [ref=e256] [cursor=pointer]:
+        - checkbox [ref=e257]
+        - generic [ref=e258]:
+          - generic [ref=e259]:
+            - button "ŘemesloBot" [ref=e260]
+            - generic [ref=e261]:
+              - button "Duplicate" [ref=e262]
+              - button "Export" [ref=e263]
+              - button "Delete" [ref=e264]
+          - generic [ref=e265]: Instagram Post 1080x1080
+          - generic [ref=e266]: 1 days ago · 65s · 60fps · 154 layers
+      - generic [ref=e267] [cursor=pointer]:
+        - checkbox [ref=e268]
+        - generic [ref=e269]:
+          - generic [ref=e270]:
+            - button "Untitled Project" [ref=e271]
+            - generic [ref=e272]:
+              - button "Duplicate" [ref=e273]
+              - button "Export" [ref=e274]
+              - button "Delete" [ref=e275]
+          - generic [ref=e276]: YouTube 1920x1080
+          - generic [ref=e277]: 1 days ago · 5s · 30fps · 1 layer
+      - generic [ref=e278] [cursor=pointer]:
+        - checkbox [ref=e279]
+        - generic [ref=e280]:
+          - generic [ref=e281]:
+            - button "Untitled Project" [ref=e282]
+            - generic [ref=e283]:
+              - button "Duplicate" [ref=e284]
+              - button "Export" [ref=e285]
+              - button "Delete" [ref=e286]
+          - generic [ref=e287]: YouTube 1920x1080
+          - generic [ref=e288]: 1 days ago · 5s · 30fps · 1 layer
+      - generic [ref=e289] [cursor=pointer]:
+        - checkbox [ref=e290]
+        - generic [ref=e291]:
+          - generic [ref=e292]:
+            - button "Beside Mobile Motion Rig" [ref=e293]
+            - generic [ref=e294]:
+              - button "Duplicate" [ref=e295]
+              - button "Export" [ref=e296]
+              - button "Delete" [ref=e297]
+          - generic [ref=e298]: YouTube 1920x1080
+          - generic [ref=e299]: 2 days ago · 95s · 60fps · 36 layers

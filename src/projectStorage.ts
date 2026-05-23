@@ -170,6 +170,12 @@ function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number) {
   }
 }
 
+function normalizeHtmlTextMetrics(layer: Layer) {
+  if (!layer.htmlText || !Number.isFinite(layer.lineHeight) || layer.lineHeight <= 4) return layer
+  const fontSize = Number.isFinite(layer.fontSize) && layer.fontSize > 0 ? layer.fontSize : 16
+  return { ...layer, lineHeight: Math.max(0.1, layer.lineHeight / fontSize) }
+}
+
 function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
 }
@@ -201,7 +207,7 @@ function withGroupTimeEnvelopes(layers: Layer[], totalFrames: number) {
 }
 
 function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
-  const sanitized = {
+  const sanitized = normalizeHtmlTextMetrics({
     ...layer,
     keyframes: layer.keyframes.map((kf, frameIndex) => {
       const props = { ...DEFAULT_TRANSFORM, ...kf.props }
@@ -223,7 +229,7 @@ function sanitizeLayer(layer: Layer, fps: number, totalFrames: number): Layer {
         })),
       ])) as Layer['propertyKeyframes']
       : layer.propertyKeyframes,
-  }
+  })
   return normalizeVideoLayer(sanitized, fps, totalFrames)
 }
 
@@ -262,15 +268,20 @@ function fillForLayer(layer: Layer, fallback = 'transparent') {
   return layer.gradientStops[0]?.color || layer.fillColor || fallback
 }
 
-function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, canvasHeight: number) {
+function thumbnailLayerSvg(
+  layer: Layer,
+  frame: number,
+  parentWidth: number,
+  parentHeight: number,
+  childrenByParent: Map<string | null, Layer[]>,
+) {
   if (!layer.visible || frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return ''
-  if (layer.type === 'group') return ''
 
   const p = interpolateProps(frame, layer.keyframes)
-  const width = layer.sizeMode === 'fill-canvas' ? canvasWidth : layer.width
-  const height = layer.sizeMode === 'fill-canvas' ? canvasHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
-  const x = canvasWidth / 2 + p.x - width / 2
-  const y = canvasHeight / 2 + p.y - height / 2
+  const width = layer.sizeMode === 'fill-canvas' ? parentWidth : layer.width
+  const height = layer.sizeMode === 'fill-canvas' ? parentHeight : layer.type === 'line' ? layer.strokeWidth || 2 : layer.height
+  const x = parentWidth / 2 + p.x - width / 2
+  const y = parentHeight / 2 + p.y - height / 2
   const common = [
     `opacity="${Math.max(0, Math.min(1, p.opacity))}"`,
     `transform="translate(${x} ${y}) rotate(${p.rotateZ} ${width / 2} ${height / 2}) skewX(${p.skewX}) skewY(${p.skewY}) scale(${p.scale * p.scaleX} ${p.scale * p.scaleY})"`,
@@ -280,6 +291,14 @@ function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, can
     : ''
   const fill = escapeXml(fillForLayer(layer, '#6366f1'))
 
+  if (layer.type === 'group') {
+    const children = childrenByParent.get(layer.id) ?? []
+    const surface = layer.fillType !== 'none' || layer.strokeEnabled
+      ? `<rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${fill}"${stroke}/>`
+      : ''
+    const content = [...children].reverse().map((child) => thumbnailLayerSvg(child, frame, width, height, childrenByParent)).join('')
+    return `<g ${common}>${surface}${content}</g>`
+  }
   if (layer.type === 'ellipse') {
     return `<ellipse cx="${width / 2}" cy="${height / 2}" rx="${width / 2}" ry="${height / 2}" fill="${fill}"${stroke} ${common}/>`
   }
@@ -297,7 +316,8 @@ function thumbnailLayerSvg(layer: Layer, frame: number, canvasWidth: number, can
   if (layer.type === 'text') {
     const size = Math.max(4, layer.fontSize)
     const anchor = layer.textAlign === 'center' ? 'middle' : layer.textAlign === 'right' ? 'end' : 'start'
-    const tx = layer.textAlign === 'center' ? width / 2 : layer.textAlign === 'right' ? width - 8 : 8
+    const inset = layer.htmlText ? 0 : 8
+    const tx = layer.textAlign === 'center' ? width / 2 : layer.textAlign === 'right' ? width - inset : inset
     const ty = height / 2 + size * 0.35
     return `<g ${common}><rect width="${width}" height="${height}" rx="${layer.borderRadius}" fill="${layer.fillType !== 'none' ? fill : 'transparent'}"/><text x="${tx}" y="${ty}" text-anchor="${anchor}" font-family="${escapeXml(layer.fontFamily || 'Inter')},Arial" font-size="${size}" font-weight="${escapeXml(layer.fontWeight || '400')}" fill="${escapeXml(layer.textColor)}">${escapeXml(layer.text || '')}</text></g>`
   }
@@ -317,7 +337,12 @@ export function thumbnailFor(project: MotionProject) {
   const height = project.canvas.height
   const frame = Math.max(0, Math.min(project.canvas.durationFrames - 1, project.editor.playheadFrame ?? 0))
   const bg = escapeXml(project.canvas.backgroundColor || '#111827')
-  const content = [...project.layers].reverse().map((layer) => thumbnailLayerSvg(layer, frame, width, height)).join('')
+  const childrenByParent = new Map<string | null, Layer[]>()
+  project.layers.forEach((layer) => {
+    const parentId = layer.parentId ?? null
+    childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), layer])
+  })
+  const content = [...(childrenByParent.get(null) ?? [])].reverse().map((layer) => thumbnailLayerSvg(layer, frame, width, height, childrenByParent)).join('')
   const emptyLabel = project.layers.length
     ? ''
     : `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" font-family="Inter,Arial" font-size="${Math.max(16, width / 24)}" fill="#94a3b8">${escapeXml(project.name)}</text>`

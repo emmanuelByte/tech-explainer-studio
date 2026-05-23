@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload, X } from 'lucide-react'
+import { Code2, Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload, X } from 'lucide-react'
 import { CANVAS_PRESETS, MotionProject, ProjectIndexItem } from '../types'
 import {
   createBlankProject,
@@ -17,6 +17,7 @@ import {
 import { useStore } from '../store'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog, NoticeDialog } from './ConfirmDialog'
+import { HtmlImportModal } from './HtmlImportModal'
 
 type SortKey = 'updatedAt' | 'createdAt' | 'name'
 type ViewMode = 'grid' | 'list'
@@ -180,6 +181,7 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showNew, setShowNew] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showHtmlImport, setShowHtmlImport] = useState(false)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [notice, setNotice] = useState<NoticeMessage | null>(null)
   const [dialogBusy, setDialogBusy] = useState(false)
@@ -329,6 +331,7 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
         <button onClick={() => setShowSettings(true)} className="icon-btn ml-2" title={t('common.settings')}><Settings size={16} /></button>
         <div className="flex-1" />
         {selected.size > 0 && <button onClick={deleteSelected} className="pill-btn" style={{ color: '#ef4444' }}><Trash2 size={14} />{t('home.deleteSelected')}</button>}
+        <button onClick={() => setShowHtmlImport(true)} className="pill-btn"><Code2 size={14} />{t('layers.importHtml')}</button>
         <button onClick={() => importRef.current?.click()} className="pill-btn"><Import size={14} />{t('common.import')}</button>
         <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="pill-btn" title={t('topbar.toggleTheme')}>
           {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
@@ -405,6 +408,13 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
       </main>
 
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreate={create} recentProjects={projects} />}
+      {showHtmlImport && (
+        <HtmlImportModal
+          target="library"
+          onClose={() => setShowHtmlImport(false)}
+          onSavedToLibrary={(itemName) => setNotice({ title: t('library.design'), message: t('layers.savedToLibrary', { name: itemName }) })}
+        />
+      )}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)}>
             <section>

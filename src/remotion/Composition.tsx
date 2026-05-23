@@ -226,6 +226,19 @@ function layerShapeClipStyle(layer: Layer): React.CSSProperties {
   return { borderRadius: layerBorderRadius(layer) }
 }
 
+function layerBorderStrokeStyle(layer: Layer): React.CSSProperties {
+  if (!layer.strokeEnabled) return {}
+  return {
+    borderStyle: 'solid',
+    borderColor: layer.strokeColor,
+    borderTopWidth: layer.strokeTopWidth ?? layer.strokeWidth,
+    borderRightWidth: layer.strokeRightWidth ?? layer.strokeWidth,
+    borderBottomWidth: layer.strokeBottomWidth ?? layer.strokeWidth,
+    borderLeftWidth: layer.strokeLeftWidth ?? layer.strokeWidth,
+    boxSizing: 'border-box',
+  }
+}
+
 function isLayerActive(layer: Layer, frame: number) {
   return layer.visible && frame >= (layer.startFrame ?? 0) && frame <= (layer.endFrame ?? Infinity)
 }
@@ -505,6 +518,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           borderRadius: radius,
           overflow: 'hidden',
+          ...layerBorderStrokeStyle(animatedLayer),
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
@@ -555,6 +569,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           borderRadius: radius,
           overflow: 'hidden',
+          ...layerBorderStrokeStyle(animatedLayer),
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
@@ -606,6 +621,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
 
   if (animatedLayer.type === 'text') {
     const wheelFade = animatedLayer.textRevealMode === 'wheel-fade'
+    const htmlText = !!animatedLayer.htmlText
     return (
           <div
           data-layer-id={animatedLayer.id}
@@ -613,8 +629,8 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
           background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
-          display: 'flex',
-          alignItems: 'center',
+          display: htmlText ? 'block' : 'flex',
+          alignItems: htmlText ? undefined : 'center',
           justifyContent: 'stretch',
           fontFamily: animatedLayer.fontFamily,
           fontSize: animatedLayer.fontSize,
@@ -622,9 +638,11 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           color: animatedLayer.textColor,
           letterSpacing: animatedLayer.letterSpacing,
           lineHeight: animatedLayer.lineHeight,
-          padding: '4px 8px',
+          padding: htmlText ? 0 : '0 8px',
           borderRadius: layerBorderRadius(animatedLayer),
           boxSizing: 'border-box',
+          ...layerBorderStrokeStyle(animatedLayer),
+          overflow: htmlText ? 'visible' : undefined,
         }}
         onClick={handleClick}
         onDoubleClick={(e) => {
@@ -637,8 +655,9 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           style={{
             width: '100%',
             textAlign: animatedLayer.textAlign,
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
+            whiteSpace: htmlText ? (animatedLayer.htmlWhiteSpace ?? 'normal') : 'pre-wrap',
+            wordBreak: htmlText ? 'normal' : 'break-word',
+            overflow: htmlText ? 'visible' : undefined,
           }}
         >
           {wheelFade ? renderWheelText(animatedLayer) : renderAnimatedText(animatedLayer, p.charProgress)}
@@ -728,7 +747,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         ...wrapperStyle,
         background: bg,
         borderRadius: layerBorderRadius(animatedLayer),
-        border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+        ...layerBorderStrokeStyle(animatedLayer),
         boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
       }}
       onClick={handleClick}
@@ -779,7 +798,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     inset: 0,
     background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
     ...shapeStyle,
-    border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+    ...layerBorderStrokeStyle(animatedLayer),
     boxSizing: 'border-box',
     boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
     backdropFilter: p.backdropBlur > 0 ? `blur(${p.backdropBlur}px)` : undefined,
@@ -824,8 +843,8 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
               layer={child}
               childrenByParent={childrenByParent}
               frame={frame}
-              canvasWidth={canvasWidth}
-              canvasHeight={canvasHeight}
+              canvasWidth={layerWidth}
+              canvasHeight={layerHeight}
               selectedLayerIds={selectedLayerIds}
               selectLayer={selectLayer}
               ancestors={nextAncestors}

@@ -51,6 +51,51 @@ export function measureImage(dataUrl: string) {
   })
 }
 
+function decodeDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:[^,]*?(;base64)?,(.*)$/)
+  if (!match) return ''
+  try {
+    return match[1] ? atob(match[2]) : decodeURIComponent(match[2])
+  } catch {
+    return ''
+  }
+}
+
+function svgLength(value: string | null) {
+  if (!value || value.endsWith('%')) return undefined
+  const parsed = Number.parseFloat(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+}
+
+export function measureSvg(dataUrl: string) {
+  try {
+    const source = decodeDataUrl(dataUrl)
+    if (!source) return {}
+    const doc = new DOMParser().parseFromString(source, 'image/svg+xml')
+    const svg = doc.querySelector('svg')
+    if (!svg) return {}
+
+    const width = svgLength(svg.getAttribute('width'))
+    const height = svgLength(svg.getAttribute('height'))
+    if (width && height) return { naturalWidth: width, naturalHeight: height }
+
+    const viewBox = svg.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number)
+    if (viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0) {
+      return { naturalWidth: viewBox[2], naturalHeight: viewBox[3] }
+    }
+  } catch {
+    // Fall back to browser image probing below.
+  }
+  return {}
+}
+
+async function measureImageAsset(dataUrl: string, imageKind: ImageKind) {
+  if (imageKind !== 'svg') return measureImage(dataUrl)
+  const svgSize = measureSvg(dataUrl)
+  if (svgSize.naturalWidth && svgSize.naturalHeight) return svgSize
+  return measureImage(dataUrl)
+}
+
 export function measureVideo(dataUrl: string) {
   return new Promise<{ naturalWidth?: number; naturalHeight?: number; duration?: number }>((resolve) => {
     const video = document.createElement('video')
@@ -103,16 +148,17 @@ export function measureAudio(dataUrl: string) {
 
 export async function uploadImageAsset(file: File) {
   const dataUrl = await readFileAsDataUrl(file)
-  const size = await measureImage(dataUrl)
+  const imageKind = getImageKind(file)
+  const size = await measureImageAsset(dataUrl, imageKind)
   return requestJson<ImageAsset>('/api/assets', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       name: file.name.replace(/\.[^.]+$/, ''),
       fileName: file.name,
-      mimeType: file.type || (getImageKind(file) === 'svg' ? 'image/svg+xml' : 'image/jpeg'),
+      mimeType: file.type || (imageKind === 'svg' ? 'image/svg+xml' : 'image/jpeg'),
       kind: 'image',
-      imageKind: getImageKind(file),
+      imageKind,
       dataUrl,
       ...size,
     }),

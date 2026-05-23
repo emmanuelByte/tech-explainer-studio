@@ -1578,7 +1578,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const ehw = 3 / displayScale  // edge handle half-width
   const editingTextLines = animatedLayer?.type === 'text' ? Math.max(1, animatedLayer.text.split('\n').length) : 1
   const editingTextBlockH = animatedLayer?.type === 'text' ? editingTextLines * animatedLayer.fontSize * animatedLayer.lineHeight : 0
-  const editingPadY = animatedLayer?.type === 'text' ? Math.max(4, (boxH - editingTextBlockH) / 2) : 4
+  const editingPadY = animatedLayer?.type === 'text' && animatedLayer.sizeMode !== 'fit-content' ? Math.max(0, (boxH - editingTextBlockH) / 2) : 0
   const editablePath = !isMultiSelection && animatedLayer?.type === 'path'
     ? parseEditablePath(animatedLayer.pathData)
     : null
@@ -1924,7 +1924,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'stretch',
-                  padding: '4px 8px',
+                  padding: `${editingPadY}px 8px`,
                   boxSizing: 'border-box',
                   pointerEvents: 'none',
                   fontFamily: animatedLayer.fontFamily,

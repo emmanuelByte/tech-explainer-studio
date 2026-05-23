@@ -28,7 +28,9 @@ export type AnimatableProperty =
   | 'x' | 'y' | 'z' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
   | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
   | 'perspective' | 'originX' | 'originY' | 'opacity'
-  | 'fillColor' | 'textColor' | 'strokeColor' | 'strokeWidth' | 'borderRadius'
+  | 'fillColor' | 'textColor' | 'strokeColor' | 'strokeWidth'
+  | 'strokeTopWidth' | 'strokeRightWidth' | 'strokeBottomWidth' | 'strokeLeftWidth'
+  | 'borderRadius'
   | 'borderTopLeftRadius' | 'borderTopRightRadius' | 'borderBottomRightRadius' | 'borderBottomLeftRadius'
   | 'fontSize' | 'letterSpacing' | 'lineHeight'
   | 'blur' | 'brightness' | 'contrast' | 'grayscale'
@@ -167,6 +169,11 @@ export interface Layer {
   strokeEnabled: boolean
   strokeColor: string
   strokeWidth: number
+  strokeTopWidth?: number
+  strokeRightWidth?: number
+  strokeBottomWidth?: number
+  strokeLeftWidth?: number
+  strokeWidthLinked?: boolean
   // Shape
   borderRadius: number
   borderTopLeftRadius?: number
@@ -191,6 +198,9 @@ export interface Layer {
   textColor: string
   textSpans?: TextRangeStyle[]
   textRevealMode?: TextRevealMode
+  htmlText?: boolean
+  htmlWhiteSpace?: 'normal' | 'nowrap' | 'pre' | 'pre-wrap' | 'pre-line' | 'break-spaces'
+  htmlImportOrder?: 'bottom-up'
   // Image
   src?: string
   imageFit?: ImageFit

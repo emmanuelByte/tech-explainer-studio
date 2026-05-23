@@ -1,18 +1,27 @@
 import { useTranslation } from 'react-i18next'
+import { Link2, Unlink2 } from 'lucide-react'
 import { useStore } from '../../store'
 import { Layer, FillType, GradientStop, GOOGLE_FONTS, ImageFit } from '../../types'
 import { SectionHeader } from './TransformPanel'
 import { ScrubField } from './ScrubField'
+import { Section, Row, NumField, ToggleRow } from './_panelKit'
 import { resolveLayerAnimation } from '../../animationProperties'
 import { ColorPicker } from '../ColorPicker'
 
-function estimateTextSize(text: string, fontSize: number, lineHeight: number, letterSpacing: number) {
-  const lines = (text || 'Text').split('\n')
-  const longest = Math.max(...lines.map((line) => line.length), 1)
-  return {
-    width: Math.ceil(longest * (fontSize * 0.58 + letterSpacing) + 24),
-    height: Math.ceil(lines.length * fontSize * lineHeight + 16),
-  }
+/* Small 12×12 SVG icon for stroke side picker: rectangle with ONE side highlighted. */
+function SideIcon({ side }: { side: 'all' | 't' | 'r' | 'b' | 'l' }) {
+  const baseStroke = 'currentColor'
+  const muted = 'rgba(0,0,0,0.18)'
+  const sides = ['t', 'r', 'b', 'l'] as const
+  const color = (s: typeof sides[number]) => (side === 'all' || side === s ? baseStroke : muted)
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" strokeWidth="1.5" strokeLinecap="round">
+      <line x1="2" y1="2" x2="10" y2="2" stroke={color('t')} />
+      <line x1="10" y1="2" x2="10" y2="10" stroke={color('r')} />
+      <line x1="10" y1="10" x2="2" y2="10" stroke={color('b')} />
+      <line x1="2" y1="10" x2="2" y2="2" stroke={color('l')} />
+    </svg>
+  )
 }
 
 function getTextSelectionStyle(layer: Layer, range: { start: number; end: number } | null) {
@@ -47,6 +56,8 @@ interface PathPoint {
   x: number
   y: number
 }
+
+const STROKE_WIDTH_KEYS = ['strokeTopWidth', 'strokeRightWidth', 'strokeBottomWidth', 'strokeLeftWidth'] as const
 
 function formatPathNumber(value: number) {
   return Number(value.toFixed(2))
@@ -157,18 +168,10 @@ export function StylePanel() {
     : null
   const hasTextSelection = Boolean(textSelectionRange && textSelectionRange.start !== textSelectionRange.end)
   const textMixed = getTextSelectionStyle(sourceLayer, textSelectionRange)
-  const updateTextSizing = (next: Partial<Layer>) => {
-    if ((sourceLayer.sizeMode ?? 'fixed') !== 'fit-content') return
-    const sized = estimateTextSize(
-      String(next.text ?? sourceLayer.text),
-      Number(next.fontSize ?? sourceLayer.fontSize),
-      Number(next.lineHeight ?? sourceLayer.lineHeight),
-      Number(next.letterSpacing ?? sourceLayer.letterSpacing),
-    )
-    setLayerAnimatedProperty(sourceLayer.id, 'width', sized.width)
-    setLayerAnimatedProperty(sourceLayer.id, 'height', sized.height)
-  }
-
+  const canSplitStroke = layer.type === 'rectangle' || layer.type === 'text' || layer.type === 'image' || layer.type === 'video' || layer.type === 'group' || layer.isGroup
+  const strokeSideValues = STROKE_WIDTH_KEYS.map((key) => Math.round(Number(layer[key] ?? layer.strokeWidth ?? 0)))
+  const strokeSidesAreEqual = strokeSideValues.every((value) => value === strokeSideValues[0])
+  const strokeLinked = layer.strokeWidthLinked ?? strokeSidesAreEqual
   function addGradientStop() {
     upd('gradientStops', [...layer.gradientStops, { color: '#ffffff', position: 100 }])
   }
@@ -206,6 +209,33 @@ export function StylePanel() {
     const closed = layer.pathClosed ?? parsed.closed
     upd('pathClosed', closed)
     upd('pathData', pointsToLinePath(parsed.points, closed))
+  }
+
+  function setStrokeWidth(value: number) {
+    const next = Math.max(0, Math.round(value))
+    setLayerAnimatedProperty(layer.id, 'strokeWidth', next)
+    if (strokeLinked && canSplitStroke) {
+      STROKE_WIDTH_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key, next))
+    }
+  }
+
+  function setStrokeSide(index: number, value: number) {
+    const next = Math.max(0, Math.round(value))
+    if (strokeLinked) {
+      setStrokeWidth(next)
+      return
+    }
+    setLayerAnimatedProperty(layer.id, STROKE_WIDTH_KEYS[index], next)
+  }
+
+  function toggleStrokeLinked() {
+    const nextLinked = !strokeLinked
+    upd('strokeWidthLinked', nextLinked)
+    if (nextLinked) {
+      const next = strokeSideValues[0] ?? Math.round(layer.strokeWidth)
+      setLayerAnimatedProperty(layer.id, 'strokeWidth', next)
+      STROKE_WIDTH_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key, next))
+    }
   }
 
   return (
@@ -292,32 +322,86 @@ export function StylePanel() {
         </>
       )}
 
-      {/* Stroke */}
-      <SectionHeader label={t('style.stroke')} />
-      <div className="px-3 pb-2 flex flex-col gap-1.5">
-        <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text2)' }}>
-          <input type="checkbox" checked={layer.strokeEnabled}
-            onChange={(e) => upd('strokeEnabled', e.target.checked)} className="accent-[#0d99ff]"
-          />
-          {t('style.enableStroke')}
-        </label>
+      {/* Stroke — unified Section/Row/NumField/ToggleRow design */}
+      <Section title={t('style.stroke')} defaultOpen={!!layer.strokeEnabled}>
+        <ToggleRow
+          label={t('style.enableStroke')}
+          checked={!!layer.strokeEnabled}
+          onChange={(v) => upd('strokeEnabled', v)}
+        />
         {layer.strokeEnabled && (
           <>
-            <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.color')}</span>
-              <ColorPicker value={layer.strokeColor}
+            <Row label={t('style.color')}>
+              <ColorPicker
+                value={layer.strokeColor}
                 onChange={(value) => setLayerAnimatedProperty(layer.id, 'strokeColor', value)}
+                compact
               />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs w-16" style={{ color: 'var(--text2)' }}>{t('style.width')}</span>
-              <ScrubField label="" value={layer.strokeWidth} min={0} step={1} sensitivity={1} precision={0}
-                onChange={(v) => setLayerAnimatedProperty(layer.id, 'strokeWidth', Math.round(v))}
-                compact />
-            </div>
+            </Row>
+            <Row label={t('style.width')}>
+              <NumField
+                leading={<SideIcon side="all" />}
+                value={strokeLinked && canSplitStroke ? (strokeSideValues[0] ?? layer.strokeWidth) : layer.strokeWidth}
+                min={0} step={1} precision={0} unit="px"
+                onChange={setStrokeWidth}
+                ariaLabel={t('style.width')}
+              />
+              {canSplitStroke && (
+                <button
+                  type="button"
+                  onClick={toggleStrokeLinked}
+                  title={strokeLinked ? t('style.unlockStrokeSides') : t('style.lockStrokeSides')}
+                  style={{
+                    width: 22, height: 26, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    borderRadius: 3,
+                    color: strokeLinked ? 'var(--accent)' : 'var(--text3)',
+                    background: strokeLinked ? 'var(--accent-bg)' : 'transparent',
+                    transition: 'background 0.1s, color 0.1s',
+                  }}
+                >
+                  {strokeLinked ? <Link2 size={12} /> : <Unlink2 size={12} />}
+                </button>
+              )}
+            </Row>
+            {/* Per-side widths in a clean 2×2 grid, fully inside the panel */}
+            {canSplitStroke && !strokeLinked && (
+              <Row>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, flex: 1, minWidth: 0 }}>
+                  <NumField
+                    leading={<SideIcon side="t" />}
+                    value={strokeSideValues[0] ?? 0}
+                    min={0} step={1} precision={0}
+                    onChange={(v) => setStrokeSide(0, v)}
+                    ariaLabel={t('style.strokeTopShort')}
+                  />
+                  <NumField
+                    leading={<SideIcon side="r" />}
+                    value={strokeSideValues[1] ?? 0}
+                    min={0} step={1} precision={0}
+                    onChange={(v) => setStrokeSide(1, v)}
+                    ariaLabel={t('style.strokeRightShort')}
+                  />
+                  <NumField
+                    leading={<SideIcon side="l" />}
+                    value={strokeSideValues[3] ?? 0}
+                    min={0} step={1} precision={0}
+                    onChange={(v) => setStrokeSide(3, v)}
+                    ariaLabel={t('style.strokeLeftShort')}
+                  />
+                  <NumField
+                    leading={<SideIcon side="b" />}
+                    value={strokeSideValues[2] ?? 0}
+                    min={0} step={1} precision={0}
+                    onChange={(v) => setStrokeSide(2, v)}
+                    ariaLabel={t('style.strokeBottomShort')}
+                  />
+                </div>
+              </Row>
+            )}
           </>
         )}
-      </div>
+      </Section>
 
       {/* Path options */}
       {layer.type === 'path' && (
@@ -443,7 +527,6 @@ export function StylePanel() {
               value={layer.text}
               onChange={(e) => {
                 upd('text', e.target.value)
-                updateTextSizing({ text: e.target.value } as Partial<Layer>)
               }}
               onSelect={(e) => {
                 const el = e.currentTarget
@@ -469,7 +552,6 @@ export function StylePanel() {
                   onChange={(v) => {
                     if (hasTextSelection) updateTextSelectionStyle(layer.id, { fontSize: Math.round(v) })
                     else setLayerAnimatedProperty(layer.id, 'fontSize', Math.round(v))
-                    updateTextSizing({ fontSize: Math.round(v) } as Partial<Layer>)
                   }}
                   compact />
               </div>
@@ -516,7 +598,6 @@ export function StylePanel() {
                   onChange={(v) => {
                     if (hasTextSelection) updateTextSelectionStyle(layer.id, { letterSpacing: v })
                     else setLayerAnimatedProperty(layer.id, 'letterSpacing', v)
-                    updateTextSizing({ letterSpacing: v } as Partial<Layer>)
                   }}
                   compact />
               </div>
@@ -525,7 +606,6 @@ export function StylePanel() {
                 <ScrubField label="" value={layer.lineHeight} min={0.1} step={0.05} sensitivity={0.01} precision={2}
                   onChange={(v) => {
                     setLayerAnimatedProperty(layer.id, 'lineHeight', v)
-                    updateTextSizing({ lineHeight: v } as Partial<Layer>)
                   }}
                   compact />
               </div>

@@ -453,15 +453,6 @@ function Rotation3D({
   )
 }
 
-function estimateTextSize(text: string, fontSize: number, lineHeight: number, letterSpacing: number) {
-  const lines = (text || 'Text').split('\n')
-  const longest = Math.max(...lines.map((line) => line.length), 1)
-  return {
-    width: Math.ceil(longest * (fontSize * 0.58 + letterSpacing) + 24),
-    height: Math.ceil(lines.length * fontSize * lineHeight + 16),
-  }
-}
-
 function visibleImageSize(layer: ReturnType<typeof resolveLayerAnimation>['layer'], width: number, height: number) {
   if (layer.type !== 'image' && layer.type !== 'video') return { width, height }
   const fit = layer.imageFit ?? 'contain'
@@ -609,11 +600,6 @@ export function TransformPanel() {
     }
     if (mode !== 'fit-content') materializeAutoFrame()
     updateLayerProp(layer.id, 'sizeMode', mode)
-    if (mode === 'fit-content' && layer.type === 'text') {
-      const next = estimateTextSize(layer.text, layer.fontSize, layer.lineHeight, layer.letterSpacing)
-      setLayerAnimatedProperty(layer.id, 'width' as never, next.width)
-      setLayerAnimatedProperty(layer.id, 'height' as never, next.height)
-    }
     if (mode === 'fill-canvas') {
       setLayerAnimatedProperty(layer.id, 'width' as never, canvasW)
       setLayerAnimatedProperty(layer.id, 'height' as never, canvasH)
