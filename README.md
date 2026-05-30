@@ -1,22 +1,26 @@
 # MotionEditor
 
-MotionEditor is a local, browser-based motion design editor for creating short animated videos, social media clips, UI mockups, text animations, and simple composition layouts. It is built with React, Vite, Zustand, Tailwind CSS, Lucide icons, and Remotion.
+MotionEditor is a local-first browser motion editor for creating short videos, UI mockups, social clips, text animations, reusable design elements, and post-production compositions. It runs as a React/Vite app with a small local Node/Vite middleware backend for JSON storage, asset storage, library storage, AI actions, and Remotion exports.
 
-The goal is to make animation editing feel direct and easy: create a project, add layers, move things on the canvas, edit timing in the timeline, add keyframes, apply easing, and export or back up your work.
+The goal is to keep the editor direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved design/animation snippets, and export a video without setting up a hosted backend.
 
 ## What It Can Do
 
-- Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, import, export, duplicate, rename, and delete.
+- Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, drag/shift multi-selection, import, export, duplicate, rename, and delete.
 - Create projects with common canvas presets for YouTube, Instagram, TikTok, and custom sizes.
-- Edit a canvas with rectangles, ellipses, lines, triangles, custom paths, text, raster images, SVG images, and Lucide icons.
-- Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, and layer ordering.
-- Animate layers with keyframes, per-property animation tracks, timeline resizing, easing controls, value graph support, and direct keyframe editing.
+- Edit a canvas with rectangles, ellipses, lines, triangles, custom SVG paths, text, raster images, SVG images, videos, audio, and Lucide icons.
+- Import HTML into the reusable library and convert DOM-like structures into editable layer trees with nested layout, text, SVG, fills, strokes, shadows, and common CSS box styles.
+- Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, layer ordering, and reusable library insertion.
+- Animate layers with transform keyframes, per-property animation tracks, multi-selected keyframes across layers, timeline resizing, easing controls, value graph support, and direct keyframe editing.
 - Build text animations such as typewriter, character pop, fall, rise, spin, blur, word reveal, and line reveal.
-- Build custom 3D motion by entering your own rotation, skew, scale, opacity, and perspective values.
-- Style layers with fills, gradients, strokes, SVG stroke/fill controls, image fit options, shadows, blur, brightness, contrast, grayscale, and backdrop blur.
+- Build custom motion by entering rotation, skew, scale, opacity, perspective, and other transform/effect values.
+- Style layers with fills, gradients, per-side strokes, per-corner radius, SVG stroke/fill controls, image/video fit options, shadows, blur, brightness, contrast, grayscale, and backdrop blur.
+- Import and reuse local image, video, and audio assets through the local asset backend.
+- Save selected base design elements and reusable animation/keyframe selections into a cross-project library.
+- Export MP4/WebM through the local backend with quality presets, frame-range controls, progress, logs, cancel, and reveal/open-location support.
 - Use light or dark mode and switch the interface language between English and Czech.
 - Auto-save projects and keep manual version history snapshots.
-- Store projects as readable JSON files on your local machine.
+- Store projects, assets, exports, history, and reusable library items as local files ignored by Git.
 
 ## Why It Is Easy To Use
 
@@ -40,7 +44,7 @@ You can start with a blank project, add a shape or text layer, drag it around, o
 - Tailwind CSS
 - Lucide React icons
 - i18next and react-i18next
-- Local Vite middleware for JSON project storage and optional AI assistance
+- Local Vite middleware for project, asset, library, AI, and export APIs
 
 ## Requirements
 
@@ -73,7 +77,7 @@ The app is local-first. Projects are saved by the dev server into:
 data/projects
 ```
 
-Each project is a JSON file, and version history is stored next to it as a history JSON file.
+Each project is a JSON file, and version history is stored next to it as a history JSON file. The whole `data/` folder is ignored by Git.
 
 ## Build
 
@@ -91,17 +95,28 @@ npm run preview
 
 ## Exporting Video
 
-The editor includes an Export MP4 dialog that gives you a Remotion render command for the current composition. The command is based on the current project dimensions and frame range.
+The editor exports through the local backend at `/api/exports`. The export modal lets you choose frame range, format, and quality, then starts a Remotion job from the app instead of asking you to run a copied command manually.
 
-Example:
+Supported formats:
 
-```bash
-npx remotion render src/remotion/index.ts EditorComposition out/video.mp4
+- MP4 using H.264
+- WebM using VP9
+
+Quality presets:
+
+- Standard: 1x scale
+- High: 2x scale
+- Ultra: 3x scale
+
+Export progress is based on the backend job state and Remotion output. It tracks bundling/preparing/rendering/encoding phases, rendered frames, encoded frames, recent logs, cancel status, and the final output path. Finished exports are written to:
+
+```text
+data/exports
 ```
 
 ## Optional AI Assistant
 
-The editor includes optional AI help. The top bar AI button opens a full-height ChatKit panel on the right side, so you can keep chatting without covering the canvas. The older local AI endpoint is still available for editor actions and prompt experiments.
+The editor includes optional AI help. The top bar AI button opens a full-height ChatKit panel on the right side, so you can keep chatting without covering the canvas. The local AI endpoint is still available for editor actions, graphic generation, and animation prompt experiments.
 
 To enable it, copy the example config:
 
@@ -123,6 +138,27 @@ Restart the dev server after changing the config.
 
 `ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/chatkit/session` endpoint, and the Vite dev server creates a short-lived ChatKit session token using your OpenAI key and `chatkitWorkflowId`. You can also set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_CHATKIT_WORKFLOW_ID` as environment variables.
 
+AI prompt source files live in:
+
+```text
+public/ai-graphic-prompt.md
+public/ai-animation-prompt.md
+```
+
+The graphic prompt is for generating static editable HTML/SVG designs. The animation prompt is for applying keyframes to existing layers, selected descendants, or selected timeline keyframes.
+
+## Local Backend
+
+The Vite dev server mounts local JSON/file APIs:
+
+- `/api/projects` stores project JSON and history in `data/projects`.
+- `/api/assets` stores imported image, video, and audio files in `data/assets`.
+- `/api/library` stores reusable design and animation items in `data/library`.
+- `/api/exports` starts, tracks, cancels, and reveals Remotion export jobs in `data/exports`.
+- `/api/chatkit/session` and `/api/ai-assist` support optional AI workflows.
+
+This is intentionally local-only. There is no database and no hosted service requirement.
+
 ## Project Storage
 
 Projects are saved as JSON through local API endpoints implemented in `server/projectStoragePlugin.ts`.
@@ -132,13 +168,23 @@ Stored data includes:
 - Project name, id, created/updated dates, and thumbnail
 - Canvas size, fps, duration, and background
 - Full layer tree
-- Text styling and image data
-- Keyframes and easing
+- Text styling, shape styling, SVG data, media source references, and imported asset references
+- Transform keyframes, per-property keyframes, easing, and custom curves
 - Timeline state
 - Editor viewport state
 - Manual history snapshots
 
-The home screen also supports importing and exporting `.motionproj` files and backing up all projects as JSON.
+The home screen also supports importing/exporting `.motionproj` files, backing up all projects as JSON, importing HTML into the reusable library, and selecting multiple projects with click, Shift-click, or drag selection.
+
+## Assets And Library
+
+Imported images, videos, and audio are copied into local asset storage and reused from the asset library. Adding an image/video/audio first opens the existing library, with an import-new action at the top.
+
+Reusable library items are separate from raw assets:
+
+- Design items save selected layers at the current frame as base editable styles.
+- Animation items save selected layers, frame ranges, and keyframes so they can be reused across projects.
+- HTML imports can be saved into the library as editable design elements after previewing and naming them.
 
 ## Internationalization
 
@@ -166,6 +212,6 @@ npm run lint
 
 ## Notes
 
-This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to understand, and practical for building motion compositions without setting up a database or cloud backend.
+This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to inspect, and practical for building motion compositions without setting up a database or cloud backend.
 
-For a production deployment, move the project storage and AI endpoints to a real backend so file access, authentication, rate limits, and API keys are handled safely.
+For a production deployment, move the project, asset, library, export, and AI endpoints to a real backend so file access, authentication, rate limits, job isolation, and API keys are handled safely.
