@@ -224,6 +224,15 @@ export function useKeyboardShortcuts() {
         return
       }
 
+      // Deselect everything (layers, keyframes, active text editing).
+      // Cmd/Ctrl+D — also preventDefault to swallow the browser's
+      // "bookmark this page" default.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'd') {
+        e.preventDefault()
+        store.selectLayer(null) // clears selectedLayerIds, selectedKeyframes, editingTextLayerId, textSelection
+        return
+      }
+
       // Parenting / ordering
       if ((e.ctrlKey || e.metaKey) && e.key === ']') {
         e.preventDefault(); store.moveSelectedUpLevel(); return

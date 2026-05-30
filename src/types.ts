@@ -373,6 +373,7 @@ export interface EditorState {
   timelineZoom: number
   timelineScrollX: number
   timelinePanelHeight: number
+  timelineVisible: boolean
   showAllSubtracks: boolean
   showValueGraph: boolean
   editorZoom: number

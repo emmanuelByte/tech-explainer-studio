@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, Film, LoaderCircle, Sparkles, Wand2, X } from 'lucide-react'
 import { useStore } from '../store'
-import { AnimatableProperty, DEFAULT_TRANSFORM, Layer, LayerType, TransformProps } from '../types'
+import { AnimatableProperty, DEFAULT_TRANSFORM, Layer, LayerType, PairEasingType, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { htmlToLayers } from '../htmlImport'
 
@@ -29,6 +29,21 @@ type AiAction =
   }
   | { type: 'update_layer'; layerId: string; props?: Record<string, unknown>; transform?: Partial<TransformProps> }
   | { type: 'add_keyframe'; layerId: string; frame: number; props: Partial<TransformProps>; easing?: string }
+  | {
+    type: 'add_property_keyframe'
+    layerId: string
+    property: AnimatableProperty
+    frame: number
+    value: number | string
+    easing?: PairEasingType
+    bezier?: [number, number, number, number]
+  }
+  | { type: 'remove_keyframe'; layerId: string; frame: number }
+  | { type: 'remove_property_keyframe'; layerId: string; property: AnimatableProperty; frame: number }
+  | { type: 'move_keyframe'; layerId: string; fromFrame: number; toFrame: number }
+  | { type: 'move_property_keyframe'; layerId: string; property: AnimatableProperty; fromFrame: number; toFrame: number }
+  | { type: 'update_keyframe_easing'; layerId: string; frame: number; easing: PairEasingType; bezier?: [number, number, number, number] }
+  | { type: 'update_property_keyframe_easing'; layerId: string; property: AnimatableProperty; frame: number; easing: PairEasingType; bezier?: [number, number, number, number] }
   | { type: 'set_canvas'; backgroundColor?: string }
   | { type: 'select_layer'; layerId: string }
 
@@ -40,6 +55,21 @@ interface AiResponse {
 }
 
 const TRANSFORM_KEYS = new Set(Object.keys(DEFAULT_TRANSFORM))
+const ANIMATABLE_PROPERTY_KEYS = new Set<AnimatableProperty>([
+  'x', 'y', 'z',
+  'width', 'height',
+  'scale', 'scaleX', 'scaleY',
+  'rotateX', 'rotateY', 'rotateZ',
+  'skewX', 'skewY',
+  'perspective', 'originX', 'originY',
+  'opacity',
+  'fillColor', 'textColor', 'strokeColor',
+  'strokeWidth', 'strokeTopWidth', 'strokeRightWidth', 'strokeBottomWidth', 'strokeLeftWidth',
+  'borderRadius', 'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
+  'fontSize', 'letterSpacing', 'lineHeight',
+  'blur', 'brightness', 'contrast', 'grayscale',
+  'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread', 'backdropBlur',
+])
 const LAYER_PROPS = new Set<keyof Layer>([
   'name',
   'text',
@@ -155,10 +185,71 @@ function clampFrameToLayerRange(frame: number, layer: Layer) {
   return Math.max(start, Math.min(end, Math.round(frame)))
 }
 
+const AI_KEYFRAME_PROPS: (keyof TransformProps)[] = [
+  'x', 'y', 'z',
+  'scale', 'scaleX', 'scaleY',
+  'opacity',
+  'rotateX', 'rotateY', 'rotateZ',
+  'skewX', 'skewY',
+  'perspective',
+  'blur', 'brightness', 'contrast', 'grayscale', 'backdropBlur',
+  'shadowX', 'shadowY', 'shadowBlur', 'shadowSpread',
+  'charProgress',
+]
+
+function roundedFrameValue(value: unknown) {
+  if (typeof value !== 'number') return value
+  return Number.isInteger(value) ? value : Number(value.toFixed(3))
+}
+
+function summarizeLayerAnimation(layer: Layer) {
+  const sortedKeyframes = [...layer.keyframes].sort((a, b) => a.frame - b.frame)
+  const animatedKeys = AI_KEYFRAME_PROPS.filter((key) => {
+    if (!sortedKeyframes.length) return false
+    const values = sortedKeyframes.map((kf) => kf.props[key])
+    const first = values[0]
+    return values.some((value) => value !== first) || first !== DEFAULT_TRANSFORM[key]
+  })
+  const transformKeyframes = sortedKeyframes.slice(0, 40).map((kf) => ({
+    frame: kf.frame,
+    easing: kf.easing,
+    ...(kf.bezier ? { bezier: kf.bezier } : {}),
+    props: Object.fromEntries(
+      animatedKeys.map((key) => [key, roundedFrameValue(kf.props[key])]),
+    ),
+  }))
+  const propertyKeyframes = Object.fromEntries(
+    Object.entries(layer.propertyKeyframes ?? {})
+      .filter(([, frames]) => frames?.length)
+      .map(([key, frames]) => [
+        key,
+        [...(frames ?? [])]
+          .sort((a, b) => a.frame - b.frame)
+          .slice(0, 40)
+          .map((kf) => ({
+            frame: kf.frame,
+            value: roundedFrameValue(kf.value),
+            easing: kf.easing,
+            ...(kf.bezier ? { bezier: kf.bezier } : {}),
+          })),
+      ]),
+  )
+  const propertyCount = Object.values(layer.propertyKeyframes ?? {}).reduce((sum, frames) => sum + (frames?.length ?? 0), 0)
+  return {
+    hasAnimation: transformKeyframes.length > 1 || propertyCount > 0,
+    transformKeyframes,
+    propertyKeyframes,
+    totalTransformKeyframes: sortedKeyframes.length,
+    totalPropertyKeyframes: propertyCount,
+    truncated: sortedKeyframes.length > 40 || Object.values(layer.propertyKeyframes ?? {}).some((frames) => (frames?.length ?? 0) > 40),
+  }
+}
+
 export function sceneSummary(layers: Layer[], selectedLayerIds: string[], currentFrame: number) {
   const byId = new Map(layers.map((layer) => [layer.id, layer]))
   const childrenByParent = childIdsByParent(layers)
   const animationTargets = animationTargetLayerIds(layers, selectedLayerIds)
+  const animationTargetSet = new Set(animationTargets)
   return {
     currentFrame,
     selectedLayerIds,
@@ -195,14 +286,21 @@ export function sceneSummary(layers: Layer[], selectedLayerIds: string[], curren
         transform: {
           x: resolved.transform.x,
           y: resolved.transform.y,
+          z: resolved.transform.z,
           scale: resolved.transform.scale,
+          scaleX: resolved.transform.scaleX,
+          scaleY: resolved.transform.scaleY,
           opacity: resolved.transform.opacity,
           rotateX: resolved.transform.rotateX,
           rotateY: resolved.transform.rotateY,
           rotateZ: resolved.transform.rotateZ,
           skewX: resolved.transform.skewX,
           skewY: resolved.transform.skewY,
+          blur: resolved.transform.blur,
+          shadowBlur: resolved.transform.shadowBlur,
+          charProgress: resolved.transform.charProgress,
         },
+        animation: animationTargetSet.has(layer.id) ? summarizeLayerAnimation(layer) : undefined,
       }
     }),
   }
@@ -291,6 +389,80 @@ export function applyAiActions(response: AiResponse, options: { allowAnyExplicit
       const base = resolveLayerAnimation(layer, latest.currentFrame).transform
       const frame = clampFrameToLayerRange(action.frame, layer)
       store.addKeyframe(id, frame, { ...base, ...action.props }, action.easing)
+      return
+    }
+
+    if (action.type === 'add_property_keyframe') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer || !ANIMATABLE_PROPERTY_KEYS.has(action.property)) return
+      if (typeof action.value !== 'number' && typeof action.value !== 'string') return
+      const frame = clampFrameToLayerRange(action.frame, layer)
+      store.addPropertyKeyframe(id, action.property, frame, action.value)
+      if (action.easing) store.updatePropertyKeyframeEasing(id, action.property, frame, action.easing, action.bezier)
+      return
+    }
+
+    if (action.type === 'remove_keyframe') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer) return
+      store.removeKeyframe(id, clampFrameToLayerRange(action.frame, layer))
+      return
+    }
+
+    if (action.type === 'remove_property_keyframe') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer || !ANIMATABLE_PROPERTY_KEYS.has(action.property)) return
+      store.removePropertyKeyframe(id, action.property, clampFrameToLayerRange(action.frame, layer))
+      return
+    }
+
+    if (action.type === 'move_keyframe') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer) return
+      store.moveKeyframe(
+        id,
+        clampFrameToLayerRange(action.fromFrame, layer),
+        clampFrameToLayerRange(action.toFrame, layer),
+      )
+      return
+    }
+
+    if (action.type === 'move_property_keyframe') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer || !ANIMATABLE_PROPERTY_KEYS.has(action.property)) return
+      store.movePropertyKeyframe(
+        id,
+        action.property,
+        clampFrameToLayerRange(action.fromFrame, layer),
+        clampFrameToLayerRange(action.toFrame, layer),
+      )
+      return
+    }
+
+    if (action.type === 'update_keyframe_easing') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer) return
+      store.updateKeyframeEasing(id, clampFrameToLayerRange(action.frame, layer), action.easing, action.bezier)
+      return
+    }
+
+    if (action.type === 'update_property_keyframe_easing') {
+      const id = layerTarget(action.layerId, allowedTargetIds, latest.layers, options.allowAnyExplicitLayer)
+      const layer = id ? latest.layers.find((item) => item.id === id) : null
+      if (!id || !layer || !ANIMATABLE_PROPERTY_KEYS.has(action.property)) return
+      store.updatePropertyKeyframeEasing(
+        id,
+        action.property,
+        clampFrameToLayerRange(action.frame, layer),
+        action.easing,
+        action.bezier,
+      )
       return
     }
 

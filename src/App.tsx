@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertTriangle, Check, Circle, CircleDot, Code2, Download, FileJson, Hand, History,
-  Home, LoaderCircle, Moon, MousePointer2, PenLine, Redo2, Save, Slash, Square,
-  Settings, Sparkles, Sun, Triangle, Type, Undo2,
+  AlertTriangle, Check, CircleDot, Code2, Download, Eye, FileJson, History,
+  Home, Keyboard, LoaderCircle, Moon, PanelBottomClose, PanelBottomOpen, Redo2, Save,
+  Play, Settings, Sparkles, Sun, Undo2,
 } from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
 import { Modal } from './components/Modal'
 import { LayersPanel } from './components/LayersPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
+import { PreviewModal } from './components/PreviewModal'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { Timeline } from './components/Timeline'
 import { ExportModal } from './components/ExportModal'
 import { AiChatPanel } from './components/AiChatPanel'
+import { FloatingToolbar } from './components/FloatingToolbar'
+import { TopMenu, type TopMenuEntry, formatShortcut } from './components/TopMenu'
+import { ShortcutsModal } from './components/ShortcutsModal'
 import { HomeScreen } from './components/HomeScreen'
 import { SettingsModal } from './components/SettingsModal'
 import { SelectionTracker } from './components/SelectionTracker'
@@ -20,7 +23,7 @@ import { HtmlImportModal } from './components/HtmlImportModal'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
-import { MotionProject, ProjectHistorySnapshot, Tool } from './types'
+import { MotionProject, ProjectHistorySnapshot } from './types'
 import {
   exportJson,
   projectFromStore,
@@ -29,17 +32,6 @@ import {
   saveHistorySnapshot,
   upsertProject,
 } from './projectStorage'
-
-const TOOLS: { id: Tool; label: string; key: string; icon: LucideIcon }[] = [
-  { id: 'select', label: 'Select', key: 'V', icon: MousePointer2 },
-  { id: 'hand', label: 'Pan', key: 'H', icon: Hand },
-  { id: 'rectangle', label: 'Rectangle', key: 'R', icon: Square },
-  { id: 'ellipse', label: 'Ellipse', key: 'E', icon: Circle },
-  { id: 'text', label: 'Text', key: 'T', icon: Type },
-  { id: 'line', label: 'Line', key: 'L', icon: Slash },
-  { id: 'triangle', label: 'Triangle', key: '', icon: Triangle },
-  { id: 'pen', label: 'Pen', key: 'P', icon: PenLine },
-]
 
 type Route = { name: 'home' } | { name: 'editor'; projectId: string }
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed'
@@ -53,21 +45,6 @@ function pushRoute(route: Route) {
   const path = route.name === 'home' ? '/' : `/editor/${encodeURIComponent(route.projectId)}`
   window.history.pushState(null, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
-}
-
-function ToolButton({ tool, active, onClick }: { tool: typeof TOOLS[0]; active: boolean; onClick: () => void }) {
-  const { t } = useTranslation()
-  const Icon = tool.icon
-  const label = t(`tools.${tool.id}`, { defaultValue: tool.label })
-  return (
-    <button
-      onClick={onClick}
-      title={`${label}${tool.key ? ` (${tool.key})` : ''}`}
-      className={`icon-btn ${active ? 'active' : ''}`}
-    >
-      <Icon size={15} strokeWidth={2.2} />
-    </button>
-  )
 }
 
 function SaveIndicator({ status, onRetry }: { status: SaveStatus; onRetry: () => void }) {
@@ -194,15 +171,20 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
   )
 }
 
-function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi }: {
+function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp4, onOpenAi, onShowShortcuts }: {
   saveStatus: SaveStatus
   onForceSave: () => void
   onGoHome: () => void
+  onPreview: () => void
   onExportMp4: () => void
   onOpenAi: () => void
+  onShowShortcuts: () => void
 }) {
   const { t } = useTranslation()
-  const { theme, setTheme, undo, redo, _past, _future, currentTool, setTool, autoKeyframe, setAutoKeyframe } = useStore()
+  const {
+    theme, setTheme, undo, redo, _past, _future, autoKeyframe, setAutoKeyframe,
+    timelineVisible, toggleTimelineVisible,
+  } = useStore()
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showHtmlImport, setShowHtmlImport] = useState(false)
@@ -212,20 +194,62 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
     exportJson(`${project.name}.motionproj`, project)
   }
 
+  /* ── Menus ───────────────────────────────────────────────── */
+
+  const fileMenu: TopMenuEntry[] = [
+    { label: t('layers.importHtml'), icon: Code2, onClick: () => setShowHtmlImport(true) },
+    { label: t('topbar.exportProject'), icon: FileJson, onClick: exportProject },
+    { label: t('topbar.exportMp4'), icon: Download, shortcut: 'mod+e', onClick: onExportMp4 },
+    { type: 'separator' },
+    { label: t('topbar.history'), icon: History, onClick: () => setShowHistory(true) },
+    { label: t('topbar.settings'), icon: Settings, onClick: () => setShowSettings(true) },
+  ]
+
+  const viewMenu: TopMenuEntry[] = [
+    { label: t('topbar.preview'), icon: Eye, shortcut: 'mod+p', onClick: onPreview },
+    {
+      label: t('topbar.toggleTimeline'),
+      icon: timelineVisible ? PanelBottomClose : PanelBottomOpen,
+      shortcut: 'mod+\\',
+      active: !timelineVisible,
+      onClick: () => toggleTimelineVisible(),
+    },
+    { type: 'separator' },
+    {
+      label: t('topbar.autoKeyframe'),
+      icon: CircleDot,
+      active: autoKeyframe,
+      onClick: () => setAutoKeyframe(!autoKeyframe),
+    },
+    {
+      label: t('topbar.toggleTheme'),
+      icon: theme === 'dark' ? Sun : Moon,
+      onClick: () => setTheme(theme === 'dark' ? 'light' : 'dark'),
+    },
+    { type: 'separator' },
+    {
+      label: t('shortcuts.title', { defaultValue: 'Keyboard shortcuts' }),
+      icon: Keyboard,
+      shortcut: '?',
+      onClick: onShowShortcuts,
+    },
+  ]
+
   return (
     <header
       className="capcut-topbar flex items-center flex-shrink-0"
       style={{ minHeight: 40, zIndex: 5, gap: 0, padding: '0 8px' }}
     >
-      {/* Left: Home + Undo/Redo */}
+      {/* Left: Home + Undo/Redo + File/View menus.
+          Tool selection moved to <FloatingToolbar /> docked above the timeline. */}
       <div className="flex items-center gap-1 flex-shrink-0">
         <button onClick={onGoHome} className="icon-btn" title={t('topbar.home')}><Home size={14} /></button>
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
-        <button onClick={undo} disabled={_past.length === 0} title={`${t('topbar.undo')} (Ctrl+Z)`} className="icon-btn"><Undo2 size={14} /></button>
-        <button onClick={redo} disabled={_future.length === 0} title={`${t('topbar.redo')} (Ctrl+Shift+Z)`} className="icon-btn"><Redo2 size={14} /></button>
+        <button onClick={undo} disabled={_past.length === 0} title={`${t('topbar.undo')} (${formatModZ()})`} className="icon-btn"><Undo2 size={14} /></button>
+        <button onClick={redo} disabled={_future.length === 0} title={`${t('topbar.redo')} (${formatModShiftZ()})`} className="icon-btn"><Redo2 size={14} /></button>
         <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
-        {/* Tools */}
-        {TOOLS.map((tool) => <ToolButton key={tool.id} tool={tool} active={currentTool === tool.id} onClick={() => setTool(tool.id)} />)}
+        <TopMenu label={t('topbar.menuFile')} items={fileMenu} />
+        <TopMenu label={t('topbar.menuView')} items={viewMenu} />
       </div>
 
       {/* Center: Project name + selection breadcrumb + save */}
@@ -236,28 +260,13 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
         <SaveIndicator status={saveStatus} onRetry={onForceSave} />
       </div>
 
-      {/* Right: Actions */}
+      {/* Right: high-frequency primary actions stay visible. */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={() => setShowHistory(true)} className="icon-btn" title={t('topbar.history')}><History size={14} /></button>
         <button onClick={onOpenAi} className="icon-btn" title={t('topbar.ai')}><Sparkles size={14} /></button>
-        <button onClick={() => setShowHtmlImport(true)} className="pill-btn" title={t('layers.importHtml')} style={{ height: 28, padding: '0 9px', fontSize: 11 }}>
-          <Code2 size={13} />HTML
+        <button onClick={onPreview} className="pill-btn" title={`${t('topbar.preview')} (${formatModP()})`} style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <Play size={13} />{t('topbar.preview')}
         </button>
-        <button onClick={exportProject} className="icon-btn" title={t('topbar.project')}><FileJson size={14} /></button>
-        <button
-          onClick={() => setAutoKeyframe(!autoKeyframe)}
-          title={t('topbar.autoKeyframe')}
-          className="icon-btn"
-          style={autoKeyframe ? { background: 'rgba(239,68,68,0.15)', color: '#ef4444' } : undefined}
-        >
-          <CircleDot size={14} />
-        </button>
-        <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 2px' }} />
-        <button onClick={() => setShowSettings(true)} className="icon-btn" title={t('common.settings')}><Settings size={14} /></button>
-        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="icon-btn" title={t('topbar.toggleTheme')}>
-          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-        </button>
-        <button onClick={onExportMp4} className="primary-btn" style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
+        <button onClick={onExportMp4} className="primary-btn" title={`${t('topbar.exportMp4')} (${formatModE()})`} style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
           <Download size={13} />{t('topbar.exportMp4')}
         </button>
       </div>
@@ -269,15 +278,25 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onExportMp4, onOpenAi
   )
 }
 
+/* Tiny helpers so tooltip text uses platform-correct shortcut glyphs. */
+function formatModZ() { return formatShortcut('mod+z') }
+function formatModShiftZ() { return formatShortcut('mod+shift+z') }
+function formatModE() { return formatShortcut('mod+e') }
+function formatModP() { return formatShortcut('mod+p') }
+
 function EditorScreen({ projectId }: { projectId: string }) {
   const { t } = useTranslation()
   const [showExport, setShowExport] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [showAi, setShowAi] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const saveTimer = useRef<number | null>(null)
   const loadedId = useRef<string | null>(null)
   const storeState = useStore()
   const timelinePanelHeight = useStore((s) => s.timelinePanelHeight)
+  const timelineVisible = useStore((s) => s.timelineVisible)
+  const effectiveTimelineHeight = timelineVisible ? timelinePanelHeight : 0
 
   usePlayback()
   useKeyboardShortcuts()
@@ -359,10 +378,43 @@ function EditorScreen({ projectId }: { projectId: string }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName.toLowerCase()
+      const editing = tag === 'input' || tag === 'textarea' || target?.isContentEditable
+      // `?` (Shift+/) opens the shortcuts cheat-sheet. Standalone, no mod.
+      if (!editing && e.key === '?') {
+        e.preventDefault()
+        setShowShortcuts(true)
+        return
+      }
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      const key = e.key.toLowerCase()
+      if (key === 's') {
         e.preventDefault()
         if (saveTimer.current) window.clearTimeout(saveTimer.current)
         void forceSave(true)
+        return
+      }
+      // Cmd/Ctrl+E → export modal; Cmd/Ctrl+P → preview modal.
+      // Skip when editing a text field so the user can still type 'e'/'p'.
+      // Also skip if Shift/Alt are held — those are reserved for future shortcuts.
+      if (editing || e.shiftKey || e.altKey) return
+      if (key === 'e') {
+        e.preventDefault()
+        void openExport()
+        return
+      }
+      if (key === 'p') {
+        e.preventDefault()
+        setShowPreview(true)
+        return
+      }
+      // Cmd/Ctrl+\ → toggle timeline panel visibility.
+      if (key === '\\') {
+        e.preventDefault()
+        useStore.getState().toggleTimelineVisible()
+        return
       }
     }
     window.addEventListener('keydown', onKey)
@@ -385,17 +437,26 @@ function EditorScreen({ projectId }: { projectId: string }) {
 
   return (
     <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
-      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onExportMp4={() => void openExport()} onOpenAi={() => setShowAi((v) => !v)} />
-      <div className="relative flex-1 min-h-0 overflow-hidden">
-        <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: timelinePanelHeight }}>
-          <LayersPanel />
-          <PreviewCanvas />
-          <PropertiesPanel />
+      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onPreview={() => setShowPreview(true)} onExportMp4={() => void openExport()} onOpenAi={() => setShowAi((v) => !v)} onShowShortcuts={() => setShowShortcuts(true)} />
+      <div className="flex-1 min-h-0 overflow-hidden flex">
+        <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden">
+          <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: effectiveTimelineHeight }}>
+            <LayersPanel />
+            <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden flex">
+              <PreviewCanvas />
+              <FloatingToolbar />
+            </div>
+            <PropertiesPanel />
+          </div>
+          {/* Timeline can be toggled off via View ▸ Toggle timeline (⌘\) when
+              shape-creation needs the full canvas height. */}
+          {timelineVisible && <Timeline />}
         </div>
-        <Timeline />
+        {showAi && <AiChatPanel onClose={() => setShowAi(false)} />}
       </div>
-      {showAi && <AiChatPanel onClose={() => setShowAi(false)} />}
+      {showPreview && <PreviewModal onClose={() => setShowPreview(false)} />}
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
     </div>
   )
 }

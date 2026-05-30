@@ -332,6 +332,93 @@ const PRESETS: Record<string, PresetDef> = {
       { frame: s + d, easing: 'linear', props: { ...b, rotateY: 0, opacity: 1 } },
     ],
   },
+  'phone-twist-in': {
+    label: 'Phone Twist In', category: 'in',
+    generate: (s, d, _e, b) => {
+      const f1 = s + Math.max(1, Math.round(d * 0.34))
+      const f2 = s + Math.max(2, Math.round(d * 0.62))
+      const f3 = s + Math.max(3, Math.round(d * 0.84))
+      return [
+        {
+          frame: s,
+          easing: 'ease-out',
+          props: {
+            ...b,
+            opacity: 0,
+            rotateY: b.rotateY - 82,
+            rotateX: b.rotateX + 8,
+            rotateZ: b.rotateZ - 5,
+            skewY: b.skewY + 3,
+            scale: b.scale * 0.88,
+            z: b.z - 120,
+            blur: 8,
+            perspective: Math.max(900, b.perspective),
+            shadowY: b.shadowY + 18,
+            shadowBlur: b.shadowBlur + 34,
+          },
+        },
+        {
+          frame: f1,
+          easing: 'spring',
+          props: {
+            ...b,
+            opacity: 1,
+            rotateY: b.rotateY + 18,
+            rotateX: b.rotateX - 4,
+            rotateZ: b.rotateZ + 2,
+            skewY: b.skewY - 1.5,
+            scale: b.scale * 1.035,
+            z: b.z + 28,
+            blur: 0,
+            perspective: Math.max(900, b.perspective),
+            shadowY: b.shadowY + 10,
+            shadowBlur: b.shadowBlur + 22,
+          },
+        },
+        {
+          frame: f2,
+          easing: 'ease-out',
+          props: {
+            ...b,
+            opacity: 1,
+            rotateY: b.rotateY - 8,
+            rotateX: b.rotateX + 2,
+            rotateZ: b.rotateZ - 1,
+            skewY: b.skewY + 0.8,
+            scale: b.scale * 0.992,
+            z: b.z + 8,
+            blur: 0,
+            perspective: Math.max(900, b.perspective),
+            shadowY: b.shadowY + 5,
+            shadowBlur: b.shadowBlur + 10,
+          },
+        },
+        {
+          frame: f3,
+          easing: 'ease-out',
+          props: {
+            ...b,
+            opacity: 1,
+            rotateY: b.rotateY + 2,
+            rotateX: b.rotateX,
+            rotateZ: b.rotateZ + 0.35,
+            skewY: b.skewY,
+            scale: b.scale * 1.006,
+            z: b.z,
+            blur: 0,
+            perspective: Math.max(900, b.perspective),
+            shadowY: b.shadowY + 2,
+            shadowBlur: b.shadowBlur + 4,
+          },
+        },
+        {
+          frame: s + d,
+          easing: 'linear',
+          props: { ...b, opacity: 1, blur: 0, perspective: Math.max(900, b.perspective) },
+        },
+      ]
+    },
+  },
   'blur-in': {
     label: 'Blur In', category: 'in',
     generate: (s, d, e, b) => [

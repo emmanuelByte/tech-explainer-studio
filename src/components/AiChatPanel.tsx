@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChatKit, useChatKit } from '@openai/chatkit-react'
 import { Image as ImageIcon, MessageSquarePlus, Play, Sparkles, X } from 'lucide-react'
@@ -35,6 +35,11 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
     [projectId],
   )
   const [initialThread, setInitialThread] = useState<string | null>(() => localStorage.getItem(threadStorageKey))
+  const chatFrameKey = `${projectId || 'unknown'}:${initialThread || 'new'}:${mode}`
+
+  useEffect(() => {
+    setInitialThread(localStorage.getItem(threadStorageKey))
+  }, [threadStorageKey])
 
   const chat = useChatKit({
     api: {
@@ -75,26 +80,6 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
     composer: {
       placeholder: mode === 'graphic' ? t('ai.graphicPlaceholder') : t('ai.animationPlaceholder'),
       dictation: { enabled: true },
-      tools: [
-        {
-          id: 'graphic',
-          label: t('ai.modeGraphic'),
-          shortLabel: t('ai.modeGraphic'),
-          icon: 'square-image',
-          pinned: true,
-          persistent: true,
-          placeholderOverride: t('ai.graphicPlaceholder'),
-        },
-        {
-          id: 'animation',
-          label: t('ai.modeAnimation'),
-          shortLabel: t('ai.modeAnimation'),
-          icon: 'play',
-          pinned: true,
-          persistent: true,
-          placeholderOverride: t('ai.animationPlaceholder'),
-        },
-      ],
     },
     startScreen: {
       greeting: t('ai.chatGreeting'),
@@ -103,60 +88,72 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
       prompts: [],
     },
     async onClientTool(toolCall) {
-      if (toolCall.name === 'get_editor_contract') {
-        const contractMode = toolCall.params?.mode === 'animation' ? 'animation' : mode
-        const response = await fetch(contractMode === 'graphic' ? '/ai-graphic-prompt.md' : '/ai-animation-prompt.md')
-        return {
-          mode: contractMode,
-          contract: response.ok ? await response.text() : '',
+      try {
+        console.info('[chatkit client tool]', toolCall.name, toolCall.params)
+        if (toolCall.name === 'get_editor_contract') {
+          const contractMode = toolCall.params?.mode === 'animation' ? 'animation' : mode
+          const response = await fetch(contractMode === 'graphic' ? '/ai-graphic-prompt.md' : '/ai-animation-prompt.md')
+          return {
+            ok: true,
+            mode: contractMode,
+            contract: response.ok ? await response.text() : '',
+          }
         }
-      }
-      if (toolCall.name === 'apply_editor_actions') {
-        const actions = Array.isArray(toolCall.params?.actions) ? toolCall.params.actions : []
-        if (!actions.length) return { ok: false, error: 'No actions provided.' }
-        runAsSingleHistoryAction(() => {
-          applyAiActions({
-            message: typeof toolCall.params?.summary === 'string' ? toolCall.params.summary : undefined,
-            actions: actions as never,
-          }, { allowAnyExplicitLayer: true })
-        })
+        if (toolCall.name === 'apply_editor_actions') {
+          const actions = Array.isArray(toolCall.params?.actions) ? toolCall.params.actions : []
+          if (!actions.length) return { ok: false, error: 'No actions provided.' }
+          runAsSingleHistoryAction(() => {
+            applyAiActions({
+              message: typeof toolCall.params?.summary === 'string' ? toolCall.params.summary : undefined,
+              actions: actions as never,
+            }, { allowAnyExplicitLayer: true })
+          })
+          return {
+            ok: true,
+            appliedActions: actions.length,
+            message: typeof toolCall.params?.summary === 'string'
+              ? toolCall.params.summary
+              : `Applied ${actions.length} editor action${actions.length === 1 ? '' : 's'}.`,
+          }
+        }
+        if (toolCall.name !== 'get_current_editor_context') {
+          return { ok: false, error: `Unknown client tool: ${toolCall.name}` }
+        }
         return {
           ok: true,
-          appliedActions: actions.length,
-          message: typeof toolCall.params?.summary === 'string'
-            ? toolCall.params.summary
-            : `Applied ${actions.length} editor action${actions.length === 1 ? '' : 's'}.`,
-        }
-      }
-      if (toolCall.name !== 'get_current_editor_context') {
-        return { error: `Unknown client tool: ${toolCall.name}` }
-      }
-      return {
-        mode,
-        projectId,
-        projectName,
-        canvas: {
-          width: customWidth,
-          height: customHeight,
-          presetName: canvasPreset,
-          backgroundColor: canvasBackgroundColor,
+          mode,
+          projectId,
+          projectName,
+          canvas: {
+            width: customWidth,
+            height: customHeight,
+            presetName: canvasPreset,
+            backgroundColor: canvasBackgroundColor,
+            fps,
+            totalFrames,
+          },
+          scene: sceneSummary(layers, selectedLayerIds, currentFrame),
+          currentFrame,
+          currentSecond: fps > 0 ? currentFrame / fps : 0,
           fps,
-          totalFrames,
-        },
-        scene: sceneSummary(layers, selectedLayerIds, currentFrame),
-        currentFrame,
-        currentSecond: fps > 0 ? currentFrame / fps : 0,
-        fps,
-        selectedLayerIds,
-        layerCount: layers.length,
+          selectedLayerIds,
+          layerCount: layers.length,
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Client tool failed.'
+        console.error('[chatkit client tool failed]', toolCall.name, error)
+        return { ok: false, error: message, tool: toolCall.name }
       }
+    },
+    onError({ error }) {
+      console.error('[chatkit]', error)
+    },
+    onLog(event) {
+      if (event?.name?.toLowerCase().includes('error')) console.warn('[chatkit]', event)
     },
     onThreadChange({ threadId }) {
       if (threadId) localStorage.setItem(threadStorageKey, threadId)
       else localStorage.removeItem(threadStorageKey)
-    },
-    onToolChange({ toolId }) {
-      if (toolId === 'graphic' || toolId === 'animation') setMode(toolId)
     },
   })
 
@@ -175,14 +172,9 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
           </span>
           <span>{t('ai.chatTitle')}</span>
         </div>
-        <div className="flex items-center gap-0.5">
-          <button className="icon-btn" onClick={() => void startNewChat()} title={t('ai.chatNew')}>
-            <MessageSquarePlus size={13} />
-          </button>
-          <button className="icon-btn" onClick={onClose} title={t('common.close')}>
-            <X size={13} />
-          </button>
-        </div>
+        <button className="icon-btn" onClick={onClose} title={t('common.close')}>
+          <X size={13} />
+        </button>
       </div>
       <div className="ai-chat-mode-bar">
         <div className="ai-chat-mode-seg" role="tablist" aria-label={t('ai.chatTitle')}>
@@ -205,9 +197,13 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
             {t('ai.modeAnimation')}
           </button>
         </div>
+        <button className="ai-chat-new-btn" onClick={() => void startNewChat()} title={t('ai.chatNew')}>
+          <MessageSquarePlus size={12} />
+          {t('ai.chatNew')}
+        </button>
       </div>
       <div className="ai-chatkit-wrap">
-        <ChatKit control={chat.control} className="ai-chatkit-frame" />
+        <ChatKit key={chatFrameKey} control={chat.control} className="ai-chatkit-frame" />
       </div>
     </aside>
   )

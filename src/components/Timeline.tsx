@@ -1,9 +1,9 @@
-import { useRef, useState, useCallback, useEffect, type ReactNode } from 'react'
+import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { AnimatableProperty, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { AnimatableProperty, KeyframeSelection, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
@@ -146,6 +146,14 @@ function fixedPopoverPosition(x: number, y: number, width: number, estimatedHeig
   }
 }
 
+function sameKeyframeSelection(a: KeyframeSelection, b: KeyframeSelection) {
+  return a.layerId === b.layerId && a.frame === b.frame && a.propKey === b.propKey
+}
+
+function rectsIntersect(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }) {
+  return a.x <= b.x + b.w && a.x + a.w >= b.x && a.y <= b.y + b.h && a.y + a.h >= b.y
+}
+
 // ── Context menus ──────────────────────────────────────────────────────────
 interface KfContextMenu {
   x: number; y: number; layerId: string; frame: number
@@ -174,6 +182,32 @@ interface BarDragState {
   currentKfFrames?: number[]
   barEl: HTMLDivElement | null
   didMove: boolean
+}
+
+interface KeyframeDragState {
+  startClientX: number
+  appliedDelta: number
+  minFrame: number
+  maxFrame: number
+}
+
+interface TimelineMarqueeState {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  addToSelection: boolean
+  active: boolean
+}
+
+interface TimelineKeyframeTarget {
+  selection: KeyframeSelection
+  x: number
+  y: number
+  w: number
+  h: number
+  layerName: string
+  propertyLabel: string
 }
 
 // ── Easing picker popup ───────────────────────────────────────────────────
@@ -555,18 +589,21 @@ function TrackRow({
       {/* Main bar row */}
       <div style={{ height: rowH, position: 'relative' }}>
         {isVideoWithSegments ? (
-          <VideoSegmentBars
-            layer={layer}
-            fpx={fpx}
-            timelineOffset={timelineOffset}
-            rowH={rowH}
-            currentFrame={currentFrame}
-            color={color}
-            onClickLayer={onClick}
-          />
+          <div data-timeline-interactive>
+            <VideoSegmentBars
+              layer={layer}
+              fpx={fpx}
+              timelineOffset={timelineOffset}
+              rowH={rowH}
+              currentFrame={currentFrame}
+              color={color}
+              onClickLayer={onClick}
+            />
+          </div>
         ) : (
           /* Layer time bar */
           <div
+            data-timeline-interactive
             style={{
               position: 'absolute', left: barLeft, width: barW,
               top: rowH / 2 - barH / 2, height: barH,
@@ -603,6 +640,7 @@ function TrackRow({
                 const x = frameX((kf.frame + next.frame) / 2)
                 return (
                   <button
+                    data-timeline-interactive
                     key={`main-ease-${idx}-${kf.frame}-${next.frame}`}
                     onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true) }}
                     style={{ position: 'absolute', left: x - 5, top: rowH / 2 - 16, width: 10, height: 10, borderRadius: '50%', background: color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
@@ -612,6 +650,7 @@ function TrackRow({
               })}
               {sorted.map((kf, idx) => (
                 <div key={`main-kf-${idx}-${kf.frame}`}
+                  data-timeline-interactive
                   className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                   style={{
                     left: frameX(kf.frame),
@@ -681,6 +720,7 @@ function TrackRow({
                         const x = frameX((kf.frame + next.frame) / 2)
                         return (
                           <button
+                            data-timeline-interactive
                             key={`prop-ease-${idx}-${kf.frame}-${next.frame}`}
                             onClick={(e) => { e.stopPropagation(); onKfContextMenu(e, layer.id, kf.frame, true, easingPropKey) }}
                             style={{ position: 'absolute', left: x - 5, top: 2, width: 10, height: 10, borderRadius: '50%', background: group.color, color: '#fff', fontSize: 8, lineHeight: '10px', zIndex: 3 }}
@@ -692,6 +732,7 @@ function TrackRow({
                       {/* Keyframe diamonds on sub-track */}
                       {sourceKfs.map((kf, idx) => (
                         <div key={`prop-kf-${idx}-${kf.frame}`}
+                          data-timeline-interactive
                           className={`kf-diamond ${kf.frame === currentFrame ? 'active' : ''}`}
                           style={{
                             left: frameX(kf.frame),
@@ -811,13 +852,13 @@ export function Timeline() {
     layers, currentFrame, totalFrames, fps, isPlaying, playbackRate,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
-    setCurrentFrame, setPlaying, setTotalFrames, setPlaybackRate,
-    selectLayer, removeKeyframe, clearLayerKeyframes, clearLayerAndDescendantKeyframes, moveKeyframe, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, movePropertyKeyframe, duplicateKeyframe,
+    setCurrentFrame, setPlaying, setTotalFrames, trimTimelineAtFrame, trimTimelineStartAtFrame, setPlaybackRate,
+    selectLayer, removeKeyframe, clearLayerKeyframes, clearLayerAndDescendantKeyframes, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, duplicateKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
     updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById,
     setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
-    selectedKeyframes, selectKeyframe,
+    selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
   } = useStore()
 
@@ -828,14 +869,17 @@ export function Timeline() {
   const [copiedKf, setCopiedKf] = useState<{ props: unknown; easing: string } | null>(null)
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
   const [timelineScrollbar, setTimelineScrollbar] = useState({ left: 0, width: 0, visible: false })
+  const [marquee, setMarquee] = useState<TimelineMarqueeState | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const labelScrollRef = useRef<HTMLDivElement>(null)
   const timelineScrollbarThumbRef = useRef<HTMLDivElement>(null)
   const lastAutoScrollFrame = useRef(currentFrame)
   const isDragging = useRef(false)
-  const kfDrag = useRef<{ layerId: string; fromFrame: number; propKey?: AnimatableProperty } | null>(null)
+  const kfDrag = useRef<KeyframeDragState | null>(null)
   const barDrag = useRef<BarDragState | null>(null)
+  const marqueeRef = useRef<TimelineMarqueeState | null>(null)
+  const suppressRowClick = useRef(false)
   const timelineScrollDrag = useRef<{ startX: number; startScrollLeft: number; maxScrollLeft: number; maxThumbLeft: number } | null>(null)
   const timelinePanDrag = useRef<{ startX: number; startY: number; startScrollLeft: number; startScrollTop: number; maxScrollLeft: number; maxScrollTop: number } | null>(null)
   const resizeDragging = useRef(false)
@@ -876,6 +920,78 @@ export function Timeline() {
       end: Math.max(...rangeLayers.map((l) => l.endFrame ?? totalFrames)),
     }
   }
+
+  const rowLayouts = useMemo(() => {
+    let top = RULER_H
+    return rows.map(({ layer }) => {
+      const animProps = getVisibleAnimProps(layer, showAllSubtracks)
+      const hasMultipleKf = layer.keyframes.length >= 2
+      let height = rowH
+      if (expandedLayers.has(layer.id) && (hasMultipleKf || animProps.length > 0)) {
+        ANIMATION_GROUPS.forEach((group) => {
+          const groupProps = group.keys.filter((key) => animProps.includes(key))
+          if (!groupProps.length) return
+          height += groupHeaderH
+          groupProps.forEach((propKey) => {
+            height += showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? valueGraphH : subtrackH
+          })
+        })
+      }
+      const layout = { layer, top, height, animProps, hasMultipleKf }
+      top += height
+      return layout
+    })
+  }, [rows, rowH, groupHeaderH, subtrackH, valueGraphH, expandedLayers, showAllSubtracks, showValueGraph])
+
+  const keyframeTargets = useMemo<TimelineKeyframeTarget[]>(() => {
+    const targets: TimelineKeyframeTarget[] = []
+    rowLayouts.forEach(({ layer, top, animProps, hasMultipleKf }) => {
+      const layerName = layer.name || layer.type
+      if (hasMultipleKf) {
+        layer.keyframes.forEach((kf) => {
+          const x = TIMELINE_LEFT_OFFSET + kf.frame * fpx
+          targets.push({
+            selection: { layerId: layer.id, frame: kf.frame },
+            x: x - 6,
+            y: top + rowH / 2 - 6,
+            w: 12,
+            h: 12,
+            layerName,
+            propertyLabel: t('topbar.transformKeyframe'),
+          })
+        })
+      }
+
+      if (!expandedLayers.has(layer.id) || (!hasMultipleKf && animProps.length === 0)) return
+      let y = top + rowH
+      ANIMATION_GROUPS.forEach((group) => {
+        const groupProps = group.keys.filter((key) => animProps.includes(key))
+        if (!groupProps.length) return
+        y += groupHeaderH
+        groupProps.forEach((propKey) => {
+          const graphH = showValueGraph && NUMERIC_PROPERTIES.has(propKey) ? valueGraphH : subtrackH
+          const hasExplicitPropTrack = Object.prototype.hasOwnProperty.call(layer.propertyKeyframes ?? {}, propKey)
+          const sourceKfs = hasExplicitPropTrack
+            ? getPropertyKeyframes(layer, propKey)
+            : getTransformPropertyKeyframes(layer, propKey)
+          sourceKfs.forEach((kf) => {
+            const x = TIMELINE_LEFT_OFFSET + kf.frame * fpx
+            targets.push({
+              selection: { layerId: layer.id, frame: kf.frame, propKey },
+              x: x - 6,
+              y: y + graphH / 2 - 6,
+              w: 12,
+              h: 12,
+              layerName,
+              propertyLabel: propLabel(t, propKey),
+            })
+          })
+          y += graphH
+        })
+      })
+    })
+    return targets
+  }, [rowLayouts, fpx, rowH, groupHeaderH, subtrackH, valueGraphH, expandedLayers, showValueGraph, t])
 
   function syncVerticalScroll(from: 'labels' | 'tracks', scrollTop: number) {
     const target = from === 'labels' ? scrollRef.current : labelScrollRef.current
@@ -959,6 +1075,16 @@ export function Timeline() {
     const x = clientX - rect.left + el.scrollLeft - TIMELINE_LEFT_OFFSET
     return Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
   }, [totalFrames, fpx])
+
+  const timelinePointFromMouse = useCallback((clientX: number, clientY: number) => {
+    const el = scrollRef.current
+    if (!el) return null
+    const rect = el.getBoundingClientRect()
+    return {
+      x: clientX - rect.left + el.scrollLeft,
+      y: clientY - rect.top + el.scrollTop,
+    }
+  }, [])
 
   function onRulerDown(e: React.MouseEvent) { isDragging.current = true; beginInteraction(false); setCurrentFrame(frameFromX(e.clientX)) }
   function onRulerMove(e: React.MouseEvent) { if (isDragging.current) setCurrentFrame(frameFromX(e.clientX)) }
@@ -1054,9 +1180,48 @@ export function Timeline() {
   // ── Keyframe drag ──────────────────────────────────────────────────────
   function onKfMouseDown(e: React.MouseEvent, layerId: string, frame: number, propKey?: AnimatableProperty) {
     e.stopPropagation()
-    selectKeyframe({ layerId, frame, propKey }, e.shiftKey || e.metaKey || e.ctrlKey)
+    const clicked: KeyframeSelection = { layerId, frame, propKey }
+    const currentSelection = useStore.getState().selectedKeyframes
+    const exists = currentSelection.some((selection) => sameKeyframeSelection(selection, clicked))
+    const multi = e.shiftKey || e.metaKey || e.ctrlKey
+    if (multi) {
+      selectKeyframe(clicked, true)
+      if (exists) return
+    } else if (!exists || currentSelection.length <= 1) {
+      selectKeyframe(clicked)
+    } else {
+      setCurrentFrame(frame, { preserveKeyframeSelection: true })
+    }
+    const dragSelection = multi
+      ? exists
+        ? currentSelection.filter((selection) => !sameKeyframeSelection(selection, clicked))
+        : [...currentSelection, clicked]
+      : exists && currentSelection.length > 1
+        ? currentSelection
+        : [clicked]
     beginInteraction(true)
-    kfDrag.current = { layerId, fromFrame: frame, propKey }
+    kfDrag.current = {
+      startClientX: e.clientX,
+      appliedDelta: 0,
+      minFrame: Math.min(...dragSelection.map((selection) => selection.frame)),
+      maxFrame: Math.max(...dragSelection.map((selection) => selection.frame)),
+    }
+  }
+
+  function onTimelineMarqueeMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    if (target.closest('[data-timeline-interactive]')) return
+    const point = timelinePointFromMouse(e.clientX, e.clientY)
+    if (!point || point.y < RULER_H) return
+    marqueeRef.current = {
+      startX: point.x,
+      startY: point.y,
+      currentX: point.x,
+      currentY: point.y,
+      addToSelection: e.shiftKey || e.metaKey || e.ctrlKey,
+      active: false,
+    }
   }
 
   // ── Bar drag ───────────────────────────────────────────────────────────
@@ -1131,16 +1296,26 @@ export function Timeline() {
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (kfDrag.current) {
-        const el = scrollRef.current
-        if (!el) return
-        const rect = el.getBoundingClientRect()
-        const x = e.clientX - rect.left + el.scrollLeft - TIMELINE_LEFT_OFFSET
-        const newFrame = Math.max(0, Math.min(totalFrames - 1, Math.round(x / fpx)))
-        if (newFrame !== kfDrag.current.fromFrame) {
-          if (kfDrag.current.propKey) movePropertyKeyframe(kfDrag.current.layerId, kfDrag.current.propKey, kfDrag.current.fromFrame, newFrame)
-          else moveKeyframe(kfDrag.current.layerId, kfDrag.current.fromFrame, newFrame)
-          setCurrentFrame(newFrame, { preserveKeyframeSelection: true })
-          kfDrag.current = { ...kfDrag.current, fromFrame: newFrame }
+        const drag = kfDrag.current
+        const rawDelta = Math.round((e.clientX - drag.startClientX) / fpx)
+        const targetDelta = Math.max(-drag.minFrame, Math.min(rawDelta, totalFrames - 1 - drag.maxFrame))
+        const incrementalDelta = targetDelta - drag.appliedDelta
+        if (incrementalDelta !== 0) {
+          moveSelectedKeyframes(incrementalDelta)
+          drag.appliedDelta = targetDelta
+        }
+        return
+      }
+      if (marqueeRef.current) {
+        const point = timelinePointFromMouse(e.clientX, e.clientY)
+        if (!point) return
+        const drag = marqueeRef.current
+        const distance = Math.hypot(point.x - drag.startX, point.y - drag.startY)
+        const next = { ...drag, currentX: point.x, currentY: point.y, active: drag.active || distance > 3 }
+        marqueeRef.current = next
+        if (next.active) {
+          suppressRowClick.current = true
+          setMarquee(next)
         }
         return
       }
@@ -1155,6 +1330,26 @@ export function Timeline() {
       }
     }
     function onMouseUp() {
+      const activeMarquee = marqueeRef.current
+      if (activeMarquee?.active) {
+        const rect = {
+          x: Math.min(activeMarquee.startX, activeMarquee.currentX),
+          y: Math.min(activeMarquee.startY, activeMarquee.currentY),
+          w: Math.abs(activeMarquee.currentX - activeMarquee.startX),
+          h: Math.abs(activeMarquee.currentY - activeMarquee.startY),
+        }
+        const hits = keyframeTargets
+          .filter((target) => rectsIntersect(rect, target))
+          .map((target) => target.selection)
+        if (activeMarquee.addToSelection) {
+          setSelectedKeyframes([...useStore.getState().selectedKeyframes, ...hits])
+        } else {
+          setSelectedKeyframes(hits)
+        }
+      }
+      marqueeRef.current = null
+      setMarquee(null)
+      window.setTimeout(() => { suppressRowClick.current = false }, 0)
       const activeBarDrag = barDrag.current
       if (activeBarDrag) commitBarDrag(activeBarDrag)
       if (kfDrag.current || activeBarDrag) endInteraction()
@@ -1164,7 +1359,7 @@ export function Timeline() {
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onMouseUp)
     return () => { window.removeEventListener('mousemove', onMouseMove); window.removeEventListener('mouseup', onMouseUp) }
-  }, [totalFrames, fpx, moveKeyframe, movePropertyKeyframe, updateLayerTimeRange, setLayerRange, setCurrentFrame, currentFrame, endInteraction])
+  }, [totalFrames, fpx, moveSelectedKeyframes, updateLayerTimeRange, setLayerRange, endInteraction, keyframeTargets, setSelectedKeyframes, timelinePointFromMouse])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -1280,6 +1475,33 @@ export function Timeline() {
   const barMenuStyle = barContextMenu
     ? fixedPopoverPosition(barContextMenu.x, barContextMenu.y, 210, (7 + (barContextLayerHasChildren ? 1 : 0)) * 30 + 8)
     : null
+  const selectedTargetRects = keyframeTargets.filter((target) =>
+    selectedKeyframes.some((selection) => sameKeyframeSelection(selection, target.selection))
+  )
+  const selectedKeyframeBounds = selectedTargetRects.length
+    ? selectedTargetRects.reduce((acc, item) => ({
+      minX: Math.min(acc.minX, item.x),
+      minY: Math.min(acc.minY, item.y),
+      maxX: Math.max(acc.maxX, item.x + item.w),
+      maxY: Math.max(acc.maxY, item.y + item.h),
+    }), {
+      minX: selectedTargetRects[0].x,
+      minY: selectedTargetRects[0].y,
+      maxX: selectedTargetRects[0].x + selectedTargetRects[0].w,
+      maxY: selectedTargetRects[0].y + selectedTargetRects[0].h,
+    })
+    : null
+  const selectedFrameRange = selectedKeyframes.length
+    ? `${Math.min(...selectedKeyframes.map((item) => item.frame))}-${Math.max(...selectedKeyframes.map((item) => item.frame))}`
+    : ''
+  const marqueeRect = marquee && marquee.active
+    ? {
+      x: Math.min(marquee.startX, marquee.currentX),
+      y: Math.min(marquee.startY, marquee.currentY),
+      w: Math.abs(marquee.currentX - marquee.startX),
+      h: Math.abs(marquee.currentY - marquee.startY),
+    }
+    : null
 
   return (
     <div style={{
@@ -1343,6 +1565,32 @@ export function Timeline() {
         >
           <LineChart size={13} />{t('timeline.valueGraph')}
         </button>
+        <button
+          onClick={() => {
+            if (currentFrame >= totalFrames - 1) return
+            const seconds = ((currentFrame + 1) / fps).toFixed(2)
+            if (confirm(t('timeline.trimEndConfirm', { seconds }))) trimTimelineAtFrame(currentFrame)
+          }}
+          className="pill-btn"
+          title={t('timeline.trimEndTitle')}
+          style={{ background: 'var(--input)', color: 'var(--text2)' }}
+          disabled={currentFrame >= totalFrames - 1}
+        >
+          <Scissors size={13} />{t('timeline.trimEnd')}
+        </button>
+        <button
+          onClick={() => {
+            if (currentFrame <= 0) return
+            const seconds = (currentFrame / fps).toFixed(2)
+            if (confirm(t('timeline.trimStartConfirm', { seconds }))) trimTimelineStartAtFrame(currentFrame)
+          }}
+          className="pill-btn"
+          title={t('timeline.trimStartTitle')}
+          style={{ background: 'var(--input)', color: 'var(--text2)' }}
+          disabled={currentFrame <= 0}
+        >
+          <Scissors size={13} />{t('timeline.trimStart')}
+        </button>
 
         <div className="flex-1" />
 
@@ -1404,6 +1652,7 @@ export function Timeline() {
             className="flex-1 overflow-x-auto overflow-y-auto"
             style={{ position: 'relative', cursor: 'default' }}
             onMouseDownCapture={onTimelinePanMouseDown}
+            onMouseDown={onTimelineMarqueeMouseDown}
             onAuxClick={(e) => { if (e.button === 1) e.preventDefault() }}
             onScroll={(e) => {
               if (!timelineScrollDrag.current && !timelinePanDrag.current) {
@@ -1456,11 +1705,67 @@ export function Timeline() {
                   selectKeyframe({ layerId, frame, propKey })
                   setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing, propKey })
                 }}
-                onClick={() => selectLayer(layer.id)}
+                onClick={() => { if (!suppressRowClick.current) selectLayer(layer.id) }}
                 onBarMouseDown={onBarMouseDown}
                 onBarContextMenu={(e, layerId) => setBarContextMenu({ x: e.clientX, y: e.clientY, layerId })}
               />
             ))}
+
+            {selectedKeyframeBounds && selectedKeyframes.length > 1 && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: selectedKeyframeBounds.minX - 6,
+                  top: selectedKeyframeBounds.minY - 6,
+                  width: selectedKeyframeBounds.maxX - selectedKeyframeBounds.minX + 12,
+                  height: selectedKeyframeBounds.maxY - selectedKeyframeBounds.minY + 12,
+                  border: '1px solid #0d99ff',
+                  background: 'rgba(13,153,255,0.07)',
+                  borderRadius: 5,
+                  pointerEvents: 'none',
+                  zIndex: 8,
+                  boxShadow: '0 0 0 1px rgba(13,153,255,0.18)',
+                }}
+              >
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: -22,
+                    height: 18,
+                    padding: '0 6px',
+                    borderRadius: 4,
+                    background: '#0d99ff',
+                    color: '#fff',
+                    fontSize: 10,
+                    fontWeight: 600,
+                    display: 'flex',
+                    alignItems: 'center',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 8px rgba(0,0,0,0.22)',
+                  }}
+                >
+                  {t('timeline.selectedKeyframes', { count: selectedKeyframes.length, range: selectedFrameRange })}
+                </div>
+              </div>
+            )}
+
+            {marqueeRect && (
+              <div
+                style={{
+                  position: 'absolute',
+                  left: marqueeRect.x,
+                  top: marqueeRect.y,
+                  width: marqueeRect.w,
+                  height: marqueeRect.h,
+                  border: '1px solid #0d99ff',
+                  background: 'rgba(13,153,255,0.12)',
+                  borderRadius: 3,
+                  pointerEvents: 'none',
+                  zIndex: 12,
+                }}
+              />
+            )}
 
             {/* Playhead */}
             <div style={{ position: 'absolute', top: 0, left: TIMELINE_LEFT_OFFSET + currentFrame * fpx, width: 1, bottom: 0, background: '#ef4444', pointerEvents: 'none', zIndex: 10 }}>

@@ -104,13 +104,37 @@ function renderStyledTextRange(layer: Layer, start: number, end: number) {
   ))
 }
 
+function renderPlainTypewriterText(layer: Layer, charProgress: number) {
+  const progress = Math.max(0, Math.min(1, charProgress))
+  if (progress >= 0.999) return renderStyledTextRange(layer, 0, layer.text.length)
+  const visible = Math.floor(layer.text.length * progress)
+  return Array.from({ length: layer.text.length }, (_, index) => {
+    const char = layer.text[index]
+    if (char === '\n') return <br key={index} />
+    const style = textStyleForIndex(layer, index)
+    return (
+      <span
+        key={index}
+        style={{
+          visibility: index < visible ? 'visible' : 'hidden',
+          fontFamily: style?.fontFamily,
+          fontSize: style?.fontSize,
+          fontWeight: style?.fontWeight,
+          color: style?.textColor,
+          letterSpacing: style?.letterSpacing,
+        }}
+      >
+        {char}
+      </span>
+    )
+  })
+}
+
 function renderAnimatedText(layer: Layer, charProgress: number) {
   const progress = Math.max(0, Math.min(1, charProgress))
   const mode = layer.textRevealMode ?? 'plain'
   if (mode === 'plain') {
-    const visible = Math.floor(layer.text.length * progress)
-    const displayText = layer.text.slice(0, visible)
-    return renderStyledTextRange({ ...layer, text: displayText }, 0, displayText.length)
+    return renderPlainTypewriterText(layer, progress)
   }
 
   if (mode === 'word-rise') {
@@ -146,7 +170,6 @@ function renderAnimatedText(layer: Layer, charProgress: number) {
         key={index}
         style={{
           display: 'inline-block',
-          whiteSpace: char === ' ' ? 'pre' : undefined,
           fontFamily: style?.fontFamily,
           fontSize: style?.fontSize,
           fontWeight: style?.fontWeight,
@@ -156,7 +179,7 @@ function renderAnimatedText(layer: Layer, charProgress: number) {
           ...charRevealStyle(mode, charT),
         }}
       >
-        {char === ' ' ? '\u00a0' : char}
+        {char}
       </span>
     )
   })
@@ -630,7 +653,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
           background: animatedLayer.fillType !== 'none' ? bg : 'transparent',
           display: htmlText ? 'block' : 'flex',
-          alignItems: htmlText ? undefined : 'center',
+          alignItems: htmlText ? undefined : 'flex-start',
           justifyContent: 'stretch',
           fontFamily: animatedLayer.fontFamily,
           fontSize: animatedLayer.fontSize,
@@ -643,6 +666,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           boxSizing: 'border-box',
           ...layerBorderStrokeStyle(animatedLayer),
           overflow: htmlText ? 'visible' : undefined,
+          minWidth: 0,
         }}
         onClick={handleClick}
         onDoubleClick={(e) => {
@@ -654,9 +678,12 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         <div
           style={{
             width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
             textAlign: animatedLayer.textAlign,
             whiteSpace: htmlText ? (animatedLayer.htmlWhiteSpace ?? 'normal') : 'pre-wrap',
             wordBreak: htmlText ? 'normal' : 'break-word',
+            overflowWrap: htmlText ? 'normal' : 'anywhere',
             overflow: htmlText ? 'visible' : undefined,
           }}
         >

@@ -162,18 +162,19 @@ button:disabled { cursor: default; opacity: 0.4; }
   --ai-accent: #f25f22;
   --ai-accent-bg: rgba(242, 95, 34, 0.10);
   --ai-accent-bg-strong: rgba(242, 95, 34, 0.16);
-  position: fixed;
-  top: 40px;
-  right: 0;
-  bottom: 0;
-  width: min(380px, calc(100vw - 48px));
-  z-index: 2600;
+  position: relative;
+  width: 380px;
+  max-width: min(380px, 42vw);
+  height: 100%;
+  flex: 0 0 min(380px, 42vw);
+  min-width: 320px;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   background: var(--panel);
   color: var(--text);
   border-left: 1px solid var(--border);
-  box-shadow: -1px 0 0 var(--border), -12px 0 32px rgba(0, 0, 0, 0.10);
+  box-shadow: -1px 0 0 var(--border);
 }
 
 :root:not(.dark) .ai-chat-dock {
@@ -227,7 +228,7 @@ button:disabled { cursor: default; opacity: 0.4; }
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
@@ -241,7 +242,8 @@ button:disabled { cursor: default; opacity: 0.4; }
   border-radius: 6px;
   background: var(--panel2);
   border: 1px solid var(--border);
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .ai-chat-mode {
@@ -281,6 +283,27 @@ button:disabled { cursor: default; opacity: 0.4; }
 
 .ai-chat-mode.active svg {
   opacity: 1;
+}
+
+.ai-chat-new-btn {
+  flex: 0 0 auto;
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 9px;
+  background: var(--input);
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.ai-chat-new-btn:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 
 /* Padded wrapper keeps the composer + start screen from kissing the panel

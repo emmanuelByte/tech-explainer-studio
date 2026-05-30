@@ -296,6 +296,91 @@ function smoothPoint(points: EditablePathPoint[], index: number, closed: boolean
   return nextPoints
 }
 
+function cloneEditablePathPoints(points: EditablePathPoint[]) {
+  return points.map((item) => ({
+    ...item,
+    in: item.in ? { ...item.in } : undefined,
+    out: item.out ? { ...item.out } : undefined,
+  }))
+}
+
+function lerpPoint(a: PenPoint, b: PenPoint, t: number): PenPoint {
+  return {
+    x: a.x + (b.x - a.x) * t,
+    y: a.y + (b.y - a.y) * t,
+  }
+}
+
+function cubicPoint(a: PenPoint, b: PenPoint, c: PenPoint, d: PenPoint, t: number): PenPoint {
+  const ab = lerpPoint(a, b, t)
+  const bc = lerpPoint(b, c, t)
+  const cd = lerpPoint(c, d, t)
+  const abbc = lerpPoint(ab, bc, t)
+  const bccd = lerpPoint(bc, cd, t)
+  return lerpPoint(abbc, bccd, t)
+}
+
+function closestSegmentT(from: EditablePathPoint, to: EditablePathPoint, click: PenPoint) {
+  const c1 = from.out ?? from
+  const c2 = to.in ?? to
+  let bestT = 0.5
+  let bestDistance = Infinity
+  for (let step = 0; step <= 80; step += 1) {
+    const t = step / 80
+    const point = from.out || to.in
+      ? cubicPoint(from, c1, c2, to, t)
+      : lerpPoint(from, to, t)
+    const d = distance(point, click)
+    if (d < bestDistance) {
+      bestDistance = d
+      bestT = t
+    }
+  }
+  return Math.max(0.05, Math.min(0.95, bestT))
+}
+
+function insertSmoothPathPoint(points: EditablePathPoint[], afterIndex: number, click: PenPoint, closed: boolean) {
+  const nextPoints = cloneEditablePathPoints(points)
+  const from = nextPoints[afterIndex]
+  const toIndex = afterIndex + 1 < nextPoints.length ? afterIndex + 1 : closed ? 0 : -1
+  const to = toIndex >= 0 ? nextPoints[toIndex] : null
+  if (!from || !to) return nextPoints
+
+  const t = closestSegmentT(from, to, click)
+  const insertAt = afterIndex + 1
+
+  if (from.out || to.in) {
+    const p0 = { x: from.x, y: from.y }
+    const p1 = from.out ?? p0
+    const p2 = to.in ?? { x: to.x, y: to.y }
+    const p3 = { x: to.x, y: to.y }
+    const p01 = lerpPoint(p0, p1, t)
+    const p12 = lerpPoint(p1, p2, t)
+    const p23 = lerpPoint(p2, p3, t)
+    const p012 = lerpPoint(p01, p12, t)
+    const p123 = lerpPoint(p12, p23, t)
+    const anchor = lerpPoint(p012, p123, t)
+    from.out = p01
+    to.in = p23
+    nextPoints.splice(insertAt, 0, {
+      ...anchor,
+      in: p012,
+      out: p123,
+    })
+    return nextPoints
+  }
+
+  const anchor = lerpPoint(from, to, t)
+  from.out = lerpPoint(from, anchor, 1 / 3)
+  to.in = lerpPoint(anchor, to, 2 / 3)
+  nextPoints.splice(insertAt, 0, {
+    ...anchor,
+    in: lerpPoint(from, anchor, 2 / 3),
+    out: lerpPoint(anchor, to, 1 / 3),
+  })
+  return nextPoints
+}
+
 function getMovementLayerIds(layers: Layer[], selectedIds: string[]) {
   const byId = new Map(layers.map((layer) => [layer.id, layer]))
   const selected = new Set(selectedIds)
@@ -801,9 +886,13 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
     layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
-    selectLayer, selectLayers, clearSelectedKeyframes, currentTool, addGeneratedLayer, resizeLayerBox,
+    selectLayer, selectLayers, clearSelectedKeyframes, currentTool, setTool, addGeneratedLayer, resizeLayerBox,
     reorderLayersById,
   } = useStore()
+  // Tools that should drag-to-create a new layer on the canvas (vs.
+  // marquee-select). Pen has its own dedicated flow above.
+  const isCreationTool = currentTool === 'rectangle' || currentTool === 'ellipse'
+    || currentTool === 'triangle' || currentTool === 'line' || currentTool === 'text'
 
   const [displayScale, setDisplayScale] = useState(0)
   const [marquee, setMarquee] = useState<MarqueeState | null>(null)
@@ -921,7 +1010,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         x: ((point.x - box.left) / Math.max(1, box.width)) * targetLayer.width,
         y: ((point.y - box.top) / Math.max(1, box.height)) * targetLayer.height,
       }
-      const points = pathDrag.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined }))
+      const points = cloneEditablePathPoints(pathDrag.points)
       const edited = points[pathDrag.pointIndex]
       if (!edited) return
       if (pathDrag.type === 'anchor') {
@@ -1151,7 +1240,46 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (marqueeRef.current) {
       const state = marqueeRef.current
       const moved = Math.abs(state.currentX - state.startX) > 3 || Math.abs(state.currentY - state.startY) > 3
-      if (!moved) {
+      const liveTool = useStore.getState().currentTool
+      const liveIsCreation = liveTool === 'rectangle' || liveTool === 'ellipse'
+        || liveTool === 'triangle' || liveTool === 'line' || liveTool === 'text'
+
+      if (liveIsCreation) {
+        // Convert the marquee box into a freshly created layer at the
+        // dragged size, or a default-sized layer at the click point.
+        const cx = (state.startX + state.currentX) / 2
+        const cy = (state.startY + state.currentY) / 2
+        // Layer coords use canvas-center origin — convert from canvas-tl.
+        const layerX = Math.round(cx - canvasW / 2)
+        const layerY = Math.round(cy - canvasH / 2)
+        const draggedW = Math.round(Math.abs(state.currentX - state.startX))
+        const draggedH = Math.round(Math.abs(state.currentY - state.startY))
+
+        const overrides: Partial<Layer> = {
+          keyframes: [{
+            frame: 0,
+            easing: 'ease-out',
+            props: { ...DEFAULT_TRANSFORM, x: layerX, y: layerY },
+          }],
+        }
+        if (moved) {
+          if (liveTool === 'line') {
+            // Line height stays the stroke width — drag controls length only.
+            overrides.width = Math.max(20, draggedW)
+          } else if (liveTool === 'text') {
+            // Text uses fit-content sizing by default; drag width is honored,
+            // height auto-fits unless user later toggles fixed sizing.
+            overrides.width = Math.max(40, draggedW)
+            overrides.height = Math.max(20, draggedH)
+          } else {
+            overrides.width = Math.max(10, draggedW)
+            overrides.height = Math.max(10, draggedH)
+          }
+        }
+        addGeneratedLayer(liveTool, overrides)
+        // Return to the Select tool — Figma-style one-shot creation.
+        setTool('select')
+      } else if (!moved) {
         const boxes = layers
           .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
           .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
@@ -1161,7 +1289,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       marqueeRef.current = null
       setMarquee(null)
     }
-  }, [layers, currentFrame, canvasW, canvasH, autoKeyframe, selectLayer, addKeyframes, setLayerAnimatedProperty, endInteraction, clearGuideUpdate])
+  }, [layers, currentFrame, canvasW, canvasH, autoKeyframe, selectLayer, addKeyframes, setLayerAnimatedProperty, endInteraction, clearGuideUpdate, addGeneratedLayer, setTool])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -1410,7 +1538,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const next = { ...state, currentX: point.x, currentY: point.y, started: state.started || Math.abs(point.x - state.startX) > 3 || Math.abs(point.y - state.startY) > 3 }
     marqueeRef.current = next
     setMarquee(next)
-    if (next.started) updateMarqueeSelection(next)
+    // For shape-creation tools the marquee is a draft size, not a selection
+    // marquee — don't auto-select layers under it while dragging.
+    if (next.started && !isCreationTool) updateMarqueeSelection(next)
   }
 
   function onBackgroundDoubleClick(e: React.MouseEvent) {
@@ -1621,7 +1751,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     pathDragRef.current = {
       type,
       pointIndex,
-      points: editablePath.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined })),
+      points: cloneEditablePathPoints(editablePath.points),
       closed: editablePathClosed,
     }
   }
@@ -1642,10 +1772,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       x: ((point.x - boxLeft) / Math.max(1, boxW)) * animatedLayer.width,
       y: ((point.y - boxTop) / Math.max(1, boxH)) * animatedLayer.height,
     }
-    const points = editablePath.points.map((item) => ({ ...item, in: item.in ? { ...item.in } : undefined, out: item.out ? { ...item.out } : undefined }))
-    const insertAt = afterIndex + 1
-    points.splice(insertAt, 0, local)
-    updatePath(points)
+    updatePath(insertSmoothPathPoint(editablePath.points, afterIndex, local, editablePathClosed))
   }
 
   return (
@@ -1664,6 +1791,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           transform: `scale(${displayScale})`,
           transformOrigin: 'top left',
           pointerEvents: 'all',
+          cursor: isCreationTool ? 'crosshair' : currentTool === 'pen' ? 'crosshair' : undefined,
         }}
         onMouseDown={onBackgroundMouseDown}
         onMouseMove={onBackgroundMouseMove}
@@ -1678,8 +1806,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
               top: Math.min(marquee.startY, marquee.currentY),
               width: Math.abs(marquee.currentX - marquee.startX),
               height: Math.abs(marquee.currentY - marquee.startY),
-              background: 'rgba(13,153,255,0.12)',
-              border: `${1 / displayScale}px solid #0d99ff`,
+              // Shape-creation drag = solid hint; marquee-select = translucent.
+              background: isCreationTool ? 'rgba(13,153,255,0.18)' : 'rgba(13,153,255,0.12)',
+              border: `${1 / displayScale}px ${isCreationTool ? 'dashed' : 'solid'} #0d99ff`,
               boxSizing: 'border-box',
               pointerEvents: 'none',
               zIndex: 20,
@@ -1935,7 +2064,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   position: 'absolute',
                   inset: 0,
                   display: 'flex',
-                  alignItems: 'center',
+                  alignItems: 'flex-start',
                   justifyContent: 'stretch',
                   padding: `${editingPadY}px 8px`,
                   boxSizing: 'border-box',
@@ -1949,9 +2078,10 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   letterSpacing: animatedLayer.letterSpacing,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
                 }}
               >
-                <div style={{ width: '100%', textAlign: animatedLayer.textAlign }}>
+                <div style={{ width: '100%', maxWidth: '100%', minWidth: 0, textAlign: animatedLayer.textAlign, overflowWrap: 'anywhere' }}>
                   {textRuns(animatedLayer).map((run, idx) => (
                     <span
                       key={idx}
@@ -2003,6 +2133,8 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
                   padding: `${editingPadY}px 8px`,
                   boxSizing: 'border-box',
                   whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                  overflowWrap: 'anywhere',
                   overflow: 'hidden',
                   pointerEvents: 'all',
                 }}

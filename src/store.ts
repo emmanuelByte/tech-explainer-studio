@@ -19,6 +19,101 @@ import {
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
+type InlineTextStyle = Pick<Layer, 'fontFamily' | 'fontSize' | 'fontWeight' | 'textColor' | 'letterSpacing'>
+
+const INLINE_TEXT_STYLE_KEYS = ['fontFamily', 'fontSize', 'fontWeight', 'textColor', 'letterSpacing'] as const
+
+function textStyleAt(layer: Layer, index: number): InlineTextStyle {
+  const span = [...(layer.textSpans ?? [])].reverse().find((item) => index >= item.start && index < item.end)
+  return {
+    fontFamily: span?.fontFamily ?? layer.fontFamily,
+    fontSize: span?.fontSize ?? layer.fontSize,
+    fontWeight: span?.fontWeight ?? layer.fontWeight,
+    textColor: span?.textColor ?? layer.textColor,
+    letterSpacing: span?.letterSpacing ?? layer.letterSpacing,
+  }
+}
+
+function stylesEqual(a: InlineTextStyle, b: InlineTextStyle) {
+  return INLINE_TEXT_STYLE_KEYS.every((key) => Object.is(a[key], b[key]))
+}
+
+function textStyleDiff(layer: Layer, style: InlineTextStyle) {
+  return Object.fromEntries(
+    INLINE_TEXT_STYLE_KEYS
+      .filter((key) => !Object.is(style[key], layer[key]))
+      .map((key) => [key, style[key]])
+  )
+}
+
+function applyTextSelectionStyle(
+  layer: Layer,
+  start: number,
+  end: number,
+  style: Partial<InlineTextStyle>
+): Layer {
+  const textLength = layer.text.length
+  const safeStart = Math.max(0, Math.min(textLength, start))
+  const safeEnd = Math.max(safeStart, Math.min(textLength, end))
+  if (safeStart === safeEnd) return layer
+
+  const boundaries = new Set<number>([0, textLength, safeStart, safeEnd])
+  ;(layer.textSpans ?? []).forEach((span) => {
+    boundaries.add(Math.max(0, Math.min(textLength, span.start)))
+    boundaries.add(Math.max(0, Math.min(textLength, span.end)))
+  })
+
+  const points = [...boundaries].sort((a, b) => a - b)
+  const textSpans: Layer['textSpans'] = []
+  let pending: { start: number; end: number; style: InlineTextStyle } | null = null
+
+  for (let idx = 0; idx < points.length - 1; idx += 1) {
+    const segmentStart = points[idx]
+    const segmentEnd = points[idx + 1]
+    if (segmentEnd <= segmentStart) continue
+
+    const baseStyle = textStyleAt(layer, segmentStart)
+    const nextStyle = segmentStart >= safeStart && segmentEnd <= safeEnd
+      ? { ...baseStyle, ...style }
+      : baseStyle
+
+    if (pending && stylesEqual(pending.style, nextStyle) && pending.end === segmentStart) {
+      pending.end = segmentEnd
+    } else {
+      if (pending) textSpans.push({ id: uid(), start: pending.start, end: pending.end, ...textStyleDiff(layer, pending.style) })
+      pending = { start: segmentStart, end: segmentEnd, style: nextStyle }
+    }
+  }
+
+  if (pending) textSpans.push({ id: uid(), start: pending.start, end: pending.end, ...textStyleDiff(layer, pending.style) })
+
+  return {
+    ...layer,
+    textSpans: textSpans.filter((span) => INLINE_TEXT_STYLE_KEYS.some((key) => span[key] !== undefined)),
+  }
+}
+
+function applyWholeTextStyle(layer: Layer, style: Partial<InlineTextStyle>): Layer {
+  const styleKeys = INLINE_TEXT_STYLE_KEYS.filter((key) => style[key] !== undefined)
+  if (!styleKeys.length) return layer
+
+  const textSpans = (layer.textSpans ?? [])
+    .map((span) => {
+      const next = { ...span }
+      styleKeys.forEach((key) => {
+        delete next[key]
+      })
+      return next
+    })
+    .filter((span) => INLINE_TEXT_STYLE_KEYS.some((key) => span[key] !== undefined))
+
+  return {
+    ...layer,
+    ...style,
+    textSpans,
+  }
+}
+
 function normalizeHexColor(value: string) {
   const trimmed = value.trim().toLowerCase()
   const short = trimmed.match(/^#([0-9a-f]{3})$/i)
@@ -150,6 +245,114 @@ function normalizeVideoLayer(layer: Layer, fps: number, totalFrames: number): La
     videoSegments,
     ...envelope,
   }
+}
+
+function trimVideoSegmentsToTimelineEnd(layer: Layer, fps: number, totalFrames: number): Layer['videoSegments'] {
+  if (!isMediaLayer(layer)) return layer.videoSegments
+  const sourceDurationFrames = sourceDurationFramesForLayer(layer, fps, Math.max(1, (layer.endFrame ?? 1) - (layer.startFrame ?? 0)))
+  const rawSegments = layer.videoSegments?.length ? layer.videoSegments : [makeDefaultVideoSegment(layer, fps, totalFrames)]
+  return normalizeVideoSegments(
+    rawSegments
+      .filter((segment) => segment.timelineStartFrame < totalFrames)
+      .map((segment) => ({
+        ...segment,
+        timelineEndFrame: Math.min(segment.timelineEndFrame, totalFrames),
+        speedKeyframes: segment.speedKeyframes
+          ?.filter((kf) => kf.frame < totalFrames)
+          .map((kf) => ({ ...kf, frame: clampInt(kf.frame, segment.timelineStartFrame, Math.max(segment.timelineStartFrame, totalFrames - 1)) })),
+      }))
+      .filter((segment) => segment.timelineEndFrame > segment.timelineStartFrame),
+    sourceDurationFrames,
+    totalFrames,
+  )
+}
+
+function trimLayerToTimelineEnd(layer: Layer, frame: number, totalFrames: number, fps: number): Layer | null {
+  const startFrame = Math.max(0, Math.round(layer.startFrame ?? 0))
+  if (startFrame >= totalFrames) return null
+  const originalEnd = Math.max(startFrame + 1, Math.round(layer.endFrame ?? totalFrames))
+  let next: Layer = {
+    ...layer,
+    startFrame,
+    endFrame: Math.max(startFrame + 1, Math.min(originalEnd, totalFrames)),
+    keyframes: layer.keyframes.filter((kf) => kf.frame < totalFrames),
+    propertyKeyframes: Object.fromEntries(
+      Object.entries(layer.propertyKeyframes ?? {}).map(([key, frames]) => [
+        key,
+        (frames ?? []).filter((kf) => kf.frame < totalFrames),
+      ]),
+    ) as Layer['propertyKeyframes'],
+  }
+  if (!next.keyframes.length) {
+    next = staticizeLayerAnimation({ ...next, keyframes: layer.keyframes }, frame)
+  }
+  if (isMediaLayer(next)) {
+    const videoSegments = trimVideoSegmentsToTimelineEnd(next, fps, totalFrames)
+    if (!videoSegments?.length) return null
+    next = normalizeVideoLayer({ ...next, videoSegments }, fps, totalFrames)
+  }
+  return next
+}
+
+function trimVideoSegmentsFromTimelineStart(layer: Layer, cutFrame: number, nextTotalFrames: number, fps: number): Layer['videoSegments'] {
+  if (!isMediaLayer(layer)) return layer.videoSegments
+  const sourceDurationFrames = sourceDurationFramesForLayer(layer, fps, Math.max(1, (layer.endFrame ?? 1) - (layer.startFrame ?? 0)))
+  const rawSegments = layer.videoSegments?.length ? layer.videoSegments : [makeDefaultVideoSegment(layer, fps, cutFrame + nextTotalFrames)]
+  return normalizeVideoSegments(
+    rawSegments
+      .filter((segment) => segment.timelineEndFrame > cutFrame)
+      .map((segment) => {
+        const clippedStart = Math.max(segment.timelineStartFrame, cutFrame)
+        return {
+          ...segment,
+          timelineStartFrame: clippedStart - cutFrame,
+          timelineEndFrame: segment.timelineEndFrame - cutFrame,
+          speedKeyframes: segment.speedKeyframes
+            ?.filter((kf) => kf.frame >= clippedStart)
+            .map((kf) => ({ ...kf, frame: kf.frame - cutFrame })),
+        }
+      })
+      .filter((segment) => segment.timelineEndFrame > segment.timelineStartFrame),
+    sourceDurationFrames,
+    nextTotalFrames,
+  )
+}
+
+function trimLayerFromTimelineStart(layer: Layer, cutFrame: number, nextTotalFrames: number, fps: number): Layer | null {
+  const endFrame = Math.round(layer.endFrame ?? cutFrame + nextTotalFrames)
+  if (endFrame <= cutFrame) return null
+  const startFrame = Math.max(0, Math.round(layer.startFrame ?? 0) - cutFrame)
+  let next: Layer = {
+    ...layer,
+    startFrame,
+    endFrame: Math.max(startFrame + 1, Math.min(nextTotalFrames, endFrame - cutFrame)),
+    keyframes: layer.keyframes
+      .filter((kf) => kf.frame >= cutFrame)
+      .map((kf) => ({ ...kf, frame: kf.frame - cutFrame })),
+    propertyKeyframes: Object.fromEntries(
+      Object.entries(layer.propertyKeyframes ?? {}).map(([key, frames]) => [
+        key,
+        (frames ?? [])
+          .filter((kf) => kf.frame >= cutFrame)
+          .map((kf) => ({ ...kf, frame: kf.frame - cutFrame })),
+      ]),
+    ) as Layer['propertyKeyframes'],
+  }
+  if (!next.keyframes.length) {
+    next = staticizeLayerAnimation({ ...next, keyframes: layer.keyframes }, cutFrame)
+    next = {
+      ...next,
+      startFrame,
+      endFrame: Math.max(startFrame + 1, Math.min(nextTotalFrames, endFrame - cutFrame)),
+      keyframes: next.keyframes.map((kf) => ({ ...kf, frame: startFrame })),
+    }
+  }
+  if (isMediaLayer(next)) {
+    const videoSegments = trimVideoSegmentsFromTimelineStart(layer, cutFrame, nextTotalFrames, fps)
+    if (!videoSegments?.length) return null
+    next = normalizeVideoLayer({ ...next, videoSegments }, fps, nextTotalFrames)
+  }
+  return next
 }
 
 function retimeVideoSegments(layer: Layer, oldStart: number, newStart: number, scale: number): Layer['videoSegments'] {
@@ -803,6 +1006,7 @@ function withTextFitContentSize(layer: Layer): Layer {
 }
 
 function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}): Layer {
+  const initialStartFrame = Number.isFinite(overrides.startFrame) ? Number(overrides.startFrame) : 0
   const textSize = estimateTextLayerSize(
     String(overrides.text ?? DEFAULT_TEXT),
     Number(overrides.fontSize ?? DEFAULT_TEXT_FONT_SIZE),
@@ -872,9 +1076,59 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     svgStrokeWidth: 2,
     startFrame: 0,
     endFrame: 150,
-    keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
+    keyframes: [{ frame: initialStartFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM } }],
     ...overrides,
   })
+}
+
+function timingForNewLayer(layers: Layer[], totalFrames: number, currentFrame: number, parentId?: string | null) {
+  const timelineStart = clampInt(currentFrame, 0, Math.max(0, totalFrames - 1))
+  const parent = parentId ? layers.find((layer) => layer.id === parentId) : null
+  if (!parent) return { startFrame: timelineStart, endFrame: totalFrames }
+
+  const parentEnd = parent.endFrame ?? totalFrames
+  const startFrame = clampInt(timelineStart, parent.startFrame ?? 0, Math.max(parent.startFrame ?? 0, parentEnd - 1))
+  const endFrame = clampInt(parentEnd, startFrame + 1, totalFrames)
+  return { startFrame, endFrame }
+}
+
+function shiftNewLayerAnimatedFrames(overrides: Partial<Layer>, startFrame: number, shouldShift: boolean, totalFrames: number): Partial<Layer> {
+  if (!shouldShift || startFrame <= 0) return overrides
+
+  const keyframes = overrides.keyframes
+  const propertyFrames = Object.values(overrides.propertyKeyframes ?? {}).flatMap((frames) => frames?.map((kf) => kf.frame) ?? [])
+  const segmentFrames = (overrides.videoSegments ?? []).flatMap((segment) => [segment.timelineStartFrame, segment.timelineEndFrame])
+  const allFrames = [
+    ...(keyframes?.map((kf) => kf.frame) ?? []),
+    ...propertyFrames,
+    ...segmentFrames,
+  ].filter((frame) => Number.isFinite(frame))
+  if (!allFrames.length) return overrides
+
+  const firstFrame = Math.min(...allFrames)
+  if (firstFrame >= startFrame) return overrides
+  const delta = startFrame - firstFrame
+  const shiftFrame = (frame: number) => clampInt(frame + delta, 0, Math.max(0, totalFrames - 1))
+  const shiftEndFrame = (frame: number) => clampInt(frame + delta, 1, totalFrames)
+
+  return {
+    ...overrides,
+    keyframes: keyframes?.map((kf) => ({ ...kf, frame: shiftFrame(kf.frame) })),
+    propertyKeyframes: overrides.propertyKeyframes
+      ? Object.fromEntries(
+        Object.entries(overrides.propertyKeyframes).map(([key, frames]) => [
+          key,
+          frames?.map((kf) => ({ ...kf, frame: shiftFrame(kf.frame) })),
+        ]),
+      ) as Layer['propertyKeyframes']
+      : overrides.propertyKeyframes,
+    videoSegments: overrides.videoSegments?.map((segment) => ({
+      ...segment,
+      timelineStartFrame: shiftFrame(segment.timelineStartFrame),
+      timelineEndFrame: Math.max(shiftFrame(segment.timelineStartFrame) + 1, shiftEndFrame(segment.timelineEndFrame)),
+      speedKeyframes: segment.speedKeyframes?.map((kf) => ({ ...kf, frame: shiftFrame(kf.frame) })),
+    })),
+  }
 }
 
 interface Actions {
@@ -898,6 +1152,7 @@ interface Actions {
   selectLayer: (id: string | null, multi?: boolean) => void
   selectLayers: (ids: string[]) => void
   selectKeyframe: (selection: KeyframeSelection, multi?: boolean) => void
+  setSelectedKeyframes: (selection: KeyframeSelection[]) => void
   clearSelectedKeyframes: () => void
   deleteSelectedKeyframes: () => void
   moveSelectedKeyframes: (delta: number) => void
@@ -966,6 +1221,8 @@ interface Actions {
   // Playback
   setCurrentFrame: (frame: number, options?: { preserveKeyframeSelection?: boolean }) => void
   setTotalFrames: (frames: number) => void
+  trimTimelineAtFrame: (frame?: number) => void
+  trimTimelineStartAtFrame: (frame?: number) => void
   setPlaying: (playing: boolean) => void
   setPlaybackRate: (rate: number) => void
   // Canvas
@@ -978,6 +1235,8 @@ interface Actions {
   setTimelineZoom: (zoom: number) => void
   setTimelineScrollX: (scrollX: number) => void
   setTimelinePanelHeight: (height: number) => void
+  toggleTimelineVisible: () => void
+  setTimelineVisible: (visible: boolean) => void
   setShowAllSubtracks: (show: boolean) => void
   setShowValueGraph: (show: boolean) => void
   setEditorViewport: (zoom: number, panX: number, panY: number) => void
@@ -1043,6 +1302,7 @@ export const useStore = create<Store>()(
       timelineZoom: 1,
       timelineScrollX: 0,
       timelinePanelHeight: 200,
+      timelineVisible: true,
       showAllSubtracks: false,
       showValueGraph: false,
       editorZoom: 1,
@@ -1144,21 +1404,32 @@ export const useStore = create<Store>()(
       },
 
       addLayer: (type) => {
-        get()._snapshot()
-        const { layers, totalFrames } = get()
-        const layer = makeLayer(type, { name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`, endFrame: totalFrames })
+        if (get().activeInteractionCount === 0) get()._snapshot()
+        const { layers, totalFrames, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const layer = makeLayer(type, {
+          name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`,
+          startFrame: timing.startFrame,
+          endFrame: timing.endFrame,
+        })
         set({ layers: [...layers, layer], selectedLayerIds: [layer.id], selectedKeyframes: [] })
       },
 
       addGeneratedLayer: (type, overrides = {}) => {
         get()._snapshot()
-        const { layers, totalFrames } = get()
+        const { layers, totalFrames, currentFrame, fps } = get()
+        const inheritedTiming = timingForNewLayer(layers, totalFrames, currentFrame, overrides.parentId)
+        const startFrame = overrides.startFrame ?? inheritedTiming.startFrame
+        const endFrame = overrides.endFrame ?? inheritedTiming.endFrame
+        const shiftedOverrides = shiftNewLayerAnimatedFrames(overrides, startFrame, overrides.startFrame === undefined, totalFrames)
         const layer = makeLayer(type, {
           name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`,
-          endFrame: totalFrames,
-          ...overrides,
+          ...shiftedOverrides,
+          startFrame,
+          endFrame,
         })
-        set((s) => ({ layers: [...s.layers, layer], selectedLayerIds: [layer.id] }))
+        const normalizedLayer = isMediaLayer(layer) ? normalizeVideoLayer(layer, fps, totalFrames) : layer
+        set((s) => ({ layers: [...s.layers, normalizedLayer], selectedLayerIds: [layer.id] }))
         return layer.id
       },
 
@@ -1225,7 +1496,8 @@ export const useStore = create<Store>()(
 
       addImage: (src, name, imageKind = 'raster', naturalWidth, naturalHeight) => {
         get()._snapshot()
-        const { totalFrames } = get()
+        const { layers, totalFrames, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
         const maxW = 360
         const maxH = 260
         const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 1.5
@@ -1244,7 +1516,8 @@ export const useStore = create<Store>()(
               imageNaturalHeight: naturalHeight,
               width,
               height,
-              endFrame: totalFrames,
+              startFrame: timing.startFrame,
+              endFrame: timing.endFrame,
             }),
           ],
         }))
@@ -1268,7 +1541,8 @@ export const useStore = create<Store>()(
 
       addVideo: (src, name, naturalWidth, naturalHeight, duration) => {
         get()._snapshot()
-        const { totalFrames, fps } = get()
+        const { layers, totalFrames, fps, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
         const maxW = 420
         const maxH = 280
         const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 16 / 9
@@ -1276,7 +1550,8 @@ export const useStore = create<Store>()(
         const width = naturalWidth && naturalHeight ? Math.max(1, Math.round(naturalWidth * scale)) : 320
         const height = naturalWidth && naturalHeight ? Math.max(1, Math.round(width / aspect)) : 180
         const videoFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * fps)) : totalFrames
-        const endFrame = Math.min(totalFrames, videoFrames)
+        const startFrame = timing.startFrame
+        const endFrame = Math.min(timing.endFrame, startFrame + videoFrames)
         set((s) => ({
           layers: [
             ...s.layers,
@@ -1290,13 +1565,14 @@ export const useStore = create<Store>()(
               sourceDurationFrames: videoFrames,
               videoSegments: [{
                 id: uid(),
-                timelineStartFrame: 0,
+                timelineStartFrame: startFrame,
                 timelineEndFrame: endFrame,
                 sourceStartFrame: 0,
-                sourceEndFrame: Math.min(videoFrames, endFrame),
+                sourceEndFrame: Math.min(videoFrames, Math.max(1, endFrame - startFrame)),
               }],
               width,
               height,
+              startFrame,
               endFrame,
             }), fps, totalFrames),
           ],
@@ -1336,9 +1612,11 @@ export const useStore = create<Store>()(
 
       addAudio: (src, name, duration) => {
         get()._snapshot()
-        const { totalFrames, fps } = get()
+        const { layers, totalFrames, fps, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
         const audioFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * fps)) : totalFrames
-        const endFrame = Math.min(totalFrames, audioFrames)
+        const startFrame = timing.startFrame
+        const endFrame = Math.min(timing.endFrame, startFrame + audioFrames)
         set((s) => ({
           layers: [
             ...s.layers,
@@ -1353,15 +1631,16 @@ export const useStore = create<Store>()(
               // shape (timeline ↔ source mapping with speed keyframes).
               videoSegments: [{
                 id: uid(),
-                timelineStartFrame: 0,
+                timelineStartFrame: startFrame,
                 timelineEndFrame: endFrame,
                 sourceStartFrame: 0,
-                sourceEndFrame: Math.min(audioFrames, endFrame),
+                sourceEndFrame: Math.min(audioFrames, Math.max(1, endFrame - startFrame)),
               }],
               // No visible canvas presence for audio.
               width: 1,
               height: 1,
               fillType: 'none',
+              startFrame,
               endFrame,
             }), fps, totalFrames),
           ],
@@ -1486,8 +1765,27 @@ export const useStore = create<Store>()(
               ? s.selectedKeyframes.filter((kf) => !(kf.layerId === selection.layerId && kf.frame === selection.frame && kf.propKey === selection.propKey))
               : [...s.selectedKeyframes, selection]
             : [selection]
-          return { selectedKeyframes, selectedLayerIds: [selection.layerId], currentFrame: selection.frame }
+          return {
+            selectedKeyframes,
+            selectedLayerIds: [...new Set(selectedKeyframes.map((kf) => kf.layerId))],
+            currentFrame: selection.frame,
+          }
         })
+      },
+
+      setSelectedKeyframes: (selection) => {
+        const seen = new Set<string>()
+        const selectedKeyframes = selection.filter((kf) => {
+          const key = `${kf.layerId}:${kf.frame}:${kf.propKey ?? ''}`
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        set((s) => ({
+          selectedKeyframes,
+          selectedLayerIds: [...new Set(selectedKeyframes.map((kf) => kf.layerId))],
+          currentFrame: selectedKeyframes[0]?.frame ?? s.currentFrame,
+        }))
       },
 
       clearSelectedKeyframes: () => set({ selectedKeyframes: [] }),
@@ -1495,7 +1793,7 @@ export const useStore = create<Store>()(
       deleteSelectedKeyframes: () => {
         const selected = get().selectedKeyframes
         if (!selected.length) return
-        get()._snapshot()
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((layer) => {
             const selections = selected.filter((kf) => kf.layerId === layer.id)
@@ -1531,7 +1829,7 @@ export const useStore = create<Store>()(
         const maxFrame = Math.max(...selected.map((kf) => kf.frame))
         const appliedDelta = Math.max(-minFrame, Math.min(delta, get().totalFrames - maxFrame))
         if (appliedDelta === 0) return
-        get()._snapshot()
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((layer) => {
             const layerSelections = selected.filter((kf) => kf.layerId === layer.id)
@@ -1709,23 +2007,37 @@ export const useStore = create<Store>()(
 
         const layerAtCurrentFrame = get().layers.find((layer) => layer.id === id)
         const propertyFrames = layerAtCurrentFrame?.propertyKeyframes?.[key] ?? []
-        if (propertyFrames.some((kf) => kf.frame === currentFrame)) {
+        if (propertyFrames.length) {
           if (get().activeInteractionCount === 0) get()._snapshot()
           set((s) => ({
             layers: normalizeLayerTree(
               s,
-              s.layers.map((layer) => {
-                if (layer.id !== id) return layer
-                return {
-                  ...layer,
-                  propertyKeyframes: {
-                    ...(layer.propertyKeyframes ?? {}),
-                    [key]: (layer.propertyKeyframes?.[key] ?? []).map((kf) =>
-                      kf.frame === currentFrame ? { ...kf, value } : kf
-                    ),
-                  },
-                }
-              }),
+              s.layers.map((layer) => (
+                layer.id === id
+                  ? upsertPropertyKeyframe(layer, key, currentFrame, value)
+                  : layer
+              )),
+              id
+            ),
+          }))
+          return
+        }
+
+        const hasEditableTransformKeyframeAtCurrentFrame = Boolean(
+          layerAtCurrentFrame
+          && layerAtCurrentFrame.keyframes.length > 1
+          && layerAtCurrentFrame.keyframes.some((kf) => kf.frame === currentFrame)
+        )
+        if (!(key in DEFAULT_TRANSFORM) && hasEditableTransformKeyframeAtCurrentFrame) {
+          if (get().activeInteractionCount === 0) get()._snapshot()
+          set((s) => ({
+            layers: normalizeLayerTree(
+              s,
+              s.layers.map((layer) => (
+                layer.id === id
+                  ? upsertPropertyKeyframe(layer, key, currentFrame, value)
+                  : layer
+              )),
               id
             ),
           }))
@@ -2690,6 +3002,74 @@ export const useStore = create<Store>()(
         selectedKeyframes: options?.preserveKeyframeSelection ? s.selectedKeyframes : [],
       })),
       setTotalFrames: (frames) => set({ totalFrames: frames }),
+      trimTimelineAtFrame: (frame) => {
+        const state = get()
+        const cutFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))
+        const nextTotalFrames = Math.max(1, cutFrame + 1)
+        if (nextTotalFrames >= state.totalFrames) return
+        state._snapshot()
+        set((s) => {
+          const trimmed = s.layers
+            .map((layer) => trimLayerToTimelineEnd(layer, cutFrame, nextTotalFrames, s.fps))
+            .filter((layer): layer is Layer => Boolean(layer))
+          const keptIds = new Set(trimmed.map((layer) => layer.id))
+          const layers = withGroupTimeEnvelopes(
+            trimmed.map((layer) => layer.parentId && !keptIds.has(layer.parentId) ? { ...layer, parentId: null } : layer),
+            nextTotalFrames,
+          )
+          const validLayerIds = new Set(layers.map((layer) => layer.id))
+          const loopIn = s.loopIn !== null && s.loopIn < nextTotalFrames ? s.loopIn : null
+          const loopOut = s.loopOut !== null && s.loopOut < nextTotalFrames ? s.loopOut : null
+          return {
+            totalFrames: nextTotalFrames,
+            currentFrame: Math.min(s.currentFrame, nextTotalFrames - 1),
+            layers,
+            selectedLayerIds: s.selectedLayerIds.filter((id) => validLayerIds.has(id)),
+            selectedKeyframes: s.selectedKeyframes.filter((kf) => validLayerIds.has(kf.layerId) && kf.frame < nextTotalFrames),
+            markers: s.markers.filter((marker) => marker.frame < nextTotalFrames),
+            loopIn,
+            loopOut,
+            loopEnabled: loopIn !== null && loopOut !== null ? s.loopEnabled : false,
+            isPlaying: false,
+          }
+        })
+      },
+      trimTimelineStartAtFrame: (frame) => {
+        const state = get()
+        const cutFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))
+        if (cutFrame <= 0) return
+        const nextTotalFrames = Math.max(1, state.totalFrames - cutFrame)
+        state._snapshot()
+        set((s) => {
+          const trimmed = s.layers
+            .map((layer) => trimLayerFromTimelineStart(layer, cutFrame, nextTotalFrames, s.fps))
+            .filter((layer): layer is Layer => Boolean(layer))
+          const keptIds = new Set(trimmed.map((layer) => layer.id))
+          const layers = withGroupTimeEnvelopes(
+            trimmed.map((layer) => layer.parentId && !keptIds.has(layer.parentId) ? { ...layer, parentId: null } : layer),
+            nextTotalFrames,
+          )
+          const validLayerIds = new Set(layers.map((layer) => layer.id))
+          const loopIn = s.loopIn !== null && s.loopIn >= cutFrame ? s.loopIn - cutFrame : null
+          const loopOut = s.loopOut !== null && s.loopOut >= cutFrame ? s.loopOut - cutFrame : null
+          return {
+            totalFrames: nextTotalFrames,
+            currentFrame: 0,
+            layers,
+            selectedLayerIds: s.selectedLayerIds.filter((id) => validLayerIds.has(id)),
+            selectedKeyframes: s.selectedKeyframes
+              .filter((kf) => validLayerIds.has(kf.layerId) && kf.frame >= cutFrame)
+              .map((kf) => ({ ...kf, frame: kf.frame - cutFrame })),
+            markers: s.markers
+              .filter((marker) => marker.frame >= cutFrame)
+              .map((marker) => ({ ...marker, frame: marker.frame - cutFrame })),
+            loopIn,
+            loopOut,
+            loopEnabled: loopIn !== null && loopOut !== null ? s.loopEnabled : false,
+            isPlaying: false,
+          }
+        })
+      },
       setPlaying: (playing) => set({ isPlaying: playing }),
       setPlaybackRate: (rate) => set({ playbackRate: Math.max(0.1, Math.min(4, rate)) }),
 
@@ -2705,6 +3085,8 @@ export const useStore = create<Store>()(
       setTimelineZoom: (zoom) => set({ timelineZoom: zoom }),
       setTimelineScrollX: (scrollX) => set({ timelineScrollX: scrollX }),
       setTimelinePanelHeight: (height) => set({ timelinePanelHeight: height }),
+      toggleTimelineVisible: () => set((s) => ({ timelineVisible: !s.timelineVisible })),
+      setTimelineVisible: (visible) => set({ timelineVisible: visible }),
       setShowAllSubtracks: (show) => set({ showAllSubtracks: show }),
       setShowValueGraph: (show) => set({ showValueGraph: show }),
       setEditorViewport: (zoom, panX, panY) => set({ editorZoom: zoom, editorPanX: panX, editorPanY: panY }),
@@ -2758,16 +3140,18 @@ export const useStore = create<Store>()(
       updateTextSelectionStyle: (layerId, style) => {
         const selection = get().textSelection
         if (!selection || selection.layerId !== layerId || selection.start === selection.end) {
+          if (get().activeInteractionCount === 0) get()._snapshot()
           set((s) => ({ layers: s.layers.map((l) => l.id === layerId ? { ...l, ...style } : l) }))
           return
         }
         const start = Math.min(selection.start, selection.end)
         const end = Math.max(selection.start, selection.end)
+        if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => ({
           layers: s.layers.map((l) => {
             if (l.id !== layerId) return l
-            const span = { id: uid(), start, end, ...style }
-            return { ...l, textSpans: [...(l.textSpans ?? []).filter((item) => item.end <= start || item.start >= end), span] }
+            if (start <= 0 && end >= l.text.length) return applyWholeTextStyle(l, style)
+            return applyTextSelectionStyle(l, start, end, style)
           }),
         }))
       },
@@ -2804,6 +3188,7 @@ export const useStore = create<Store>()(
           timelineZoom: s.timelineZoom,
           timelineScrollX: s.timelineScrollX,
           timelinePanelHeight: s.timelinePanelHeight,
+          timelineVisible: s.timelineVisible ?? true,
           showAllSubtracks: s.showAllSubtracks,
           showValueGraph: s.showValueGraph,
           editorZoom: s.editorZoom,
@@ -2819,6 +3204,7 @@ export const useStore = create<Store>()(
         timelineZoom: s.timelineZoom,
         timelineScrollX: s.timelineScrollX,
         timelinePanelHeight: s.timelinePanelHeight,
+        timelineVisible: s.timelineVisible,
         showAllSubtracks: s.showAllSubtracks,
         showValueGraph: s.showValueGraph,
         editorZoom: s.editorZoom,

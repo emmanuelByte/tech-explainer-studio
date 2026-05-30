@@ -31,6 +31,28 @@ type NoticeMessage = {
   title: string
   message: string
 }
+type MarqueeState = {
+  startX: number
+  startY: number
+  currentX: number
+  currentY: number
+  active: boolean
+  additive: boolean
+  baseSelection: Set<string>
+}
+
+function rectsIntersect(a: DOMRect | { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
+}
+
+function marqueeRect(state: MarqueeState) {
+  return {
+    left: Math.min(state.startX, state.currentX),
+    top: Math.min(state.startY, state.currentY),
+    right: Math.max(state.startX, state.currentX),
+    bottom: Math.max(state.startY, state.currentY),
+  }
+}
 
 function relativeTime(iso: string, t: (key: string, options?: Record<string, unknown>) => string) {
   const delta = Date.now() - new Date(iso).getTime()
@@ -67,6 +89,7 @@ function ProjectName({ project, onRename }: { project: ProjectIndexItem; onRenam
         className="input-base text-xs w-full"
         value={name}
         autoFocus
+        data-home-interactive="true"
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => setName(e.target.value)}
         onBlur={commit}
@@ -82,6 +105,7 @@ function ProjectName({ project, onRename }: { project: ProjectIndexItem; onRenam
     <button
       className="text-left text-sm font-semibold truncate"
       style={{ color: 'var(--text)' }}
+      data-home-interactive="true"
       onClick={(e) => { e.stopPropagation(); setEditing(true) }}
       title={t('home.projectName')}
     >
@@ -185,7 +209,12 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [notice, setNotice] = useState<NoticeMessage | null>(null)
   const [dialogBusy, setDialogBusy] = useState(false)
+  const [marquee, setMarquee] = useState<MarqueeState | null>(null)
   const importRef = useRef<HTMLInputElement>(null)
+  const projectListRef = useRef<HTMLDivElement>(null)
+  const marqueeRef = useRef<MarqueeState | null>(null)
+  const suppressProjectClick = useRef(false)
+  const lastSelectedId = useRef<string | null>(null)
   const migratedLegacyStorage = useRef(false)
 
   async function refresh() {
@@ -291,6 +320,123 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
     })
   }
 
+  function updateSelectionForMarquee(state: MarqueeState) {
+    const rect = marqueeRect(state)
+    const hits = Array.from(projectListRef.current?.querySelectorAll<HTMLElement>('[data-project-id]') ?? [])
+      .filter((element) => rectsIntersect(element.getBoundingClientRect(), rect))
+      .map((element) => element.dataset.projectId)
+      .filter((id): id is string => Boolean(id))
+    const next = state.additive ? new Set(state.baseSelection) : new Set<string>()
+    hits.forEach((id) => next.add(id))
+    setSelected(next)
+  }
+
+  function selectProject(projectId: string, additive: boolean, range: boolean) {
+    const rangeAnchorId = lastSelectedId.current ?? filtered.find((project) => selected.has(project.id))?.id ?? null
+    if (range && rangeAnchorId) {
+      const from = filtered.findIndex((project) => project.id === rangeAnchorId)
+      const to = filtered.findIndex((project) => project.id === projectId)
+      if (from >= 0 && to >= 0) {
+        const [start, end] = from < to ? [from, to] : [to, from]
+        const ids = filtered.slice(start, end + 1).map((project) => project.id)
+        setSelected((previous) => {
+          const next = additive ? new Set(previous) : new Set<string>()
+          ids.forEach((id) => next.add(id))
+          return next
+        })
+        return
+      }
+    }
+
+    setSelected((previous) => {
+      if (!additive) return new Set([projectId])
+      const next = new Set(previous)
+      if (next.has(projectId)) next.delete(projectId)
+      else next.add(projectId)
+      return next
+    })
+  }
+
+  function onProjectClick(e: React.MouseEvent, projectId: string) {
+    if (suppressProjectClick.current) {
+      e.preventDefault()
+      e.stopPropagation()
+      return
+    }
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      selectProject(projectId, e.metaKey || e.ctrlKey, e.shiftKey)
+      lastSelectedId.current = projectId
+      return
+    }
+    void open(projectId)
+  }
+
+  function onProjectListMouseDown(e: React.MouseEvent) {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement
+    // Skip drag-marquee when the mousedown originates inside a form widget,
+    // a button/link, or an explicitly-marked interactive cell (project card
+    // checkbox, rename input, duplicate/export/delete buttons). Marquee can
+    // still start anywhere else in <main>, including the empty padding above
+    // and below the project grid — not just inside the grid itself.
+    if (target.closest('[data-home-interactive="true"]')) return
+    if (target.closest('input, textarea, select, button, a, [role="button"]')) return
+    if ((e.shiftKey || e.metaKey || e.ctrlKey) && target.closest('[data-project-id]')) return
+    e.preventDefault()
+    e.stopPropagation()
+    const next: MarqueeState = {
+      startX: e.clientX,
+      startY: e.clientY,
+      currentX: e.clientX,
+      currentY: e.clientY,
+      active: false,
+      additive: e.shiftKey || e.metaKey || e.ctrlKey,
+      baseSelection: selected,
+    }
+    marqueeRef.current = next
+    setMarquee(next)
+  }
+
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      const state = marqueeRef.current
+      if (!state) return
+      const active = state.active || Math.abs(e.clientX - state.startX) > 4 || Math.abs(e.clientY - state.startY) > 4
+      const next = { ...state, currentX: e.clientX, currentY: e.clientY, active }
+      marqueeRef.current = next
+      setMarquee(next)
+      if (active) {
+        suppressProjectClick.current = true
+        updateSelectionForMarquee(next)
+      }
+    }
+
+    function onMouseUp() {
+      if (marqueeRef.current?.active) {
+        updateSelectionForMarquee(marqueeRef.current)
+        const rect = marqueeRect(marqueeRef.current)
+        const firstHit = Array.from(projectListRef.current?.querySelectorAll<HTMLElement>('[data-project-id]') ?? [])
+          .find((element) => rectsIntersect(element.getBoundingClientRect(), rect))
+          ?.dataset.projectId
+        if (firstHit) lastSelectedId.current = firstHit
+        window.setTimeout(() => { suppressProjectClick.current = false }, 0)
+      } else {
+        suppressProjectClick.current = false
+      }
+      marqueeRef.current = null
+      setMarquee(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
   function clearHistory() {
     setConfirmAction({
       title: t('settings.clearHistoryTitle'),
@@ -325,23 +471,91 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
         if (file?.name.endsWith('.motionproj') || file?.name.endsWith('.json')) importFile(file)
       }}
     >
-      <header className="capcut-topbar flex items-center gap-3 px-5 py-3">
-        <div className="w-3 h-3 rounded-sm" style={{ background: '#0d99ff', boxShadow: '0 0 18px rgba(32,213,248,0.6)' }} />
-        <strong>{t('home.appName')}</strong>
-        <button onClick={() => setShowSettings(true)} className="icon-btn ml-2" title={t('common.settings')}><Settings size={16} /></button>
+      <header
+        className="capcut-topbar flex items-center flex-shrink-0"
+        style={{ minHeight: 40, zIndex: 5, gap: 0, padding: '0 8px' }}
+      >
+        {/* Left: brand mark + app name + settings — same rhythm as editor topbar
+            (28px buttons, gap-1, thin divider). */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <div
+            style={{
+              width: 18, height: 18, borderRadius: 5,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: 'var(--accent-bg)', color: 'var(--accent)',
+              marginRight: 4,
+            }}
+          >
+            <div style={{ width: 8, height: 8, borderRadius: 2, background: 'currentColor' }} />
+          </div>
+          <strong style={{ fontSize: 12, fontWeight: 600 }}>{t('home.appName')}</strong>
+          <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px 0 8px' }} />
+          <button onClick={() => setShowSettings(true)} className="icon-btn" title={t('common.settings')}>
+            <Settings size={14} />
+          </button>
+        </div>
+
         <div className="flex-1" />
-        {selected.size > 0 && <button onClick={deleteSelected} className="pill-btn" style={{ color: '#ef4444' }}><Trash2 size={14} />{t('home.deleteSelected')}</button>}
-        <button onClick={() => setShowHtmlImport(true)} className="pill-btn"><Code2 size={14} />{t('layers.importHtml')}</button>
-        <button onClick={() => importRef.current?.click()} className="pill-btn"><Import size={14} />{t('common.import')}</button>
-        <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="pill-btn" title={t('topbar.toggleTheme')}>
-          {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
-          {theme === 'dark' ? t('common.light') : t('common.dark')}
-        </button>
-        <button onClick={() => setShowNew(true)} className="pill-btn primary-btn"><Plus size={14} />{t('home.newProject')}</button>
+
+        {/* Right: actions (destructive → HTML → import → theme → primary CTA). */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {selected.size > 0 && (
+            <button
+              onClick={deleteSelected}
+              className="pill-btn"
+              style={{
+                height: 28, padding: '0 10px', fontSize: 11,
+                display: 'flex', alignItems: 'center', gap: 5,
+                color: '#ef4444',
+                background: 'rgba(239,68,68,0.10)',
+                border: '1px solid rgba(239,68,68,0.28)',
+              }}
+            >
+              <Trash2 size={13} />{t('home.deleteSelected')}
+            </button>
+          )}
+          <button
+            onClick={() => setShowHtmlImport(true)}
+            className="pill-btn"
+            title={t('layers.importHtml')}
+            style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <Code2 size={13} />HTML
+          </button>
+          <button
+            onClick={() => importRef.current?.click()}
+            className="pill-btn"
+            title={t('common.import')}
+            style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <Import size={13} />{t('common.import')}
+          </button>
+          <button
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+            className="icon-btn"
+            title={t('topbar.toggleTheme')}
+          >
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <div style={{ width: 1, height: 16, background: 'var(--border)', margin: '0 4px' }} />
+          <button
+            onClick={() => setShowNew(true)}
+            className="primary-btn"
+            style={{ height: 28, padding: '0 12px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
+          >
+            <Plus size={13} />{t('home.newProject')}
+          </button>
+        </div>
         <input ref={importRef} type="file" accept=".motionproj,.json,application/json" hidden onChange={(e) => e.target.files?.[0] && importFile(e.target.files[0])} />
       </header>
 
-      <main className="flex-1 overflow-auto px-5 py-4">
+      <main
+        className="relative flex-1 overflow-auto px-5 py-4"
+        onMouseDown={onProjectListMouseDown}
+        onDragStart={(e) => {
+          if ((e.target as HTMLElement).closest('[data-project-id]')) e.preventDefault()
+        }}
+      >
         <div className="flex flex-wrap gap-2 mb-4">
           <div className="flex items-center gap-2 input-base min-w-[260px]">
             <Search size={14} style={{ color: 'var(--text3)' }} />
@@ -366,13 +580,22 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
             <button onClick={() => setShowNew(true)} className="pill-btn primary-btn"><Plus size={14} />{t('home.createFirst')}</button>
           </div>
         ) : (
-          <div className={view === 'grid' ? 'grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]' : 'flex flex-col gap-2'}>
+          <div
+            ref={projectListRef}
+            data-project-list="true"
+            className={view === 'grid' ? 'grid gap-3 grid-cols-[repeat(auto-fill,minmax(240px,1fr))]' : 'flex flex-col gap-2'}
+          >
             {filtered.map((project) => (
               <div
                 key={project.id}
+                data-project-id={project.id}
                 className={view === 'grid' ? 'group relative rounded-md overflow-hidden cursor-pointer' : 'group relative rounded-md cursor-pointer flex items-center gap-3 p-2'}
-                style={{ background: 'var(--panel)', border: '1px solid var(--border)' }}
-                onClick={() => open(project.id)}
+                style={{
+                  background: 'var(--panel)',
+                  border: selected.has(project.id) ? '1px solid #0d99ff' : '1px solid var(--border)',
+                  boxShadow: selected.has(project.id) ? '0 0 0 1px rgba(13,153,255,0.45)' : undefined,
+                }}
+                onClick={(e) => onProjectClick(e, project.id)}
               >
                 <input
                   type="checkbox"
@@ -382,15 +605,22 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
                     const next = new Set(prev)
                     if (e.target.checked) next.add(project.id)
                     else next.delete(project.id)
+                    lastSelectedId.current = project.id
                     return next
                   })}
+                  data-home-interactive="true"
                   className={view === 'grid' ? `absolute z-10 m-2 ${selected.size > 0 ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}` : ''}
                 />
-                <img src={project.thumbnail} alt="" className={view === 'grid' ? 'w-full aspect-video object-cover' : 'w-24 aspect-video object-cover rounded'} />
+                <img
+                  src={project.thumbnail}
+                  alt=""
+                  draggable={false}
+                  className={view === 'grid' ? 'w-full aspect-video object-cover select-none' : 'w-24 aspect-video object-cover rounded select-none'}
+                />
                 <div className={view === 'grid' ? 'p-3' : 'flex-1 min-w-0'}>
                   <div className="flex items-start gap-2">
                     <ProjectName project={project} onRename={(name) => rename(project, name)} />
-                    <div className="ml-auto opacity-0 group-hover:opacity-100">
+                    <div className="ml-auto opacity-0 group-hover:opacity-100" data-home-interactive="true">
                       <button onClick={async (e) => { e.stopPropagation(); const copy = await duplicateProject(project.id); if (copy) await refresh() }}>{t('home.duplicate')}</button>
                       <button className="ml-2" onClick={async (e) => { e.stopPropagation(); const full = await readProject(project.id); if (full) exportJson(`${full.name}.motionproj`, full) }}>{t('common.export')}</button>
                       <button className="ml-2" style={{ color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); deleteSingle(project) }}>{t('common.delete')}</button>
@@ -404,6 +634,21 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
               </div>
             ))}
           </div>
+        )}
+        {marquee?.active && (
+          <div
+            style={{
+              position: 'fixed',
+              left: Math.min(marquee.startX, marquee.currentX),
+              top: Math.min(marquee.startY, marquee.currentY),
+              width: Math.abs(marquee.currentX - marquee.startX),
+              height: Math.abs(marquee.currentY - marquee.startY),
+              background: 'rgba(13,153,255,0.12)',
+              border: '1px solid #0d99ff',
+              pointerEvents: 'none',
+              zIndex: 1200,
+            }}
+          />
         )}
       </main>
 

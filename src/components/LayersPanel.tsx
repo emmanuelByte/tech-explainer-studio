@@ -287,7 +287,7 @@ export function LayersPanel() {
     selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo,
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
-    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups,
+    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -519,6 +519,12 @@ export function LayersPanel() {
   }
 
   function addShape(type: LayerType) {
+    if (type === 'path') {
+      setTool('pen')
+      setAddMenuOpen(false)
+      setShapeMenuOpen(false)
+      return
+    }
     addGeneratedLayer(type, { parentId: insertionParentId() })
     setAddMenuOpen(false)
     setShapeMenuOpen(false)

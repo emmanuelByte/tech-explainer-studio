@@ -5,7 +5,7 @@ import {
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
-import { Layer, LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
+import { AnimatableProperty, Layer, LayoutAlign, LayoutDirection, LayoutJustify, LayoutMode, TransformProps, PairEasingType, SizeMode } from '../../types'
 import { resolveLayerAnimation } from '../../animationProperties'
 
 /* ──────────────────────────────────────────────────────────────
@@ -530,7 +530,11 @@ export function TransformPanel() {
   const activeKf = sorted.reduce<typeof sorted[0] | null>((found, kf) => kf.frame <= currentFrame ? kf : found, null)
 
   function handleTransformChange(key: keyof TransformProps, value: number) {
-    setLayerAnimatedProperty(layer.id, key as never, value)
+    setLayerAnimatedProperty(layer.id, key as AnimatableProperty, value)
+  }
+
+  function handlePropertyChange(key: AnimatableProperty, value: number | string) {
+    setLayerAnimatedProperty(layer.id, key, value)
   }
 
   function handleAddKeyframe() {
@@ -561,11 +565,11 @@ export function TransformPanel() {
   function setCornerRadius(index: number, value: number) {
     const next = Math.max(0, Math.round(value))
     if (radiusLinked) {
-      setLayerAnimatedProperty(layer.id, 'borderRadius' as never, next)
-      RADIUS_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key as never, next))
+      handlePropertyChange('borderRadius', next)
+      RADIUS_KEYS.forEach((key) => handlePropertyChange(key, next))
       return
     }
-    setLayerAnimatedProperty(layer.id, RADIUS_KEYS[index] as never, next)
+    handlePropertyChange(RADIUS_KEYS[index], next)
   }
 
   function toggleRadiusLinked() {
@@ -573,8 +577,8 @@ export function TransformPanel() {
     updateLayerProp(layer.id, 'borderRadiusLinked', nextLinked)
     if (nextLinked) {
       const next = cornerValues[0] ?? Math.round(layer.borderRadius)
-      setLayerAnimatedProperty(layer.id, 'borderRadius' as never, next)
-      RADIUS_KEYS.forEach((key) => setLayerAnimatedProperty(layer.id, key as never, next))
+      handlePropertyChange('borderRadius', next)
+      RADIUS_KEYS.forEach((key) => handlePropertyChange(key, next))
     }
   }
 
@@ -601,8 +605,8 @@ export function TransformPanel() {
     if (mode !== 'fit-content') materializeAutoFrame()
     updateLayerProp(layer.id, 'sizeMode', mode)
     if (mode === 'fill-canvas') {
-      setLayerAnimatedProperty(layer.id, 'width' as never, canvasW)
-      setLayerAnimatedProperty(layer.id, 'height' as never, canvasH)
+      handlePropertyChange('width', canvasW)
+      handlePropertyChange('height', canvasH)
     }
   }
 
@@ -613,7 +617,7 @@ export function TransformPanel() {
 
   const moveLayerTree = (key: 'x' | 'y', nextValue: number) => {
     const rounded = Math.round(nextValue)
-    setLayerAnimatedProperty(layer.id, key as never, rounded)
+    handlePropertyChange(key, rounded)
   }
   const setRelativeX = (value: number) => moveLayerTree('x', value)
   const setRelativeY = (value: number) => moveLayerTree('y', value)
@@ -621,20 +625,20 @@ export function TransformPanel() {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
     const nextWidth = Math.max(1, Math.round(value))
-    setLayerAnimatedProperty(layer.id, 'width' as never, nextWidth)
+    handlePropertyChange('width', nextWidth)
     if (aspectLocked && canLockAspect) {
-      setLayerAnimatedProperty(layer.id, 'height' as never, Math.max(1, Math.round(nextWidth / aspectRatio)))
+      handlePropertyChange('height', Math.max(1, Math.round(nextWidth / aspectRatio)))
     }
   }
   const setHeight = (value: number) => {
     materializeAutoFrame()
     if (sizeMode !== 'fixed') updateLayerProp(layer.id, 'sizeMode', 'fixed')
-    if (layer.type === 'line') updateLayerProp(layer.id, 'strokeWidth', Math.max(1, Math.round(value)))
+    if (layer.type === 'line') handlePropertyChange('strokeWidth', Math.max(1, Math.round(value)))
     else {
       const nextHeight = Math.max(1, Math.round(value))
-      setLayerAnimatedProperty(layer.id, 'height' as never, nextHeight)
+      handlePropertyChange('height', nextHeight)
       if (aspectLocked && canLockAspect) {
-        setLayerAnimatedProperty(layer.id, 'width' as never, Math.max(1, Math.round(nextHeight * aspectRatio)))
+        handlePropertyChange('width', Math.max(1, Math.round(nextHeight * aspectRatio)))
       }
     }
   }
