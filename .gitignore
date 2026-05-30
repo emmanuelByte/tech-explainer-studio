@@ -13,6 +13,8 @@ dist-ssr
 *.local
 ai.config.local.json
 data/
+.playwright-cli/
+public/assets/files/
 
 # Editor directories and files
 .vscode/*
