@@ -4,6 +4,14 @@ MotionEditor is a local-first browser motion editor for creating short videos, U
 
 The goal is to keep the editor direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved design/animation snippets, and export a video without setting up a hosted backend.
 
+## Preview
+
+![MotionEditor map animation timeline](docs/images/motioneditor-map-timeline.png)
+
+<video src="docs/videos/remeslobot-voice-demo.mp4" controls muted loop playsinline width="100%"></video>
+
+[Open the video demo](docs/videos/remeslobot-voice-demo.mp4)
+
 ## What It Can Do
 
 - Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, drag/shift multi-selection, import, export, duplicate, rename, and delete.
