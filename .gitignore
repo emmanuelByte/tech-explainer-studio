@@ -12,7 +12,10 @@ dist
 dist-ssr
 *.local
 ai.config.local.json
-data/
+data/*
+!data/assets/
+data/assets/*
+!data/assets/index.json
 .playwright-cli/
 public/assets/files/
 

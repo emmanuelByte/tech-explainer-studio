@@ -1,7 +1,7 @@
 {
-  "name": "video-editor-tmp",
+  "name": "tech-explainer-studio",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "license": "MIT",
   "scripts": {
@@ -11,7 +11,9 @@
     "lint": "eslint .",
     "render": "remotion render src/remotion/index.tsx EditorComposition",
     "remotion:compositions": "remotion compositions src/remotion/index.tsx",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -41,6 +43,7 @@
     "globals": "^17.6.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.59.4",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.0"
   }
 }

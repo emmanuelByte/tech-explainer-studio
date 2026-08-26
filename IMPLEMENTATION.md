@@ -53,6 +53,10 @@ load raw project
   -> load into store
 ```
 
+Implementation note: the Phase 0 baseline introduces schema version `1` and
+the migration boundary at `src/domains/project/migrations.ts`. Subsequent
+phases must extend that boundary rather than relying on sanitisation defaults.
+
 Requirements:
 
 - migrations are pure and testable

@@ -1045,7 +1045,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (!d) return
     const directlySelectedLayers = selectedLayerIds
       .map((id) => layers.find((l) => l.id === id))
-      .filter((item): item is Layer => Boolean(item) && !item.locked)
+      .filter((item): item is Layer => item !== undefined && !item.locked)
     const moveLayerIds = d.movingLayerIds.length ? d.movingLayerIds : getMovementLayerIds(layers, selectedLayerIds)
     const movingLayers = moveLayerIds
       .map((id) => layers.find((l) => l.id === id))

@@ -1,8 +1,8 @@
-# MotionEditor
+# Tech Explainer Studio
 
-MotionEditor is a local-first browser motion editor for creating short videos, UI mockups, social clips, text animations, reusable design elements, and post-production compositions. It runs as a React/Vite app with a small local Node/Vite middleware backend for JSON storage, asset storage, library storage, AI actions, and Remotion exports.
+Tech Explainer Studio is a local-first visual editor for creating editable technical education videos, especially software-engineering and system-design explainers. It is built from the MotionEditor foundation and runs as a React/Vite app with a small local Node/Vite middleware backend for JSON storage, asset storage, library storage, AI actions, and Remotion exports.
 
-The goal is to keep the editor direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved design/animation snippets, and export a video without setting up a hosted backend.
+The goal is to keep authoring direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved components and animation snippets, and export a video without setting up a hosted backend. The product is manual-first and AI-assisted; it is not a prompt-to-video black box or a general-purpose social-video editor.
 
 ## Preview
 
@@ -216,10 +216,16 @@ npm run dev
 npm run build
 npm run preview
 npm run lint
+npm test
+npx tsc --noEmit
 ```
 
 ## Notes
 
-This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to inspect, and practical for building motion compositions without setting up a database or cloud backend.
+This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to inspect, and practical for building technical explainer compositions without setting up a database or cloud backend.
 
 For a production deployment, move the project, asset, library, export, and AI endpoints to a real backend so file access, authentication, rate limits, job isolation, and API keys are handled safely.
+
+## Attribution and license
+
+Tech Explainer Studio is derived from [MotionEditor by Tomas Lachmann](https://github.com/tomaslachmann/motion-editor). It is distributed under the [MIT License](LICENSE); see [NOTICE](NOTICE) for the preserved upstream attribution.

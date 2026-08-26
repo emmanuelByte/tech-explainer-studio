@@ -2,6 +2,7 @@ import { CANVAS_PRESETS, DEFAULT_COLOR_PALETTES, DEFAULT_TRANSFORM, Layer, Motio
 import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
+import { CURRENT_PROJECT_SCHEMA_VERSION, migrateProject } from './domains/project/migrations'
 
 export interface ProjectStorageStats {
   totalBytes: number
@@ -81,7 +82,7 @@ export async function readProjectIndexWithLegacyMigration(): Promise<ProjectInde
 
 export async function readProject(id: string): Promise<MotionProject | null> {
   try {
-    return sanitizeProject(await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(id)}`))
+    return sanitizeProject(migrateProject(await requestJson<unknown>(`/api/projects/${encodeURIComponent(id)}`)))
   } catch {
     return null
   }
@@ -270,6 +271,7 @@ function sanitizeProject(project: MotionProject): MotionProject {
   const totalFrames = Math.max(1, project.canvas.durationFrames || 1)
   return {
     ...project,
+    schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
     colorPalettes,
     activeColorPaletteId: colorPalettes.some((palette) => palette.id === project.activeColorPaletteId)
       ? project.activeColorPaletteId
@@ -305,7 +307,7 @@ function thumbnailLayerSvg(
   parentWidth: number,
   parentHeight: number,
   childrenByParent: Map<string | null, Layer[]>,
-) {
+): string {
   if (!layer.visible || frame < (layer.startFrame ?? 0) || frame > (layer.endFrame ?? Infinity)) return ''
 
   const p = interpolateProps(frame, layer.keyframes)
@@ -398,7 +400,7 @@ export function indexItemFromProject(project: MotionProject): ProjectIndexItem {
 }
 
 export async function upsertProject(project: MotionProject) {
-  project = sanitizeProject(project)
+  project = sanitizeProject(migrateProject(project))
   project.thumbnail = thumbnailFor(project)
   await requestJson<MotionProject>(`/api/projects/${encodeURIComponent(project.id)}`, {
     method: 'PUT',
@@ -427,7 +429,11 @@ export async function saveHistorySnapshot(project: MotionProject, label?: string
 
 export async function readHistory(projectId: string): Promise<ProjectHistorySnapshot[]> {
   try {
-    return await requestJson<ProjectHistorySnapshot[]>(`/api/projects/${encodeURIComponent(projectId)}/history`)
+    const snapshots = await requestJson<ProjectHistorySnapshot[]>(`/api/projects/${encodeURIComponent(projectId)}/history`)
+    return snapshots.map((snapshot) => ({
+      ...snapshot,
+      project: sanitizeProject(migrateProject(snapshot.project)),
+    }))
   } catch {
     return []
   }
@@ -445,6 +451,7 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
   const now = new Date().toISOString()
   const id = idOverride || s.projectId || uuid()
   const project: MotionProject = {
+    schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
     id,
     name: nameOverride || s.projectName || 'Untitled Project',
     createdAt: s.projectCreatedAt || now,
@@ -489,6 +496,7 @@ export function createBlankProject(options: {
   const s = useStore.getState()
   const colorPalettes = s.colorPalettes?.length ? s.colorPalettes : DEFAULT_COLOR_PALETTES
   const project: MotionProject = {
+    schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
     id: uuid(),
     name: options.name.trim() || 'Untitled Project',
     createdAt: now,

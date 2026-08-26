@@ -41,6 +41,17 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'prefer-const': 'warn',
+      // These React Compiler diagnostics expose useful debt in inherited UI
+      // code. Keep them visible while Phase 0 establishes a passing baseline;
+      // address them component-by-component rather than in an unsafe rewrite.
+      'react-hooks/refs': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/static-components': 'warn',
+      'react-hooks/purity': 'warn',
+      'no-useless-assignment': 'warn',
+      '@typescript-eslint/no-unused-expressions': 'warn',
+      // Control-character removal is intentional in export filename/log sanitisation.
+      'no-control-regex': 'warn',
     },
   },
 )

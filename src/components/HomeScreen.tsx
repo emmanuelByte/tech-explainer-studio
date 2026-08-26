@@ -14,6 +14,7 @@ import {
   upsertProject,
   ProjectStorageStats,
 } from '../projectStorage'
+import { migrateProject } from '../domains/project/migrations'
 import { useStore } from '../store'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog, NoticeDialog } from './ConfirmDialog'
@@ -273,7 +274,8 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
     reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result))
-        const imports: MotionProject[] = Array.isArray(parsed) ? parsed : parsed.projects || [parsed]
+        const candidates: unknown[] = Array.isArray(parsed) ? parsed : parsed.projects || [parsed]
+        const imports = candidates.map((project) => migrateProject(project))
         await Promise.all(imports.map((project) => upsertProject({
           ...project,
           id: crypto.randomUUID(),

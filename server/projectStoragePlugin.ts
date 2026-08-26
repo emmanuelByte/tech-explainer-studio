@@ -2,6 +2,7 @@ import type { ViteDevServer } from 'vite'
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
+import { migrateProject } from '../src/domains/project/migrations'
 
 interface MotionProjectLike {
   id: string
@@ -188,7 +189,7 @@ async function storageStats(root: string) {
 async function saveProject(root: string, project: MotionProjectLike) {
   if (!project?.id) throw new Error('Missing project id.')
   await ensureProjectDir(root)
-  project = sanitizeProject(project)
+  project = sanitizeProject(migrateProject(project))
   await writeFile(projectPath(root, project.id), `${JSON.stringify(project, null, 2)}\n`, 'utf-8')
   return project
 }
@@ -205,7 +206,8 @@ async function readHistory(root: string, id: string) {
 async function saveHistorySnapshot(root: string, id: string, snapshot: ProjectHistorySnapshotLike) {
   await ensureProjectDir(root)
   const snapshots = await readHistory(root, id)
-  await writeFile(historyPath(root, id), `${JSON.stringify([snapshot, ...snapshots].slice(0, 20), null, 2)}\n`, 'utf-8')
+  const migratedSnapshot = { ...snapshot, project: migrateProject(snapshot.project) }
+  await writeFile(historyPath(root, id), `${JSON.stringify([migratedSnapshot, ...snapshots].slice(0, 20), null, 2)}\n`, 'utf-8')
 }
 
 export function projectStoragePlugin() {

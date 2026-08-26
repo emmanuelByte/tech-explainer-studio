@@ -1229,7 +1229,7 @@ export function Timeline() {
     e.stopPropagation()
     const layer = layers.find((l) => l.id === layerId)
     if (!layer) return
-    const isGroup = layer.type === 'group' || layer.isGroup
+    const isGroup = layer.type === 'group' || Boolean(layer.isGroup)
     const range = isGroup ? getGroupRange(layer.id) : undefined
     beginInteraction(true)
     barDrag.current = {

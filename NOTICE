@@ -1,0 +1,6 @@
+Tech Explainer Studio is derived from MotionEditor by Tomas Lachmann:
+https://github.com/tomaslachmann/motion-editor
+
+The fork point is upstream commit cd349769c9e3cfa2b1cfc2201b7fa4ccac0ba7cc.
+Upstream package metadata declares the MIT license. This project preserves that
+license and this attribution notice.

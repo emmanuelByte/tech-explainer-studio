@@ -254,6 +254,7 @@ export interface ProjectIndexItem {
 }
 
 export interface MotionProject {
+  schemaVersion: number
   id: string
   name: string
   thumbnail?: string

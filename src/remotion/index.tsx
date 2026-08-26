@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Composition, continueRender, delayRender, registerRoot, staticFile } from 'remotion'
 import { EditorComposition } from './Composition'
 import { GOOGLE_FONTS, Layer, MotionProject } from '../types'
+import { migrateProject } from '../domains/project/migrations'
 import assetIndex from '../../data/assets/index.json'
 
 type RenderProps = Partial<MotionProject> & {
@@ -118,16 +119,26 @@ function resolveLayerAssets(layers: Layer[]) {
   }))
 }
 
+function isPersistedProject(props: RenderProps): props is MotionProject {
+  return typeof props.id === 'string'
+    && typeof props.name === 'string'
+    && Boolean(props.canvas)
+    && Array.isArray(props.layers)
+    && Boolean(props.timeline)
+    && Boolean(props.editor)
+}
+
 function projectValues(props: RenderProps) {
-  const canvas = props.canvas ?? fallbackProps.canvas!
+  const projectProps: RenderProps = isPersistedProject(props) ? migrateProject(props) : props
+  const canvas = projectProps.canvas ?? fallbackProps.canvas!
   return {
-    layers: resolveLayerAssets(props.layers ?? []),
-    width: props.canvasWidth ?? canvas.width,
-    height: props.canvasHeight ?? canvas.height,
+    layers: resolveLayerAssets(projectProps.layers ?? []),
+    width: projectProps.canvasWidth ?? canvas.width,
+    height: projectProps.canvasHeight ?? canvas.height,
     fps: canvas.fps,
     durationInFrames: Math.max(1, canvas.durationFrames),
-    backgroundColor: props.backgroundColor ?? canvas.backgroundColor,
-    showOutsideCanvas: props.showOutsideCanvas ?? props.editor?.showOutsideCanvas ?? false,
+    backgroundColor: projectProps.backgroundColor ?? canvas.backgroundColor,
+    showOutsideCanvas: projectProps.showOutsideCanvas ?? projectProps.editor?.showOutsideCanvas ?? false,
   }
 }
 
