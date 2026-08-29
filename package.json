@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "start": "vite --port 3000",
-    "dev": "vite --port 3000",
+    "dev": "vite --port 3005",
     "build": "vite build",
     "lint": "eslint .",
     "render": "remotion render src/remotion/index.tsx EditorComposition",

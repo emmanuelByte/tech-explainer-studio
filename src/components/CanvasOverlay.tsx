@@ -1329,11 +1329,22 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
-      if (e.ctrlKey || e.metaKey || e.altKey) return
       const target = e.target as HTMLElement
       const tag = target.tagName.toLowerCase()
       if (tag === 'input' || tag === 'textarea' || target.isContentEditable) return
+      if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const state = useStore.getState()
+        if (state.selectedLayerIds.length === 1) {
+          const selected = state.layers.find((item) => item.id === state.selectedLayerIds[0])
+          if (selected?.type === 'text' && !selected.locked) {
+            e.preventDefault()
+            state.setEditingTextLayerId(selected.id)
+          }
+        }
+        return
+      }
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+      if (e.ctrlKey || e.metaKey || e.altKey) return
 
       if (keyboardSpacingTimer.current) window.clearTimeout(keyboardSpacingTimer.current)
       window.setTimeout(() => {
@@ -1612,6 +1623,10 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (!layer || !animatedLayer || !p || layer.locked) return
     e.preventDefault()
     e.stopPropagation()
+    if (type === 'move' && animatedLayer.type === 'text' && currentTool === 'text') {
+      setEditingTextLayerId(animatedLayer.id)
+      return
+    }
     clearGuideUpdate()
     clearSelectedKeyframes()
     if (type === 'move' && !isMultiSelection && (layer.type === 'group' || layer.isGroup)) {

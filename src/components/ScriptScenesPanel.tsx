@@ -1,7 +1,8 @@
 import { ArrowDown, ArrowUp, FileText, ListVideo, Merge, Plus, Scissors, Trash2 } from 'lucide-react'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/model'
+import { parseStructuredScript } from '../domains/scenes/structuredScript'
 import { useStore } from '../store'
 
 type PanelMode = 'script' | 'scenes'
@@ -12,11 +13,15 @@ function seconds(frame: number, fps: number) {
 
 export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const { t } = useTranslation()
+  const [scriptInputMode, setScriptInputMode] = useState<'text' | 'json'>('text')
+  const [structuredInput, setStructuredInput] = useState('')
+  const [structuredError, setStructuredError] = useState<string | null>(null)
   const {
     script, scenes, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
     splitScene, mergeSceneWithNext, moveScene, setCurrentFrame,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
+    importStructuredScript,
   } = useStore()
   const activeScene = useMemo(() => sceneAtFrame(scenes, currentFrame), [scenes, currentFrame])
 
@@ -26,8 +31,40 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
         <div className="flex items-center gap-1.5 px-3 flex-shrink-0" style={{ height: 32, borderBottom: '1px solid var(--border)', color: 'var(--text2)' }}>
           <FileText size={13} />
           <span className="section-header" style={{ padding: 0 }}>{t('scenes.script')}</span>
+          <span className="flex-1" />
+          <button className={`text-[10px] px-1.5 py-0.5 rounded ${scriptInputMode === 'text' ? 'pill-btn active' : ''}`} onClick={() => setScriptInputMode('text')}>{t('scenes.plainText')}</button>
+          <button className={`text-[10px] px-1.5 py-0.5 rounded ${scriptInputMode === 'json' ? 'pill-btn active' : ''}`} onClick={() => setScriptInputMode('json')}>{t('scenes.jsonImport')}</button>
         </div>
         <div className="p-3 flex flex-col gap-2 min-h-0 flex-1">
+          {scriptInputMode === 'json' ? (
+            <>
+              <p className="text-[11px] leading-4" style={{ color: 'var(--text3)' }}>{t('scenes.jsonHelp')}</p>
+              <textarea
+                value={structuredInput}
+                onChange={(event) => { setStructuredInput(event.target.value); setStructuredError(null) }}
+                placeholder={t('scenes.jsonPlaceholder')}
+                className="input-base text-[11px] leading-4 resize-none font-mono flex-1 min-h-0"
+                style={{ padding: 8 }}
+                aria-label={t('scenes.jsonImport')}
+              />
+              {structuredError && <p className="text-[11px]" style={{ color: 'var(--red, #ef4444)' }}>{structuredError}</p>}
+              <button
+                className="pill-btn active justify-center"
+                disabled={!structuredInput.trim()}
+                onClick={() => {
+                  try {
+                    importStructuredScript(parseStructuredScript(structuredInput, fps))
+                    setStructuredError(null)
+                    setScriptInputMode('text')
+                  } catch (error) {
+                    setStructuredError(error instanceof Error ? error.message : t('scenes.jsonError'))
+                  }
+                }}
+              >
+                <ListVideo size={13} />{t('scenes.importJson')}
+              </button>
+            </>
+          ) : <>
           <p className="text-[11px] leading-4" style={{ color: 'var(--text3)' }}>{t('scenes.scriptHelp')}</p>
           <textarea
             value={script.rawText}
@@ -73,6 +110,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
               ))}
             </div>
           )}
+          </>}
         </div>
       </div>
     )

@@ -73,6 +73,21 @@ describe('script helpers', () => {
     ])
   })
 
+  it('retains storyboard titles and visual notes when regenerating the same scene count', () => {
+    const result = createScenesForScript(
+      { rawText: 'First idea.\n\nSecond idea.', segments: [] },
+      60,
+      [
+        { id: 'one', title: 'The problem', startFrame: 0, endFrame: 30, scriptSegmentIds: [], visual: 'Show overload.' },
+        { id: 'two', title: 'The solution', startFrame: 30, endFrame: 60, scriptSegmentIds: [] },
+      ],
+    )
+    expect(result.scenes).toMatchObject([
+      { title: 'The problem', visual: 'Show overload.' },
+      { title: 'The solution' },
+    ])
+  })
+
   it('splits a script segment into two editable segments', () => {
     const result = splitScriptSegment({ rawText: 'First second', segments: [{ id: 'a', text: 'First second' }] }, 'a', 5)
     expect(result.segments.map((segment) => segment.text)).toEqual(['First', 'second'])

@@ -157,21 +157,23 @@ export function segmentsFromScript(rawText: string): ScriptSegment[] {
     .map((text) => ({ id: createScriptSegmentId(), text }))
 }
 
-export function createScenesForScript(script: ScriptDocument, totalFrames: number): { script: ScriptDocument; scenes: Scene[] } {
+export function createScenesForScript(script: ScriptDocument, totalFrames: number, existingScenes: Scene[] = []): { script: ScriptDocument; scenes: Scene[] } {
   const segments = segmentsFromScript(script.rawText)
   if (!segments.length) return { script: { ...script, segments: [] }, scenes: [] }
   const frameCount = Math.max(1, totalFrames)
   const scenes = segments.map((segment, index) => {
+    const existing = existingScenes[index]
     const startFrame = Math.floor((index / segments.length) * frameCount)
     const endFrame = index === segments.length - 1
       ? frameCount
       : Math.max(startFrame + 1, Math.floor(((index + 1) / segments.length) * frameCount))
     return {
       id: createSceneId(),
-      title: `Scene ${index + 1}`,
+      title: existing?.title?.trim() || `Scene ${index + 1}`,
       startFrame,
       endFrame,
       scriptSegmentIds: [segment.id],
+      ...(existing?.visual ? { visual: existing.visual } : {}),
     }
   })
   const segmentToScene = new Map(scenes.flatMap((scene) => scene.scriptSegmentIds.map((segmentId) => [segmentId, scene.id] as const)))

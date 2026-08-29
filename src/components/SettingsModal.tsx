@@ -8,25 +8,12 @@ export function SettingsModal({ title, children, onClose }: {
   children?: React.ReactNode
   onClose: () => void
 }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const { theme, setTheme } = useStore()
 
   return (
     <Modal title={title ?? t('settings.title')} onClose={onClose} width={520} zIndex={2500}>
       <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-        <section>
-          <label style={{ display: 'block', fontSize: 11, marginBottom: 6, color: 'var(--text2)' }}>{t('common.language')}</label>
-          <select
-            className="input-base"
-            style={{ width: '100%' }}
-            value={i18n.language}
-            onChange={(e) => i18n.changeLanguage(e.target.value)}
-          >
-            <option value="en">{t('common.english')}</option>
-            <option value="cs">{t('common.czech')}</option>
-          </select>
-        </section>
-
         <section>
           <div style={{ fontSize: 11, marginBottom: 6, color: 'var(--text2)' }}>{t('common.theme')}</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

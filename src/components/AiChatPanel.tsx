@@ -15,7 +15,7 @@ function getOrCreateChatUserId() {
 }
 
 export function AiChatPanel({ onClose }: { onClose: () => void }) {
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const theme = useStore((s) => s.theme)
   const projectId = useStore((s) => s.projectId)
   const projectName = useStore((s) => s.projectName)
@@ -63,7 +63,7 @@ export function AiChatPanel({ onClose }: { onClose: () => void }) {
       },
     },
     initialThread,
-    locale: i18n.language.startsWith('cs') ? 'cs' : 'en',
+    locale: 'en',
     theme: {
       colorScheme: theme,
       color: { accent: { primary: '#f25f22', level: 2 } },

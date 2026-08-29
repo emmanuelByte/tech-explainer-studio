@@ -41,8 +41,8 @@ Out of scope until after V1:
 | --- | --- | --- | --- |
 | 0. Harden the fork | Complete | Safe project persistence, tests, branding and a working export baseline | — |
 | 1. Script and scenes | Complete | A lesson script and scene ranges are first-class project data | 0 |
-| 2. Technical component kit | Planned | Reusable editable technical diagram primitives | 1 |
-| 3. Smart connectors | Planned | Components remain semantically connected while being edited | 2 |
+| 2. Technical component kit | Complete (V1 foundation) | Reusable editable technical diagram primitives | 1 |
+| 3. Smart connectors | In progress | Components remain semantically connected while being edited | 2 |
 | 4. Explainer motion and sketch style | Planned | Clear progressive draw/reveal behavior | 3 |
 | 5. Video camera | Planned | Editable pan/zoom with preview/export parity | 4 |
 | 6. Narration and captions | Planned | Timed script, narration and captions share one source of truth | 5 |
@@ -95,9 +95,9 @@ Known follow-up debt:
 **Goal:** make a teaching lesson understandable and editable before a creator
 starts building its diagram.
 
-**Status: complete.** Schema v2 adds persisted script and scene data, with a
-tested v1-to-v2 migration. The editor provides labeled Layers / Script / Scenes
-tabs, paragraph-based scene creation, manual script and segment edits,
+**Status: complete.** Schema v5 adds persisted script and scene data, with a
+tested migration chain. The editor provides labeled Layers / Script / Scenes
+tabs, paragraph- and validated JSON-plan scene creation, manual script and segment edits,
 segment split/merge, scene create/rename/resize/split/merge/reorder,
 scene click-to-seek, and a scene band above layer tracks. Scene utilities
 enforce ordering and non-overlap on the global timeline.
@@ -142,11 +142,25 @@ enforce ordering and non-overlap on the global timeline.
 **Goal:** make the first system-design diagram faster to author than a generic
 collection of rectangles and icons.
 
+**Status: complete (V1 foundation).** The first work package is a vendor-neutral Load
+Balancer topology kit: client, load balancer, and server components with
+editable labels and ordinary editor-layer ownership. The first acceptance
+milestone is authoring `Clients → Load Balancer → Server 1 / Server 2 / Server 3`
+without drawing basic component shapes manually.
+
+Delivered foundation: schema v4 stores component kind metadata on normal group
+layers. The Layers add menu inserts Client, Load Balancer, and Server groups;
+each contains regular editable rectangle and text layers.
+
+Deferred expansion: additional component families (data, messaging, and
+observability) will be added from real lesson requirements, without changing
+the editable-group model proven by this milestone.
+
 ### Work packages
 
 1. Define a restrained design system: spacing, label typography, color roles,
    standard ports, component sizing, and dark/light-ready surfaces.
-2. Add optional `TechnicalComponentMeta` to normal layer groups via a v2-to-v3
+2. Add optional `TechnicalComponentMeta` to normal layer groups via a v3-to-v4
    project migration. Components must remain editable groups, never opaque
    stickers.
 3. Build vendor-neutral component templates:
@@ -172,6 +186,20 @@ collection of rectangles and icons.
 
 **Goal:** give diagrams semantic connections rather than fragile manually
 positioned line layers.
+
+**Status: in progress.** Begin with source/target component relationships,
+deterministic port geometry, and preview/export rendering. Drag-to-connect,
+advanced routing, and endpoint reassignment follow once the base semantic
+model is persisted and tested.
+
+Delivered foundation: schema v5 persists connector endpoints, ports, labels,
+and visual style independently from layers. Pure geometry resolves the four
+standard component ports and deterministic source-to-target lines. The shared
+preview/export renderer is verified with the Load Balancer topology: connectors
+stay attached as components move and component labels render above their bodies.
+Interactive connection authoring has been manually verified for creating,
+moving, and deleting connections; endpoint and style controls are the remaining
+work package.
 
 ### Work packages
 

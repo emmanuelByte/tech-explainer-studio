@@ -20,8 +20,8 @@ Current delivery status:
 | --- | --- |
 | 0 — Harden the fork | Complete |
 | 1 — Script + Scenes | Complete |
-| 2 — Technical Component Kit | Planned |
-| 3 — Smart Connectors | Planned |
+| 2 — Technical Component Kit | Complete (V1 foundation) |
+| 3 — Smart Connectors | In progress — rendering verified |
 | 4 — Explainer Motion + Sketch Style | Planned |
 | 5 — Video Camera | Planned |
 | 6 — Narration + Captions | Planned |
@@ -239,11 +239,12 @@ Cover:
 - scene timing persists after restart
 - scene bands render on timeline
 
-**Delivered:** schema v2 persists a script document and non-overlapping scene
-ranges. The editor now has labeled Layers, Script, and Scenes tabs; paragraph
+**Delivered:** schema v5 persists a script document and non-overlapping scene
+ranges, including optional creator-facing visual notes. The editor now has
+labeled Layers, Script, and Scenes tabs; paragraph or validated JSON-plan
 generation, segment editing/split/merge, scene create/rename/resize/split/
 merge/reorder, scene click-to-seek, and a timeline scene band. The scene model
-and v1-to-v2 migration have automated coverage.
+and v1-to-v5 migration chain have automated coverage.
 - exported project file preserves the script/scenes
 
 ---
