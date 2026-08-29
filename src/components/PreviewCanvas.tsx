@@ -25,7 +25,7 @@ function ZoomButton({ children, onClick, title }: { children: React.ReactNode; o
 export function PreviewCanvas() {
   const { t } = useTranslation()
   const {
-    layers, currentFrame, totalFrames, fps,
+    layers, connectors, currentFrame, totalFrames, fps,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
     setCanvasPreset, setCustomDimension, currentTool,
     editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas, selectLayers,
@@ -429,7 +429,7 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+              inputProps={{ layers, connectors, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}

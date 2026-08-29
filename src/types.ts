@@ -1,4 +1,23 @@
 export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'video' | 'audio' | 'group'
+export type TechnicalComponentKind = 'client' | 'load-balancer' | 'server'
+
+export interface TechnicalComponentMeta {
+  kind: TechnicalComponentKind
+  version: 1
+}
+
+export type ConnectorPort = 'left' | 'right' | 'top' | 'bottom'
+
+export interface Connector {
+  id: string
+  sourceLayerId: string
+  targetLayerId: string
+  sourcePort: ConnectorPort
+  targetPort: ConnectorPort
+  label?: string
+  color: string
+  strokeWidth: number
+}
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
 export type PairEasingType = EasingType | 'custom'
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
@@ -143,6 +162,7 @@ export interface Layer {
   parentId?: string | null
   collapsed?: boolean
   isGroup?: boolean
+  technicalComponent?: TechnicalComponentMeta
   autoFit?: boolean
   clipChildren?: boolean
   visible: boolean
@@ -283,6 +303,7 @@ export interface MotionProject {
   }
   script?: ScriptDocument
   scenes?: Scene[]
+  connectors?: Connector[]
 }
 
 export interface ScriptDocument {
@@ -304,6 +325,8 @@ export interface Scene {
   startFrame: number
   endFrame: number
   scriptSegmentIds: string[]
+  /** An optional creator-facing visual direction, used by future diagram tooling. */
+  visual?: string
 }
 
 export interface ProjectHistorySnapshot {
@@ -383,6 +406,7 @@ export interface EditorState {
   guides: GuideLine[]
   script: ScriptDocument
   scenes: Scene[]
+  connectors: Connector[]
   selectedLayerIds: string[]
   selectedKeyframes: KeyframeSelection[]
   currentFrame: number

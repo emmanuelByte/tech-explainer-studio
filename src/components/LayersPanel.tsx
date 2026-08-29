@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
   Film, Layers, Library, Lock, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
-  Type, Unlock,
+  Type, Unlock, Server, Network,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
@@ -284,10 +284,10 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const toast = useToast()
   const {
     layers, selectedLayerIds,
-    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo,
+    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo, addTechnicalComponent, addLoadBalancerTopology,
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
-    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool,
+    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -313,6 +313,9 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   // Panel shows topmost layer first while preserving nesting.
   const rows = visibleLayerRows(layers, true)
   const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
+  const selectedComponents = selectedLayerIds
+    .map((id) => layers.find((layer) => layer.id === id))
+    .filter((layer): layer is Layer => Boolean(layer?.technicalComponent))
 
   useEffect(() => {
     if (!addMenuOpen) return
@@ -662,6 +665,12 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
               )}
             </div>
             <AddMenuItem label={t('layers.text')} icon={Type} onClick={addTextLayer} />
+            <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0' }} />
+            <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text3)' }}>{t('layers.technicalComponents')}</div>
+            <AddMenuItem label={t('layers.addLoadBalancerTopology')} icon={Network} onClick={() => { addLoadBalancerTopology(); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addClient')} icon={Server} onClick={() => { addTechnicalComponent('client'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addLoadBalancer')} icon={Server} onClick={() => { addTechnicalComponent('load-balancer'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addServer')} icon={Server} onClick={() => { addTechnicalComponent('server'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.audio')} icon={Music} onClick={() => { setShowAudios(true); setAddMenuOpen(false) }} />
@@ -674,6 +683,19 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
 
       {/* Sortable layer list */}
       <div className="flex-1 overflow-y-auto">
+        {selectedComponents.length === 2 && (
+          <div className="mx-2 mt-2 rounded p-2" style={{ border: '1px solid var(--border)', background: 'var(--input)' }}>
+            <div className="mb-1 text-[10px]" style={{ color: 'var(--text3)' }}>Connect selected components</div>
+            <button
+              type="button"
+              className="w-full rounded py-1 text-xs"
+              style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
+              onClick={() => addConnector(selectedComponents[0].id, selectedComponents[1].id)}
+            >
+              {selectedComponents[0].name} → {selectedComponents[1].name}
+            </button>
+          </div>
+        )}
         {layers.length === 0 && (
           <div className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>{t('layers.empty')}</div>
         )}

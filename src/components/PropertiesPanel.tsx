@@ -9,6 +9,7 @@ import { EffectsPanel } from './panels/EffectsPanel'
 import { AnimationPresetsPanel } from './panels/AnimationPresetsPanel'
 import { TimingPanel } from './panels/TimingPanel'
 import { SegmentControls } from './panels/SegmentControls'
+import { ConnectorPanel } from './panels/ConnectorPanel'
 
 type Tab = 'transform' | 'style' | 'effects' | 'presets' | 'video'
 
@@ -134,6 +135,7 @@ export function PropertiesPanel() {
 
           {/* Panel content */}
           <div key={panelContextKey} className="flex-1 overflow-y-auto">
+            {layer.technicalComponent && <ConnectorPanel layerId={layer.id} />}
             {activeTab === 'video' && layer && <SegmentControls layer={layer} />}
             {activeTab === 'transform' && <TransformPanel />}
             {activeTab === 'style' && <StylePanel />}

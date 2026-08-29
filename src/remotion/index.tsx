@@ -133,6 +133,7 @@ function projectValues(props: RenderProps) {
   const canvas = projectProps.canvas ?? fallbackProps.canvas!
   return {
     layers: resolveLayerAssets(projectProps.layers ?? []),
+    connectors: projectProps.connectors ?? [],
     width: projectProps.canvasWidth ?? canvas.width,
     height: projectProps.canvasHeight ?? canvas.height,
     fps: canvas.fps,
@@ -149,6 +150,7 @@ function ProjectComposition(props: RenderProps) {
       <FontPreloader />
       <EditorComposition
         layers={project.layers}
+        connectors={project.connectors}
         canvasWidth={project.width}
         canvasHeight={project.height}
         backgroundColor={project.backgroundColor}

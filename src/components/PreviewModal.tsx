@@ -34,6 +34,7 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
   const playerRef = useRef<PlayerRef>(null)
   const {
     layers,
+    connectors,
     currentFrame,
     totalFrames,
     fps,
@@ -182,7 +183,7 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
           <Player
             ref={playerRef}
             component={EditorComposition}
-            inputProps={{ layers, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+            inputProps={{ layers, connectors, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
             durationInFrames={duration}
             fps={fps}
             compositionWidth={canvasW}

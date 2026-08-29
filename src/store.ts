@@ -4,7 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -30,6 +30,7 @@ import {
   updateScene as updateSceneInTimeline,
   updateScriptSegment as updateScriptSegmentInDocument,
 } from './domains/scenes/model'
+import type { StructuredScriptImport } from './domains/scenes/structuredScript'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -1095,6 +1096,59 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
   })
 }
 
+function makeTechnicalComponentLayers(kind: TechnicalComponentKind, title: string, x: number, y: number, startFrame: number, endFrame: number): Layer[] {
+  const palette = kind === 'load-balancer'
+    ? { fill: '#1d4ed8', stroke: '#60a5fa' }
+    : kind === 'server'
+      ? { fill: '#166534', stroke: '#4ade80' }
+      : { fill: '#7c3aed', stroke: '#c4b5fd' }
+  const parent = makeLayer('group', {
+    name: title,
+    width: 240,
+    height: 150,
+    technicalComponent: { kind, version: 1 },
+    startFrame,
+    endFrame,
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x, y } }],
+  })
+  const body = makeLayer('rectangle', {
+    name: `${title} body`, parentId: parent.id, width: 220, height: 110,
+    fillColor: palette.fill, strokeEnabled: true, strokeColor: palette.stroke, strokeWidth: 2, borderRadius: 16,
+    startFrame, endFrame,
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
+  })
+  const label = makeLayer('text', {
+    name: `${title} label`, parentId: parent.id, text: title, width: 190, height: 40, sizeMode: 'fixed',
+    fontSize: 24, fontWeight: '700', textColor: '#ffffff', startFrame, endFrame,
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
+  })
+  const decoration = (name: string, overrides: Partial<Layer>) => makeLayer('rectangle', {
+    name,
+    parentId: parent.id,
+    fillColor: 'rgba(255,255,255,0.28)',
+    strokeEnabled: false,
+    startFrame,
+    endFrame,
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
+    ...overrides,
+  })
+  const details = kind === 'server'
+    ? [
+        decoration(`${title} status 1`, { width: 166, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: -30 } }] }),
+        decoration(`${title} status 2`, { width: 166, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
+      ]
+    : kind === 'load-balancer'
+      ? [
+          decoration(`${title} route left`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: -78, y: 30 } }] }),
+          decoration(`${title} route center`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
+          decoration(`${title} route right`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 78, y: 30 } }] }),
+        ]
+      : [
+          decoration(`${title} activity`, { width: 100, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
+        ]
+  return [parent, body, ...details, label]
+}
+
 function timingForNewLayer(layers: Layer[], totalFrames: number, currentFrame: number, parentId?: string | null) {
   const timelineStart = clampInt(currentFrame, 0, Math.max(0, totalFrames - 1))
   const parent = parentId ? layers.find((layer) => layer.id === parentId) : null
@@ -1152,6 +1206,12 @@ interface Actions {
   // Script and scenes
   setScriptText: (rawText: string) => void
   generateScenesFromScript: () => void
+  importStructuredScript: (result: StructuredScriptImport) => void
+  addTechnicalComponent: (kind: TechnicalComponentKind) => void
+  addLoadBalancerTopology: () => void
+  addConnector: (sourceLayerId: string, targetLayerId: string) => void
+  updateConnector: (id: string, patch: Partial<Omit<Connector, 'id'>>) => void
+  deleteConnector: (id: string) => void
   updateScriptSegment: (id: string, text: string) => void
   splitScriptSegment: (id: string, offset?: number) => void
   mergeScriptSegmentWithNext: (id: string) => void
@@ -1313,7 +1373,8 @@ export const useStore = create<Store>()(
       layers: initialLayers,
       guides: [],
       script: { ...EMPTY_SCRIPT_DOCUMENT },
-      scenes: [],
+  scenes: [],
+      connectors: [],
       selectedLayerIds: [],
       selectedKeyframes: [],
       currentFrame: 0,
@@ -1364,6 +1425,7 @@ export const useStore = create<Store>()(
           guides: project.guides ?? [],
           script: project.script ?? { ...EMPTY_SCRIPT_DOCUMENT },
           scenes: normalizeScenes(project.scenes ?? [], project.canvas.durationFrames),
+          connectors: project.connectors ?? [],
           totalFrames: project.canvas.durationFrames,
           fps: project.canvas.fps,
           canvasPreset: preset.name === 'Custom' ? CANVAS_PRESETS[CANVAS_PRESETS.length - 1] : preset,
@@ -1402,7 +1464,91 @@ export const useStore = create<Store>()(
 
       setScriptText: (rawText) => set((s) => ({ script: { ...s.script, rawText } })),
 
-      generateScenesFromScript: () => set((s) => createScenesForScript(s.script, s.totalFrames)),
+      generateScenesFromScript: () => set((s) => createScenesForScript(s.script, s.totalFrames, s.scenes)),
+
+      importStructuredScript: (result) => set((s) => ({
+        script: result.script,
+        scenes: result.scenes,
+        totalFrames: Math.max(s.totalFrames, result.totalFrames),
+        currentFrame: 0,
+        projectName: result.title ?? s.projectName,
+      })),
+
+      addTechnicalComponent: (kind) => {
+        get()._snapshot()
+        const { layers, totalFrames, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const label = kind === 'load-balancer' ? 'Load Balancer' : kind === 'client' ? 'Client' : 'Server'
+        const componentLayers = makeTechnicalComponentLayers(kind, label, 0, 0, timing.startFrame, timing.endFrame)
+        set({ layers: [...layers, ...componentLayers], selectedLayerIds: [componentLayers[0].id], selectedKeyframes: [] })
+      },
+
+      addLoadBalancerTopology: () => {
+        get()._snapshot()
+        const { layers, connectors, totalFrames, currentFrame } = get()
+        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const client = makeTechnicalComponentLayers('client', 'Clients', -620, 0, timing.startFrame, timing.endFrame)
+        const loadBalancer = makeTechnicalComponentLayers('load-balancer', 'Load Balancer', -220, 0, timing.startFrame, timing.endFrame)
+        const server1 = makeTechnicalComponentLayers('server', 'Server 1', 260, -190, timing.startFrame, timing.endFrame)
+        const server2 = makeTechnicalComponentLayers('server', 'Server 2', 260, 0, timing.startFrame, timing.endFrame)
+        const server3 = makeTechnicalComponentLayers('server', 'Server 3', 260, 190, timing.startFrame, timing.endFrame)
+        const components = [...client, ...loadBalancer, ...server1, ...server2, ...server3]
+        const connection = (targetLayerId: string): Connector => ({
+          id: `connector_${uid()}`,
+          sourceLayerId: loadBalancer[0].id,
+          targetLayerId,
+          sourcePort: 'right',
+          targetPort: 'left',
+          color: '#60a5fa',
+          strokeWidth: 4,
+        })
+        const topologyConnectors: Connector[] = [
+          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', color: '#c4b5fd', strokeWidth: 4 },
+          connection(server1[0].id),
+          connection(server2[0].id),
+          connection(server3[0].id),
+        ]
+        set({
+          layers: [...layers, ...components],
+          connectors: [...connectors, ...topologyConnectors],
+          selectedLayerIds: components.filter((layer) => layer.type === 'group').map((layer) => layer.id),
+          selectedKeyframes: [],
+        })
+      },
+
+      addConnector: (sourceLayerId, targetLayerId) => {
+        if (sourceLayerId === targetLayerId) return
+        const { layers } = get()
+        const source = layers.find((layer) => layer.id === sourceLayerId)
+        const target = layers.find((layer) => layer.id === targetLayerId)
+        if (!source || !target) return
+        get()._snapshot()
+        set((s) => ({
+          connectors: [...s.connectors, {
+            id: `connector_${uid()}`,
+            sourceLayerId,
+            targetLayerId,
+            sourcePort: 'right',
+            targetPort: 'left',
+            color: '#60a5fa',
+            strokeWidth: 4,
+          }],
+        }))
+      },
+
+      updateConnector: (id, patch) => {
+        if (!get().connectors.some((connector) => connector.id === id)) return
+        get()._snapshot()
+        set((s) => ({
+          connectors: s.connectors.map((connector) => connector.id === id ? { ...connector, ...patch } : connector),
+        }))
+      },
+
+      deleteConnector: (id) => {
+        if (!get().connectors.some((connector) => connector.id === id)) return
+        get()._snapshot()
+        set((s) => ({ connectors: s.connectors.filter((connector) => connector.id !== id) }))
+      },
 
       updateScriptSegment: (id, text) => set((s) => ({ script: updateScriptSegmentInDocument(s.script, id, text) })),
 
@@ -1778,6 +1924,7 @@ export const useStore = create<Store>()(
           const layers = s.layers.filter((l) => !ids.has(l.id))
           return {
             layers: normalizeLayerTree(s, layers, undefined, true),
+            connectors: s.connectors.filter((connector) => !ids.has(connector.sourceLayerId) && !ids.has(connector.targetLayerId)),
             selectedLayerIds: s.selectedLayerIds.filter((sid) => !ids.has(sid)),
             selectedKeyframes: s.selectedKeyframes.filter((kf) => !ids.has(kf.layerId)),
           }

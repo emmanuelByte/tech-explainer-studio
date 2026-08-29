@@ -50,7 +50,7 @@ describe('migrateProject', () => {
     const migrated = migrateProject({ ...legacyProject, schemaVersion: 1 })
 
     expect(migrated).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
       script: { rawText: '', segments: [] },
       scenes: [],
     })

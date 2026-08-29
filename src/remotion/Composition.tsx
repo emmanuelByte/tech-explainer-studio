@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
 import { OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
-import { Layer, GradientStop, FillType, VideoSegment } from '../types'
+import { Connector, Layer, GradientStop, FillType, VideoSegment } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
+import { connectorLine } from '../domains/connectors/geometry'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -856,16 +857,19 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     <div data-layer-id={animatedLayer.id} style={outerStyle}>
       <div style={surfaceStyle} onClick={handleClick} />
       <div style={childPlaneStyle}>
-        {children.map((child, index) => (
-          <div
-            key={child.id}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: children.length - index,
-              pointerEvents: 'none',
-            }}
-          >
+      {children.map((child, index) => (
+        <div
+          key={child.id}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            // Children are authored back-to-front: component bodies first,
+            // then their details and labels. Keep that paint order so the
+            // label is visible above its component body.
+            zIndex: index + 1,
+            pointerEvents: 'none',
+          }}
+        >
             <RenderLayerNode
               layer={child}
               childrenByParent={childrenByParent}
@@ -928,13 +932,58 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
 
 interface CompositionProps {
   layers: Layer[]
+  connectors?: Connector[]
   canvasWidth: number
   canvasHeight: number
   backgroundColor?: string
   showOutsideCanvas?: boolean
 }
 
-export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
+function connectorRect(layer: Layer, layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number) {
+  const chain: Layer[] = []
+  const seen = new Set<string>()
+  let current: Layer | undefined = layer
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id)
+    chain.unshift(current)
+    current = current.parentId ? layers.find((item) => item.id === current!.parentId) : undefined
+  }
+  let x = canvasWidth / 2
+  let y = canvasHeight / 2
+  chain.forEach((item) => {
+    const transform = resolveLayerAnimation(item, frame).transform
+    x += transform.x
+    y += transform.y
+  })
+  const resolved = resolveLayerAnimation(layer, frame).layer
+  return { x: x - resolved.width / 2, y: y - resolved.height / 2, width: resolved.width, height: resolved.height }
+}
+
+function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number }) {
+  if (!connectors.length) return null
+  const byId = new Map(layers.map((layer) => [layer.id, layer]))
+  return (
+    <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'visible' }}>
+      <defs><marker id="connector-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
+      {connectors.map((connector) => {
+        const source = byId.get(connector.sourceLayerId)
+        const target = byId.get(connector.targetLayerId)
+        if (!source || !target) return null
+        const line = connectorLine(connectorRect(source, layers, frame, canvasWidth, canvasHeight), connector.sourcePort, connectorRect(target, layers, frame, canvasWidth, canvasHeight), connector.targetPort)
+        const labelX = (line.from.x + line.to.x) / 2
+        const labelY = (line.from.y + line.to.y) / 2 - 10
+        return (
+          <g key={connector.id}>
+            <line x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke={connector.color} strokeWidth={connector.strokeWidth} markerEnd="url(#connector-arrow)" />
+            {connector.label && <text x={labelX} y={labelY} fill={connector.color} fontSize={18} fontWeight={600} textAnchor="middle">{connector.label}</text>}
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
+export function EditorComposition({ layers, connectors = [], canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectLayer } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))
@@ -950,6 +999,7 @@ export function EditorComposition({ layers, canvasWidth, canvasHeight, backgroun
       style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
       onClick={() => selectLayer(null)}
     >
+      <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
       {rootLayers.map((layer, index) => (
         <RenderLayerNode
           key={layer.id}
