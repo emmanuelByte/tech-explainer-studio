@@ -4,7 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -16,6 +16,20 @@ import {
   moveSpeedKeyframe,
   setSpeedKeyframeEasing,
 } from './remotion/videoSegments'
+import {
+  EMPTY_SCRIPT_DOCUMENT,
+  addScene as addSceneToTimeline,
+  createScenesForScript,
+  deleteScene as deleteSceneFromTimeline,
+  mergeSceneWithNext,
+  moveScene as moveSceneOnTimeline,
+  mergeScriptSegmentWithNext as mergeScriptSegment,
+  normalizeScenes,
+  splitScene as splitSceneAtFrame,
+  splitScriptSegment as splitScriptSegmentInDocument,
+  updateScene as updateSceneInTimeline,
+  updateScriptSegment as updateScriptSegmentInDocument,
+} from './domains/scenes/model'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -1135,6 +1149,18 @@ interface Actions {
   loadProject: (project: MotionProject) => void
   renameProject: (name: string) => void
   createEmptyProjectState: (project: MotionProject) => void
+  // Script and scenes
+  setScriptText: (rawText: string) => void
+  generateScenesFromScript: () => void
+  updateScriptSegment: (id: string, text: string) => void
+  splitScriptSegment: (id: string, offset?: number) => void
+  mergeScriptSegmentWithNext: (id: string) => void
+  addScene: (startFrame?: number) => void
+  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds'>>) => void
+  deleteScene: (id: string) => void
+  splitScene: (id: string, frame?: number) => void
+  mergeSceneWithNext: (id: string) => void
+  moveScene: (id: string, direction: -1 | 1) => void
   // Layers
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
@@ -1286,6 +1312,8 @@ export const useStore = create<Store>()(
       projectUpdatedAt: null,
       layers: initialLayers,
       guides: [],
+      script: { ...EMPTY_SCRIPT_DOCUMENT },
+      scenes: [],
       selectedLayerIds: [],
       selectedKeyframes: [],
       currentFrame: 0,
@@ -1334,6 +1362,8 @@ export const useStore = create<Store>()(
           projectUpdatedAt: project.updatedAt,
           layers: project.layers,
           guides: project.guides ?? [],
+          script: project.script ?? { ...EMPTY_SCRIPT_DOCUMENT },
+          scenes: normalizeScenes(project.scenes ?? [], project.canvas.durationFrames),
           totalFrames: project.canvas.durationFrames,
           fps: project.canvas.fps,
           canvasPreset: preset.name === 'Custom' ? CANVAS_PRESETS[CANVAS_PRESETS.length - 1] : preset,
@@ -1369,6 +1399,61 @@ export const useStore = create<Store>()(
       },
 
       createEmptyProjectState: (project) => get().loadProject(project),
+
+      setScriptText: (rawText) => set((s) => ({ script: { ...s.script, rawText } })),
+
+      generateScenesFromScript: () => set((s) => createScenesForScript(s.script, s.totalFrames)),
+
+      updateScriptSegment: (id, text) => set((s) => ({ script: updateScriptSegmentInDocument(s.script, id, text) })),
+
+      splitScriptSegment: (id, offset) => set((s) => {
+        const original = s.script.segments.find((segment) => segment.id === id)
+        if (!original) return {}
+        const script = splitScriptSegmentInDocument(s.script, id, offset ?? Math.floor(original.text.length / 2))
+        const added = script.segments.find((segment) => !s.script.segments.some((existing) => existing.id === segment.id))
+        if (!added) return { script }
+        const sourceSceneId = original.sceneId ?? s.scenes.find((scene) => scene.scriptSegmentIds.includes(id))?.id
+        const scenes = sourceSceneId
+          ? s.scenes.map((scene) => scene.id === sourceSceneId
+            ? { ...scene, scriptSegmentIds: [...scene.scriptSegmentIds, added.id] }
+            : scene)
+          : s.scenes
+        return { script: { ...script, segments: script.segments.map((segment) => segment.id === added.id ? { ...segment, sceneId: sourceSceneId } : segment) }, scenes }
+      }),
+
+      mergeScriptSegmentWithNext: (id) => set((s) => {
+        const result = mergeScriptSegment(s.script, id)
+        if (!result.removedSegmentId) return { script: result.script }
+        return {
+          script: result.script,
+          scenes: s.scenes.map((scene) => ({ ...scene, scriptSegmentIds: scene.scriptSegmentIds.filter((segmentId) => segmentId !== result.removedSegmentId) })),
+        }
+      }),
+
+      addScene: (startFrame) => set((s) => ({ scenes: addSceneToTimeline(s.scenes, s.totalFrames, startFrame ?? s.currentFrame) })),
+
+      updateScene: (id, patch) => set((s) => ({ scenes: updateSceneInTimeline(s.scenes, id, patch, s.totalFrames) })),
+
+      deleteScene: (id) => set((s) => ({
+        scenes: deleteSceneFromTimeline(s.scenes, id, s.totalFrames),
+        script: { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === id ? { ...segment, sceneId: undefined } : segment) },
+      })),
+
+      splitScene: (id, frame) => set((s) => ({ scenes: splitSceneAtFrame(s.scenes, id, frame ?? s.currentFrame, s.totalFrames) })),
+
+      mergeSceneWithNext: (id) => set((s) => {
+        const ordered = normalizeScenes(s.scenes, s.totalFrames)
+        const currentIndex = ordered.findIndex((scene) => scene.id === id)
+        const nextScene = currentIndex >= 0 ? ordered[currentIndex + 1] : undefined
+        return {
+          scenes: mergeSceneWithNext(s.scenes, id, s.totalFrames),
+          script: nextScene
+            ? { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === nextScene.id ? { ...segment, sceneId: id } : segment) }
+            : s.script,
+        }
+      }),
+
+      moveScene: (id, direction) => set((s) => ({ scenes: moveSceneOnTimeline(s.scenes, id, direction, s.totalFrames) })),
 
       renameProject: (name) => set({ projectName: name, projectUpdatedAt: new Date().toISOString() }),
 
@@ -3001,7 +3086,14 @@ export const useStore = create<Store>()(
         currentFrame: frame,
         selectedKeyframes: options?.preserveKeyframeSelection ? s.selectedKeyframes : [],
       })),
-      setTotalFrames: (frames) => set({ totalFrames: frames }),
+      setTotalFrames: (frames) => set((s) => {
+        const totalFrames = Math.max(1, Math.round(frames))
+        return {
+          totalFrames,
+          currentFrame: Math.min(s.currentFrame, totalFrames - 1),
+          scenes: normalizeScenes(s.scenes, totalFrames),
+        }
+      }),
       trimTimelineAtFrame: (frame) => {
         const state = get()
         const cutFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))

@@ -279,7 +279,7 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
   )
 }
 
-export function LayersPanel() {
+export function LayersPanel({ width = 220 }: { width?: number }) {
   const { t } = useTranslation()
   const toast = useToast()
   const {
@@ -600,7 +600,7 @@ export function LayersPanel() {
   return (
     <div
       className="flex flex-col h-full"
-      style={{ width: 220, background: 'var(--panel)', borderRight: '1px solid var(--border)', flexShrink: 0 }}
+      style={{ width, background: 'var(--panel)', borderRight: '1px solid var(--border)', flexShrink: 0 }}
     >
       <CompositionAccordion />
 

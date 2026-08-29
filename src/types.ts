@@ -281,6 +281,29 @@ export interface MotionProject {
     playheadFrame: number
     showOutsideCanvas?: boolean
   }
+  script?: ScriptDocument
+  scenes?: Scene[]
+}
+
+export interface ScriptDocument {
+  rawText: string
+  segments: ScriptSegment[]
+}
+
+export interface ScriptSegment {
+  id: string
+  text: string
+  sceneId?: string
+  startFrame?: number
+  endFrame?: number
+}
+
+export interface Scene {
+  id: string
+  title: string
+  startFrame: number
+  endFrame: number
+  scriptSegmentIds: string[]
 }
 
 export interface ProjectHistorySnapshot {
@@ -358,6 +381,8 @@ export interface EditorState {
   projectUpdatedAt: string | null
   layers: Layer[]
   guides: GuideLine[]
+  script: ScriptDocument
+  scenes: Scene[]
   selectedLayerIds: string[]
   selectedKeyframes: KeyframeSelection[]
   currentFrame: number

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { AnimatableProperty, KeyframeSelection, Layer, PairEasingType, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { AnimatableProperty, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
@@ -20,6 +20,7 @@ import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMER
 
 const BASE_FPX = 4
 const RULER_H = 24
+const SCENE_BAND_H = 24
 const LABEL_W = 150
 const ROW_H = 28
 const ROW_H_MAX = 40
@@ -43,6 +44,35 @@ function BodyPortal({ children }: { children: ReactNode }) {
 function scaleTimelineHeight(base: number, max: number, zoom: number) {
   const amount = Math.max(0, Math.min(1, (zoom - 1) / 3))
   return Math.round(base + (max - base) * amount)
+}
+
+function SceneBand({ scenes, fpx, activeFrame, onSeek }: { scenes: Scene[]; fpx: number; activeFrame: number; onSeek: (frame: number) => void }) {
+  const { t } = useTranslation()
+  return (
+    <div style={{ height: SCENE_BAND_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
+      {scenes.map((scene, index) => {
+        const active = activeFrame >= scene.startFrame && activeFrame < scene.endFrame
+        return (
+          <button
+            key={scene.id}
+            type="button"
+            onClick={(event) => { event.stopPropagation(); onSeek(scene.startFrame) }}
+            title={`${scene.title} · ${t('timeline.frameLabel', { frame: scene.startFrame })}`}
+            style={{
+              position: 'absolute', left: TIMELINE_LEFT_OFFSET + scene.startFrame * fpx,
+              width: Math.max(2, (scene.endFrame - scene.startFrame) * fpx), top: 3, bottom: 3,
+              borderRadius: 3, border: `1px solid ${active ? '#0d99ff' : 'rgba(99,102,241,0.7)'}`,
+              background: active ? 'rgba(13,153,255,0.24)' : 'rgba(99,102,241,0.15)',
+              color: active ? '#b9e5ff' : 'var(--text2)', fontSize: 10, textAlign: 'left', padding: '0 6px',
+              overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: 'pointer',
+            }}
+          >
+            {index + 1}. {scene.title}
+          </button>
+        )
+      })}
+    </div>
+  )
 }
 
 // ── Property metadata ──────────────────────────────────────────────────────
@@ -849,7 +879,7 @@ function TimingModal({ state, fps, onClose, onApply }: {
 export function Timeline() {
   const { t } = useTranslation()
   const {
-    layers, currentFrame, totalFrames, fps, isPlaying, playbackRate,
+    layers, scenes, currentFrame, totalFrames, fps, isPlaying, playbackRate,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, trimTimelineAtFrame, trimTimelineStartAtFrame, setPlaybackRate,
@@ -922,7 +952,7 @@ export function Timeline() {
   }
 
   const rowLayouts = useMemo(() => {
-    let top = RULER_H
+    let top = RULER_H + SCENE_BAND_H
     return rows.map(({ layer }) => {
       const animProps = getVisibleAnimProps(layer, showAllSubtracks)
       const hasMultipleKf = layer.keyframes.length >= 2
@@ -1213,7 +1243,7 @@ export function Timeline() {
     const target = e.target as HTMLElement
     if (target.closest('[data-timeline-interactive]')) return
     const point = timelinePointFromMouse(e.clientX, e.clientY)
-    if (!point || point.y < RULER_H) return
+    if (!point || point.y < RULER_H + SCENE_BAND_H) return
     marqueeRef.current = {
       startX: point.x,
       startY: point.y,
@@ -1611,7 +1641,9 @@ export function Timeline() {
       <div className="flex flex-1 overflow-hidden">
         {/* Label column */}
         <div className="flex flex-col flex-shrink-0" style={{ width: LABEL_W, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
-          <div style={{ height: RULER_H, flexShrink: 0, borderBottom: '1px solid var(--border2)' }} />
+          <div className="flex items-center px-3" style={{ height: RULER_H + SCENE_BAND_H, flexShrink: 0, borderBottom: '1px solid var(--border2)', color: 'var(--text3)', fontSize: 10, letterSpacing: '0.06em' }}>
+            {t('scenes.title').toUpperCase()}
+          </div>
           <div
             ref={labelScrollRef}
             className="flex-1 overflow-y-auto overflow-x-hidden"
@@ -1683,6 +1715,7 @@ export function Timeline() {
                 </div>
               ))}
             </div>
+            <SceneBand scenes={scenes} fpx={fpx} activeFrame={currentFrame} onSeek={setCurrentFrame} />
 
             {/* Track rows — same order as label column */}
             {rows.map(({ layer }) => (

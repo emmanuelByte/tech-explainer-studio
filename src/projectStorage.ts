@@ -468,6 +468,8 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
     },
     layers: s.layers,
     guides: s.guides,
+    script: s.script,
+    scenes: s.scenes,
     timeline: { zoom: s.timelineZoom, scrollX: s.timelineScrollX },
     editor: {
       zoom: s.editorZoom,
@@ -515,6 +517,8 @@ export function createBlankProject(options: {
     },
     layers: [],
     guides: [],
+    script: { rawText: '', segments: [] },
+    scenes: [],
     timeline: { zoom: 1, scrollX: 0 },
     editor: { zoom: 1, panX: 0, panY: 0, selectedLayerIds: [], playheadFrame: 0, showOutsideCanvas: false },
   }

@@ -6,7 +6,7 @@ import {
   Play, Settings, Sparkles, Sun, Undo2,
 } from 'lucide-react'
 import { Modal } from './components/Modal'
-import { LayersPanel } from './components/LayersPanel'
+import { ProjectSidebar } from './components/ProjectSidebar'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { PreviewModal } from './components/PreviewModal'
 import { PropertiesPanel } from './components/PropertiesPanel'
@@ -347,6 +347,8 @@ function EditorScreen({ projectId }: { projectId: string }) {
     storeState.projectName,
     storeState.layers,
     storeState.guides,
+    storeState.script,
+    storeState.scenes,
     storeState.currentFrame,
     storeState.totalFrames,
     storeState.fps,
@@ -441,7 +443,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
       <div className="flex-1 min-h-0 overflow-hidden flex">
         <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden">
           <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: effectiveTimelineHeight }}>
-            <LayersPanel />
+            <ProjectSidebar />
             <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden flex">
               <PreviewCanvas />
               <FloatingToolbar />

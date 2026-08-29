@@ -8,6 +8,31 @@ The order matters. The goal is to avoid building impressive demos on top of unst
 
 The canonical acceptance lesson is the **Load Balancer explainer** described in `docs/PRODUCT_VISION.md`.
 
+## Execution roadmap and status
+
+`docs/IMPLEMENTATION_ROADMAP.md` is the authoritative delivery order, phase
+status, work-package breakdown, cross-cutting backlog, and phase exit criteria.
+Use this document for the detailed engineering requirements of each phase.
+
+Current delivery status:
+
+| Phase | Status |
+| --- | --- |
+| 0 — Harden the fork | Complete |
+| 1 — Script + Scenes | Complete |
+| 2 — Technical Component Kit | Planned |
+| 3 — Smart Connectors | Planned |
+| 4 — Explainer Motion + Sketch Style | Planned |
+| 5 — Video Camera | Planned |
+| 6 — Narration + Captions | Planned |
+| 7 — Acceptance Lesson + Local Release | Planned |
+| 8 — Hosted-product Readiness | Deferred |
+
+The prior combined technical specification for components/connectors is retained
+below for reference. The delivery roadmap intentionally splits it into phases 2
+and 3 so component authoring is proven before semantic connection behavior is
+introduced.
+
 ---
 
 # Phase 0 — Harden the fork
@@ -213,6 +238,12 @@ Cover:
 - clicking a scene seeks correctly
 - scene timing persists after restart
 - scene bands render on timeline
+
+**Delivered:** schema v2 persists a script document and non-overlapping scene
+ranges. The editor now has labeled Layers, Script, and Scenes tabs; paragraph
+generation, segment editing/split/merge, scene create/rename/resize/split/
+merge/reorder, scene click-to-seek, and a timeline scene band. The scene model
+and v1-to-v2 migration have automated coverage.
 - exported project file preserves the script/scenes
 
 ---

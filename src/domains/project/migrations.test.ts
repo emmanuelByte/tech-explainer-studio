@@ -36,9 +36,24 @@ describe('migrateProject', () => {
   })
 
   it('preserves a project already on the current schema', () => {
-    const raw = { ...legacyProject, schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION }
+    const raw = {
+      ...legacyProject,
+      schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
+      script: { rawText: '', segments: [] },
+      scenes: [],
+    }
 
     expect(migrateProject(raw)).toEqual(raw)
+  })
+
+  it('adds empty script and scene domains to version 1 projects', () => {
+    const migrated = migrateProject({ ...legacyProject, schemaVersion: 1 })
+
+    expect(migrated).toMatchObject({
+      schemaVersion: 2,
+      script: { rawText: '', segments: [] },
+      scenes: [],
+    })
   })
 
   it('rejects malformed and future project versions without downgrading them', () => {
