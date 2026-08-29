@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Load balancer</title>
+  <desc id="desc">A network appliance routing one incoming connection across three destinations.</desc>
+  <rect x="35" y="24" width="170" height="102" rx="16"/>
+  <path d="M17 75h42"/>
+  <path d="m49 65 10 10-10 10"/>
+  <circle cx="86" cy="75" r="8"/>
+  <path d="M94 75h24M118 75V50M118 75v25M118 50h37M118 75h37M118 100h37"/>
+  <circle cx="166" cy="50" r="8"/>
+  <circle cx="166" cy="75" r="8"/>
+  <circle cx="166" cy="100" r="8"/>
+  <path d="M174 50h49M174 75h49M174 100h49"/>
+  <path d="m213 42 10 8-10 8M213 67l10 8-10 8M213 92l10 8-10 8"/>
+</svg>
