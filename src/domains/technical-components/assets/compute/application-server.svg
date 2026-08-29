@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Application server</title>
+  <desc id="desc">A three-unit server rack with drive bays and healthy status lights.</desc>
+  <rect x="28" y="18" width="184" height="114" rx="10"/>
+  <path d="M28 56h184M28 94h184"/>
+  <path d="M49 37h92M49 75h92M49 113h92"/>
+  <circle cx="174" cy="37" r="5"/>
+  <circle cx="191" cy="37" r="5"/>
+  <circle cx="174" cy="75" r="5"/>
+  <circle cx="191" cy="75" r="5"/>
+  <circle cx="174" cy="113" r="5"/>
+  <circle cx="191" cy="113" r="5"/>
+</svg>
