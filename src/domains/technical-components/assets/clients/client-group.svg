@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Client devices</title>
+  <desc id="desc">A laptop, mobile phone, and user representing clients of a system.</desc>
+  <path d="M24 42a6 6 0 0 1 6-6h76a6 6 0 0 1 6 6v50H24V42Z"/>
+  <path d="M14 104h108l-10 10H24l-10-10Z"/>
+  <path d="M42 51h52v27H42z"/>
+  <rect x="136" y="30" width="38" height="84" rx="7"/>
+  <path d="M148 42h14M151 101h8"/>
+  <circle cx="205" cy="52" r="15"/>
+  <path d="M181 112v-13c0-17 10-28 24-28s24 11 24 28v13"/>
+</svg>
