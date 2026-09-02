@@ -17,6 +17,8 @@ export interface Connector {
   label?: string
   color: string
   strokeWidth: number
+  drawStartFrame?: number
+  drawEndFrame?: number
 }
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
 export type PairEasingType = EasingType | 'custom'
@@ -408,6 +410,7 @@ export interface EditorState {
   scenes: Scene[]
   connectors: Connector[]
   selectedLayerIds: string[]
+  selectedConnectorId: string | null
   selectedKeyframes: KeyframeSelection[]
   currentFrame: number
   totalFrames: number

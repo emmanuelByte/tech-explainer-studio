@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { AnimatableProperty, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
@@ -71,6 +71,81 @@ function SceneBand({ scenes, fpx, activeFrame, onSeek }: { scenes: Scene[]; fpx:
           </button>
         )
       })}
+    </div>
+  )
+}
+
+function connectorName(connector: Connector, layers: Layer[]) {
+  const source = layers.find((layer) => layer.id === connector.sourceLayerId)?.name ?? 'Missing source'
+  const target = layers.find((layer) => layer.id === connector.targetLayerId)?.name ?? 'Missing target'
+  return `${source} → ${target}`
+}
+
+function ConnectorTimelineLabel({ connector, layers, rowH }: { connector: Connector; layers: Layer[]; rowH: number }) {
+  return (
+    <div style={{ height: rowH, display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px', borderBottom: '1px solid var(--border2)', background: 'rgba(96,165,250,0.05)' }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: connector.color, flexShrink: 0 }} />
+      <span className="truncate" style={{ fontSize: 10, color: 'var(--text2)' }}>{connectorName(connector, layers)}</span>
+    </div>
+  )
+}
+
+function ConnectorTimelineRow({ connector, layers, fpx, contentWidth, totalFrames, fps, rowH }: {
+  connector: Connector; layers: Layer[]; fpx: number; contentWidth: number; totalFrames: number; fps: number; rowH: number
+}) {
+  const { updateConnector } = useStore()
+  const defaultDuration = Math.max(1, Math.round(fps * 0.8))
+  const start = connector.drawStartFrame ?? 0
+  const end = connector.drawEndFrame ?? Math.min(totalFrames, start + defaultDuration)
+  const [preview, setPreview] = useState<{ start: number; end: number } | null>(null)
+  const dragRef = useRef<{ type: 'left' | 'right' | 'move'; startX: number; originalStart: number; originalEnd: number; currentStart: number; currentEnd: number } | null>(null)
+  const range = preview ?? { start, end }
+
+  useEffect(() => {
+    function onMove(event: MouseEvent) {
+      const drag = dragRef.current
+      if (!drag) return
+      const delta = Math.round((event.clientX - drag.startX) / fpx)
+      const duration = Math.max(1, drag.originalEnd - drag.originalStart)
+      let nextStart = drag.originalStart
+      let nextEnd = drag.originalEnd
+      if (drag.type === 'left') nextStart = Math.max(0, Math.min(drag.originalEnd - 1, drag.originalStart + delta))
+      else if (drag.type === 'right') nextEnd = Math.max(drag.originalStart + 1, Math.min(totalFrames, drag.originalEnd + delta))
+      else {
+        nextStart = Math.max(0, Math.min(totalFrames - duration, drag.originalStart + delta))
+        nextEnd = nextStart + duration
+      }
+      drag.currentStart = nextStart
+      drag.currentEnd = nextEnd
+      setPreview({ start: nextStart, end: nextEnd })
+    }
+    function onUp() {
+      const drag = dragRef.current
+      if (drag) updateConnector(connector.id, { drawStartFrame: drag.currentStart, drawEndFrame: drag.currentEnd })
+      dragRef.current = null
+      setPreview(null)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+  }, [connector.id, fpx, totalFrames, updateConnector])
+
+  function beginDrag(event: React.MouseEvent, type: 'left' | 'right' | 'move') {
+    event.preventDefault()
+    event.stopPropagation()
+    dragRef.current = { type, startX: event.clientX, originalStart: start, originalEnd: end, currentStart: start, currentEnd: end }
+  }
+
+  return (
+    <div style={{ width: contentWidth, height: rowH, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'rgba(96,165,250,0.05)' }}>
+      <div
+        title={`${connectorName(connector, layers)} · ${range.start}–${range.end} frames`}
+        onMouseDown={(event) => beginDrag(event, 'move')}
+        style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + range.start * fpx, width: Math.max(8, (range.end - range.start) * fpx), top: Math.max(4, (rowH - 14) / 2), height: 14, borderRadius: 3, background: connector.color, opacity: 0.82, cursor: 'grab' }}
+      >
+        <span onMouseDown={(event) => beginDrag(event, 'left')} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: BAR_HANDLE_W, cursor: 'ew-resize', background: 'rgba(255,255,255,0.35)' }} />
+        <span onMouseDown={(event) => beginDrag(event, 'right')} style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: BAR_HANDLE_W, cursor: 'ew-resize', background: 'rgba(255,255,255,0.35)' }} />
+      </div>
     </div>
   )
 }
@@ -1557,6 +1632,9 @@ export function Timeline() {
         </button>
         <span className="font-mono text-xs" style={{ color: 'var(--text3)', minWidth: 80 }}>
           {currentFrame} / {totalFrames - 1}
+        </span>
+        <span className="font-mono text-xs" style={{ color: 'var(--text2)', minWidth: 72 }}>
+          {(currentFrame / fps).toFixed(2)}s / {(totalFrames / fps).toFixed(2)}s
         </span>
 
         <select

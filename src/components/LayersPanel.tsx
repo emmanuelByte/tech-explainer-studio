@@ -283,11 +283,11 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const { t } = useTranslation()
   const toast = useToast()
   const {
-    layers, selectedLayerIds,
+    layers, selectedLayerIds, currentFrame, fps,
     selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo, addTechnicalComponent, addLoadBalancerTopology,
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
-    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector,
+    selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector, applySequentialReveal, applyHighlightPulse, animateSelectedConnectors,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -305,6 +305,9 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const [replaceAudioLayerId, setReplaceAudioLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
+  const [revealStartSeconds, setRevealStartSeconds] = useState(() => currentFrame / fps)
+  const [revealDurationSeconds, setRevealDurationSeconds] = useState(0.35)
+  const [revealStaggerSeconds, setRevealStaggerSeconds] = useState(0.16)
   const hoverRef = useRef<{ targetId: string; startedAt: number } | null>(null)
   const lastSelectedId = useRef<string | null>(null)
 
@@ -693,6 +696,53 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
               onClick={() => addConnector(selectedComponents[0].id, selectedComponents[1].id)}
             >
               {selectedComponents[0].name} → {selectedComponents[1].name}
+            </button>
+          </div>
+        )}
+        {selectedComponents.length > 1 && (
+          <div className="mx-2 mt-2 rounded p-2" style={{ border: '1px solid var(--border)', background: 'var(--input)' }}>
+              <div className="mb-1 text-[10px]" style={{ color: 'var(--text3)' }}>Explainer motion</div>
+            <div className="mb-2 grid grid-cols-3 gap-1">
+              <label className="text-[10px]" style={{ color: 'var(--text3)' }}>
+                Start (s)
+                <input type="number" min="0" step="0.1" value={revealStartSeconds} onChange={(event) => setRevealStartSeconds(Math.max(0, Number(event.target.value) || 0))} className="mt-0.5 w-full rounded px-1 py-1 text-[11px]" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }} />
+              </label>
+              <label className="text-[10px]" style={{ color: 'var(--text3)' }}>
+                Duration
+                <input type="number" min="0.05" step="0.05" value={revealDurationSeconds} onChange={(event) => setRevealDurationSeconds(Math.max(0.05, Number(event.target.value) || 0.05))} className="mt-0.5 w-full rounded px-1 py-1 text-[11px]" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }} />
+              </label>
+              <label className="text-[10px]" style={{ color: 'var(--text3)' }}>
+                Stagger
+                <input type="number" min="0.05" step="0.05" value={revealStaggerSeconds} onChange={(event) => setRevealStaggerSeconds(Math.max(0.05, Number(event.target.value) || 0.05))} className="mt-0.5 w-full rounded px-1 py-1 text-[11px]" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }} />
+              </label>
+            </div>
+            <button
+              type="button"
+              className="w-full rounded py-1 text-xs"
+              style={{ background: 'var(--accent-bg)', color: 'var(--accent)' }}
+              onClick={() => applySequentialReveal(selectedComponents.map((component) => component.id), {
+                startFrame: Math.round(revealStartSeconds * fps),
+                durationFrames: Math.round(revealDurationSeconds * fps),
+                staggerFrames: Math.round(revealStaggerSeconds * fps),
+              })}
+            >
+              Reveal selected in sequence
+            </button>
+            <button
+              type="button"
+              className="mt-1 w-full rounded py-1 text-xs"
+              style={{ background: 'rgba(250,204,21,0.14)', color: '#facc15' }}
+              onClick={() => applyHighlightPulse(selectedComponents.map((component) => component.id))}
+            >
+              Highlight selected
+            </button>
+            <button
+              type="button"
+              className="mt-1 w-full rounded py-1 text-xs"
+              style={{ background: 'rgba(96,165,250,0.14)', color: '#93c5fd' }}
+              onClick={() => animateSelectedConnectors(selectedComponents.map((component) => component.id))}
+            >
+              Draw selected connections
             </button>
           </div>
         )}

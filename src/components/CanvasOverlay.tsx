@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
+import { Connector, ConnectorPort, DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
 import { buildTransform } from '../remotion/interpolateProps'
+import { connectorLine, portPosition } from '../domains/connectors/geometry'
 import { LayerOrderMenu } from './LayerOrderMenu'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
@@ -110,6 +111,13 @@ interface PathDragState {
   pointIndex: number
   points: EditablePathPoint[]
   closed: boolean
+}
+
+interface ConnectorDragState {
+  sourceLayerId: string
+  sourcePort: ConnectorPort
+  point: PenPoint
+  reassign?: { connectorId: string; endpoint: 'source' | 'target' }
 }
 
 const SNAP_DISTANCE = 6
@@ -603,6 +611,31 @@ function pointInBox(x: number, y: number, box: LayerBox) {
   return x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height
 }
 
+function distanceToSegment(point: PenPoint, start: PenPoint, end: PenPoint) {
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  const lengthSquared = dx * dx + dy * dy
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y)
+  const t = Math.max(0, Math.min(1, ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared))
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy))
+}
+
+function connectorAtPoint(connectors: Connector[], layers: Layer[], frame: number, canvasW: number, canvasH: number, point: PenPoint) {
+  for (const connector of [...connectors].reverse()) {
+    const source = layers.find((layer) => layer.id === connector.sourceLayerId)
+    const target = layers.find((layer) => layer.id === connector.targetLayerId)
+    if (!source || !target) continue
+    const sourceBox = getLayerBox(source, layers, frame, canvasW, canvasH)
+    const targetBox = getLayerBox(target, layers, frame, canvasW, canvasH)
+    const line = connectorLine(
+      { x: sourceBox.left, y: sourceBox.top, width: sourceBox.width, height: sourceBox.height }, connector.sourcePort,
+      { x: targetBox.left, y: targetBox.top, width: targetBox.width, height: targetBox.height }, connector.targetPort,
+    )
+    if (distanceToSegment(point, line.from, line.to) <= Math.max(10, connector.strokeWidth + 6)) return connector
+  }
+  return null
+}
+
 function boxToRect(box: LayerBox): BoxRect {
   return {
     id: box.layer.id,
@@ -884,10 +917,10 @@ function textRuns(layer: Layer) {
 
 export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const {
-    layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
+    layers, connectors, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
-    selectLayer, selectLayers, clearSelectedKeyframes, currentTool, setTool, addGeneratedLayer, resizeLayerBox,
-    reorderLayersById,
+    selectLayer, selectLayers, selectConnector, clearSelectedKeyframes, currentTool, setTool, addGeneratedLayer, resizeLayerBox,
+    reorderLayersById, addConnector, updateConnector,
   } = useStore()
   // Tools that should drag-to-create a new layer on the canvas (vs.
   // marquee-select). Pen has its own dedicated flow above.
@@ -902,7 +935,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   const [orderMenu, setOrderMenu] = useState<{ x: number; y: number; layerId: string } | null>(null)
   const [penPoints, setPenPoints] = useState<PenPoint[]>([])
   const [penPreviewPoint, setPenPreviewPoint] = useState<PenPoint | null>(null)
+  const [connectorDrag, setConnectorDrag] = useState<ConnectorDragState | null>(null)
   const dragRef = useRef<DragState | null>(null)
+  const connectorDragRef = useRef<ConnectorDragState | null>(null)
   const pathDragRef = useRef<PathDragState | null>(null)
   const marqueeRef = useRef<MarqueeState | null>(null)
   const keyboardSpacingTimer = useRef<number | null>(null)
@@ -999,7 +1034,30 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (guideFrameRef.current !== null) window.cancelAnimationFrame(guideFrameRef.current)
   }, [])
 
+  useEffect(() => {
+    const onPortDragStart = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        sourceLayerId: string
+        sourcePort: ConnectorPort
+        clientX: number
+        clientY: number
+        reassign?: ConnectorDragState['reassign']
+      }>).detail
+      if (!detail) return
+      beginConnectorDrag(detail.sourceLayerId, detail.sourcePort, detail.clientX, detail.clientY, detail.reassign)
+    }
+    window.addEventListener('tech-explainer:connector-port-drag-start', onPortDragStart)
+    return () => window.removeEventListener('tech-explainer:connector-port-drag-start', onPortDragStart)
+  }, [canvasW, canvasH, displayScale])
+
   const onMouseMove = useCallback((e: MouseEvent) => {
+    const activeConnectorDrag = connectorDragRef.current
+    if (activeConnectorDrag) {
+      const next = { ...activeConnectorDrag, point: getCanvasPoint(e.clientX, e.clientY) }
+      connectorDragRef.current = next
+      setConnectorDrag(next)
+      return
+    }
     const pathDrag = pathDragRef.current
     if (pathDrag) {
       const targetLayer = useStore.getState().layers.find((item) => item.id === selectedLayerIds[0])
@@ -1214,7 +1272,24 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     }
   }, [layers, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty, updateLayerProp, resizeLayerBox, scheduleGuideUpdate, containerRef, canvasW, canvasH])
 
-  const onMouseUp = useCallback(() => {
+  const onMouseUp = useCallback((event: MouseEvent) => {
+    const activeConnectorDrag = connectorDragRef.current
+    if (activeConnectorDrag) {
+      const target = technicalComponentPortAtPoint(getCanvasPoint(event.clientX, event.clientY))
+      if (target && target.layerId !== activeConnectorDrag.sourceLayerId) {
+        if (activeConnectorDrag.reassign) {
+          const patch = activeConnectorDrag.reassign.endpoint === 'source'
+            ? { sourceLayerId: target.layerId, sourcePort: target.port }
+            : { targetLayerId: target.layerId, targetPort: target.port }
+          updateConnector(activeConnectorDrag.reassign.connectorId, patch)
+        } else {
+          addConnector(activeConnectorDrag.sourceLayerId, target.layerId, activeConnectorDrag.sourcePort, target.port)
+        }
+      }
+      connectorDragRef.current = null
+      setConnectorDrag(null)
+      return
+    }
     pathDragRef.current = null
     const drag = dragRef.current
     if (drag?.type === 'move' && drag.pendingMoveUpdates?.length) {
@@ -1280,6 +1355,13 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         // Return to the Select tool — Figma-style one-shot creation.
         setTool('select')
       } else if (!moved) {
+        const connector = connectorAtPoint(connectors, layers, currentFrame, canvasW, canvasH, { x: state.currentX, y: state.currentY })
+        if (connector) {
+          selectConnector(connector.id)
+          marqueeRef.current = null
+          setMarquee(null)
+          return
+        }
         const boxes = layers
           .filter((item) => item.visible && currentFrame >= (item.startFrame ?? 0) && currentFrame <= (item.endFrame ?? Infinity))
           .map((item) => getLayerBox(item, layers, currentFrame, canvasW, canvasH))
@@ -1289,7 +1371,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       marqueeRef.current = null
       setMarquee(null)
     }
-  }, [layers, currentFrame, canvasW, canvasH, autoKeyframe, selectLayer, addKeyframes, setLayerAnimatedProperty, endInteraction, clearGuideUpdate, addGeneratedLayer, setTool])
+  }, [layers, connectors, currentFrame, canvasW, canvasH, autoKeyframe, selectLayer, selectConnector, addKeyframes, setLayerAnimatedProperty, endInteraction, clearGuideUpdate, addGeneratedLayer, setTool, addConnector, updateConnector, displayScale])
 
   useEffect(() => {
     window.addEventListener('mousemove', onMouseMove)
@@ -1443,6 +1525,35 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       .find((box) => pointInBox(x, y, box))
   }
 
+  function technicalComponentPortAtPoint(point: PenPoint) {
+    const ports: ConnectorPort[] = ['left', 'right', 'top', 'bottom']
+    const radius = Math.max(14, 18 / Math.max(displayScale, 0.1))
+    const candidates = layers
+      .filter((layer) => layer.technicalComponent && isActiveLayer(layer, currentFrame))
+      .flatMap((layer) => {
+        const box = getLayerBox(layer, layers, currentFrame, canvasW, canvasH)
+        const rect = { x: box.left, y: box.top, width: box.width, height: box.height }
+        return ports.map((port) => ({ layerId: layer.id, port, point: portPosition(rect, port) }))
+      })
+      .map((candidate) => ({ ...candidate, distance: distance(point, candidate.point) }))
+      .filter((candidate) => candidate.distance <= radius)
+      .sort((a, b) => a.distance - b.distance)
+    return candidates[0] ?? null
+  }
+
+  function beginConnectorDrag(sourceLayerId: string, sourcePort: ConnectorPort, clientX: number, clientY: number, reassign?: ConnectorDragState['reassign']) {
+    const drag = { sourceLayerId, sourcePort, point: getCanvasPoint(clientX, clientY), reassign }
+    connectorDragRef.current = drag
+    setConnectorDrag(drag)
+  }
+
+  function startConnectorDrag(e: React.MouseEvent, sourceLayerId: string, sourcePort: ConnectorPort, reassign?: ConnectorDragState['reassign']) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    beginConnectorDrag(sourceLayerId, sourcePort, e.clientX, e.clientY, reassign)
+  }
+
   function layerIdFromRenderedPoint(clientX: number, clientY: number) {
     if (typeof document === 'undefined') return null
     const activeIds = new Set(
@@ -1455,6 +1566,37 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       const layerElement = element.closest?.('[data-layer-id]') as HTMLElement | null
       const layerId = layerElement?.dataset.layerId
       if (layerId && activeIds.has(layerId)) return layerId
+    }
+    return null
+  }
+
+  function connectorIdFromRenderedPoint(clientX: number, clientY: number) {
+    if (typeof document === 'undefined') return null
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const connectorElement = element.closest?.('[data-connector-id]') as HTMLElement | null
+      if (connectorElement?.dataset.connectorId) return connectorElement.dataset.connectorId
+    }
+    return null
+  }
+
+  function connectorPortFromRenderedPoint(clientX: number, clientY: number) {
+    if (typeof document === 'undefined') return null
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const portElement = element.closest?.('[data-connector-port]') as HTMLElement | null
+      const layerId = portElement?.dataset.connectorPortLayerId
+      const port = portElement?.dataset.connectorPortName as ConnectorPort | undefined
+      if (layerId && port && ['left', 'right', 'top', 'bottom'].includes(port)) return { layerId, port }
+    }
+    return null
+  }
+
+  function connectorEndpointFromRenderedPoint(clientX: number, clientY: number) {
+    if (typeof document === 'undefined') return null
+    for (const element of document.elementsFromPoint(clientX, clientY)) {
+      const endpointElement = element.closest?.('[data-connector-endpoint]') as HTMLElement | null
+      const connectorId = endpointElement?.dataset.connectorId
+      const endpoint = endpointElement?.dataset.connectorEndpoint as 'source' | 'target' | undefined
+      if (connectorId && (endpoint === 'source' || endpoint === 'target')) return { connectorId, endpoint }
     }
     return null
   }
@@ -1506,6 +1648,28 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     if (e.button !== 0 || currentTool === 'hand' || spaceHeld.current) return
     e.preventDefault()
     e.stopPropagation()
+    if (currentTool === 'select') {
+      const endpoint = connectorEndpointFromRenderedPoint(e.clientX, e.clientY)
+      if (endpoint) {
+        const connector = connectors.find((item) => item.id === endpoint.connectorId)
+        if (connector) {
+          const layerId = endpoint.endpoint === 'source' ? connector.sourceLayerId : connector.targetLayerId
+          const port = endpoint.endpoint === 'source' ? connector.sourcePort : connector.targetPort
+          startConnectorDrag(e, layerId, port, endpoint)
+          return
+        }
+      }
+      const connectorPort = connectorPortFromRenderedPoint(e.clientX, e.clientY)
+      if (connectorPort) {
+        startConnectorDrag(e, connectorPort.layerId, connectorPort.port)
+        return
+      }
+      const connectorId = connectorIdFromRenderedPoint(e.clientX, e.clientY)
+      if (connectorId) {
+        selectConnector(connectorId)
+        return
+      }
+    }
     const point = getCanvasPoint(e.clientX, e.clientY)
     if (e.ctrlKey && currentTool !== 'pen') {
       // Ctrl-click can emit a follow-up contextmenu event on macOS. Do not open
@@ -1937,6 +2101,38 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
             })}
           </div>
         )}
+        {connectorDrag && (() => {
+          const source = layers.find((layer) => layer.id === connectorDrag.sourceLayerId)
+          if (!source) return null
+          const box = getLayerBox(source, layers, currentFrame, canvasW, canvasH)
+          const start = portPosition({ x: box.left, y: box.top, width: box.width, height: box.height }, connectorDrag.sourcePort)
+          return (
+            <svg width={canvasW} height={canvasH} style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 32 }}>
+              <line x1={start.x} y1={start.y} x2={connectorDrag.point.x} y2={connectorDrag.point.y} stroke="#60a5fa" strokeWidth={3 / displayScale} strokeDasharray={`${8 / displayScale} ${5 / displayScale}`} />
+              <circle cx={connectorDrag.point.x} cy={connectorDrag.point.y} r={5 / displayScale} fill="#60a5fa" />
+            </svg>
+          )
+        })()}
+        {layers
+          .filter((layer) => layer.technicalComponent && selectedLayerIds.includes(layer.id))
+          .flatMap((layer) => {
+            const box = getLayerBox(layer, layers, currentFrame, canvasW, canvasH)
+            const rect = { x: box.left, y: box.top, width: box.width, height: box.height }
+            return (['left', 'right', 'top', 'bottom'] as ConnectorPort[]).map((port) => ({ layer, port, point: portPosition(rect, port) }))
+          })
+          .map(({ layer, port, point }) => {
+            const size = 14 / Math.max(displayScale, 0.1)
+            return (
+              <button
+                key={`overlay-connector-port-${layer.id}-${port}`}
+                type="button"
+                data-connector-port-overlay="true"
+                title={`Drag from ${port} port to create a connection`}
+                style={{ position: 'absolute', left: point.x - size / 2, top: point.y - size / 2, width: size, height: size, padding: 0, borderRadius: '50%', background: '#0b1220', border: `${2 / Math.max(displayScale, 0.1)}px solid #38bdf8`, boxShadow: '0 0 0 2px rgba(15,23,42,0.75)', cursor: 'crosshair', zIndex: 40 }}
+                onMouseDown={(event) => startConnectorDrag(event, layer.id, port)}
+              />
+            )
+          })}
         {/* Selection box */}
         {primaryBox && layer && animatedLayer && p && (
         <div

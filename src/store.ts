@@ -4,7 +4,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -31,8 +31,15 @@ import {
   updateScriptSegment as updateScriptSegmentInDocument,
 } from './domains/scenes/model'
 import type { StructuredScriptImport } from './domains/scenes/structuredScript'
+import clientGroupSvg from './domains/technical-components/assets/clients/client-group.svg?raw'
+import applicationServerSvg from './domains/technical-components/assets/compute/application-server.svg?raw'
+import loadBalancerSvg from './domains/technical-components/assets/traffic-edge/load-balancer.svg?raw'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
+
+function svgDataUrl(svg: string) {
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
 
 type InlineTextStyle = Pick<Layer, 'fontFamily' | 'fontSize' | 'fontWeight' | 'textColor' | 'letterSpacing'>
 
@@ -1117,10 +1124,22 @@ function makeTechnicalComponentLayers(kind: TechnicalComponentKind, title: strin
     startFrame, endFrame,
     keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
   })
+  const artworkSource = kind === 'client'
+    ? clientGroupSvg
+    : kind === 'load-balancer'
+      ? loadBalancerSvg
+      : applicationServerSvg
+  const artwork = makeLayer('image', {
+    name: `${title} artwork`, parentId: parent.id, src: svgDataUrl(artworkSource), imageKind: 'svg', imageFit: 'contain',
+    imageNaturalWidth: 240, imageNaturalHeight: 150, width: 180, height: 84,
+    svgStrokeColor: palette.stroke, svgFillColor: palette.stroke, svgFillEnabled: false, svgStrokeWidth: 3,
+    startFrame, endFrame,
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 10 } }],
+  })
   const label = makeLayer('text', {
     name: `${title} label`, parentId: parent.id, text: title, width: 190, height: 40, sizeMode: 'fixed',
     fontSize: 24, fontWeight: '700', textColor: '#ffffff', startFrame, endFrame,
-    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
+    keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: -42 } }],
   })
   const decoration = (name: string, overrides: Partial<Layer>) => makeLayer('rectangle', {
     name,
@@ -1132,21 +1151,53 @@ function makeTechnicalComponentLayers(kind: TechnicalComponentKind, title: strin
     keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 0 } }],
     ...overrides,
   })
-  const details = kind === 'server'
-    ? [
-        decoration(`${title} status 1`, { width: 166, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: -30 } }] }),
-        decoration(`${title} status 2`, { width: 166, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
-      ]
-    : kind === 'load-balancer'
-      ? [
-          decoration(`${title} route left`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: -78, y: 30 } }] }),
-          decoration(`${title} route center`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
-          decoration(`${title} route right`, { width: 32, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 78, y: 30 } }] }),
-        ]
-      : [
-          decoration(`${title} activity`, { width: 100, height: 7, borderRadius: 4, keyframes: [{ frame: startFrame, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, x: 0, y: 30 } }] }),
-        ]
-  return [parent, body, ...details, label]
+  return [parent, body, artwork, label]
+}
+
+/** Find a nearby open position for a newly inserted technical component. */
+function technicalComponentPlacement(layers: Layer[], currentFrame: number, selectedLayerIds: string[]) {
+  const components = layers.filter((layer) => Boolean(layer.technicalComponent))
+  const selected = selectedLayerIds
+    .map((id) => components.find((layer) => layer.id === id))
+    .filter((layer): layer is Layer => Boolean(layer))
+  const anchor = selected[selected.length - 1] ?? components[components.length - 1]
+  if (!anchor) return { x: 0, y: 0 }
+
+  const anchorProps = interpolateProps(currentFrame, anchor.keyframes)
+  const occupied = components.map((layer) => {
+    const props = interpolateProps(currentFrame, layer.keyframes)
+    return { x: props.x, y: props.y, width: layer.width, height: layer.height }
+  })
+  const cardWidth = 240
+  const cardHeight = 150
+  const horizontalStep = 296
+  const verticalStep = 198
+  const canvasLeft = -840
+  const canvasRight = 840
+  const canvasTop = -465
+  const canvasBottom = 465
+  const directions = [
+    [1, 0], [0, 1], [0, -1], [-1, 0],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+  ] as const
+
+  for (let ring = 1; ring <= 8; ring += 1) {
+    for (const [column, row] of directions) {
+      const x = anchorProps.x + column * horizontalStep * ring
+      const y = anchorProps.y + row * verticalStep * ring
+      if (x < canvasLeft || x > canvasRight || y < canvasTop || y > canvasBottom) continue
+      const overlaps = occupied.some((item) => (
+        Math.abs(x - item.x) < (cardWidth + item.width) / 2 + 20
+        && Math.abs(y - item.y) < (cardHeight + item.height) / 2 + 20
+      ))
+      if (!overlaps) return { x, y }
+    }
+  }
+
+  return {
+    x: Math.max(canvasLeft, Math.min(canvasRight, anchorProps.x + horizontalStep)),
+    y: Math.max(canvasTop, Math.min(canvasBottom, anchorProps.y + verticalStep)),
+  }
 }
 
 function timingForNewLayer(layers: Layer[], totalFrames: number, currentFrame: number, parentId?: string | null) {
@@ -1209,9 +1260,12 @@ interface Actions {
   importStructuredScript: (result: StructuredScriptImport) => void
   addTechnicalComponent: (kind: TechnicalComponentKind) => void
   addLoadBalancerTopology: () => void
-  addConnector: (sourceLayerId: string, targetLayerId: string) => void
+  addConnector: (sourceLayerId: string, targetLayerId: string, sourcePort?: ConnectorPort, targetPort?: ConnectorPort) => void
   updateConnector: (id: string, patch: Partial<Omit<Connector, 'id'>>) => void
   deleteConnector: (id: string) => void
+  applySequentialReveal: (layerIds: string[], options?: { startFrame?: number; durationFrames?: number; staggerFrames?: number }) => void
+  applyHighlightPulse: (layerIds: string[]) => void
+  animateSelectedConnectors: (layerIds: string[]) => void
   updateScriptSegment: (id: string, text: string) => void
   splitScriptSegment: (id: string, offset?: number) => void
   mergeScriptSegmentWithNext: (id: string) => void
@@ -1237,6 +1291,7 @@ interface Actions {
   toggleLock: (id: string) => void
   selectLayer: (id: string | null, multi?: boolean) => void
   selectLayers: (ids: string[]) => void
+  selectConnector: (id: string | null) => void
   selectKeyframe: (selection: KeyframeSelection, multi?: boolean) => void
   setSelectedKeyframes: (selection: KeyframeSelection[]) => void
   clearSelectedKeyframes: () => void
@@ -1376,6 +1431,7 @@ export const useStore = create<Store>()(
   scenes: [],
       connectors: [],
       selectedLayerIds: [],
+      selectedConnectorId: null,
       selectedKeyframes: [],
       currentFrame: 0,
       totalFrames: 150,
@@ -1433,6 +1489,7 @@ export const useStore = create<Store>()(
           customHeight: project.canvas.height,
           canvasBackgroundColor: project.canvas.backgroundColor ?? '#1a1a2e',
           selectedLayerIds: project.editor.selectedLayerIds ?? [],
+          selectedConnectorId: null,
           selectedKeyframes: [],
           currentFrame: project.editor.playheadFrame ?? 0,
           playbackRate: 1,
@@ -1476,10 +1533,11 @@ export const useStore = create<Store>()(
 
       addTechnicalComponent: (kind) => {
         get()._snapshot()
-        const { layers, totalFrames, currentFrame } = get()
+        const { layers, totalFrames, currentFrame, selectedLayerIds } = get()
         const timing = timingForNewLayer(layers, totalFrames, currentFrame)
         const label = kind === 'load-balancer' ? 'Load Balancer' : kind === 'client' ? 'Client' : 'Server'
-        const componentLayers = makeTechnicalComponentLayers(kind, label, 0, 0, timing.startFrame, timing.endFrame)
+        const placement = technicalComponentPlacement(layers, currentFrame, selectedLayerIds)
+        const componentLayers = makeTechnicalComponentLayers(kind, label, placement.x, placement.y, timing.startFrame, timing.endFrame)
         set({ layers: [...layers, ...componentLayers], selectedLayerIds: [componentLayers[0].id], selectedKeyframes: [] })
       },
 
@@ -1516,7 +1574,7 @@ export const useStore = create<Store>()(
         })
       },
 
-      addConnector: (sourceLayerId, targetLayerId) => {
+      addConnector: (sourceLayerId, targetLayerId, sourcePort = 'right', targetPort = 'left') => {
         if (sourceLayerId === targetLayerId) return
         const { layers } = get()
         const source = layers.find((layer) => layer.id === sourceLayerId)
@@ -1528,8 +1586,8 @@ export const useStore = create<Store>()(
             id: `connector_${uid()}`,
             sourceLayerId,
             targetLayerId,
-            sourcePort: 'right',
-            targetPort: 'left',
+            sourcePort,
+            targetPort,
             color: '#60a5fa',
             strokeWidth: 4,
           }],
@@ -1548,6 +1606,102 @@ export const useStore = create<Store>()(
         if (!get().connectors.some((connector) => connector.id === id)) return
         get()._snapshot()
         set((s) => ({ connectors: s.connectors.filter((connector) => connector.id !== id) }))
+      },
+
+      applySequentialReveal: (layerIds, options) => {
+        const { layers, currentFrame, fps } = get()
+        const targets = layerIds
+          .map((id) => layers.find((layer) => layer.id === id))
+          .filter((layer): layer is Layer => Boolean(layer))
+        if (!targets.length) return
+        get()._snapshot()
+        const sequenceStart = Math.max(0, Math.round(options?.startFrame ?? currentFrame))
+        const duration = Math.max(1, Math.round(options?.durationFrames ?? fps * 0.35))
+        const stagger = Math.max(1, Math.round(options?.staggerFrames ?? fps * 0.16))
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            const index = targets.findIndex((target) => target.id === layer.id)
+            if (index < 0) return layer
+            const start = sequenceStart + index * stagger
+            const end = start + duration
+            const base = interpolateProps(currentFrame, layer.keyframes)
+            const prepared = ensureGroupOrigin(layer)
+            const hidden = { ...base, opacity: 0, scale: base.scale * 0.9, y: base.y + 24 }
+            return upsertTransformKeyframe(
+              upsertTransformKeyframe(
+                upsertTransformKeyframe(prepared, layer.startFrame ?? 0, hidden, 'ease-out'),
+                start,
+                hidden,
+                'ease-out',
+              ),
+              end,
+              base,
+              'ease-out',
+            )
+          }),
+        }))
+      },
+
+      applyHighlightPulse: (layerIds) => {
+        const { layers, currentFrame, fps } = get()
+        const ids = new Set(layerIds)
+        if (!ids.size) return
+        get()._snapshot()
+        const peakFrame = currentFrame + Math.max(1, Math.round(fps * 0.18))
+        const endFrame = currentFrame + Math.max(2, Math.round(fps * 0.5))
+        set((s) => ({
+          layers: s.layers.map((layer) => {
+            if (!ids.has(layer.id)) return layer
+            const base = interpolateProps(currentFrame, layer.keyframes)
+            const prepared = ensureGroupOrigin(layer)
+            const peak = { ...base, scale: base.scale * 1.08, brightness: Math.min(150, base.brightness + 20) }
+            return upsertTransformKeyframe(
+              upsertTransformKeyframe(
+                upsertTransformKeyframe(prepared, currentFrame, base, 'ease-out'),
+                peakFrame,
+                peak,
+                'ease-out',
+              ),
+              endFrame,
+              base,
+              'ease-in-out',
+            )
+          }),
+        }))
+      },
+
+      animateSelectedConnectors: (layerIds) => {
+        const selected = new Set(layerIds)
+        if (selected.size < 2) return
+        const { currentFrame, fps } = get()
+        const duration = Math.max(1, Math.round(fps * 0.55))
+        const stagger = Math.max(1, Math.round(fps * 0.18))
+        const matchingConnectors = get().connectors.filter((connector) =>
+          selected.has(connector.sourceLayerId) && selected.has(connector.targetLayerId)
+        )
+        if (!matchingConnectors.length) return
+
+        // Drawing from the final frame used to schedule every animation beyond
+        // the composition boundary. Make enough timeline room before placing it.
+        const finalDrawEnd = currentFrame + duration + (matchingConnectors.length - 1) * stagger
+        get()._snapshot()
+        set((s) => ({
+          totalFrames: Math.max(s.totalFrames, finalDrawEnd + 1),
+          scenes: finalDrawEnd < s.totalFrames
+            ? s.scenes
+            : normalizeScenes(s.scenes.map((scene) => (
+              scene.endFrame === s.totalFrames ? { ...scene, endFrame: finalDrawEnd + 1 } : scene
+            )), finalDrawEnd + 1),
+          connectors: (() => {
+            let sequenceIndex = 0
+            return s.connectors.map((connector) => {
+              if (!selected.has(connector.sourceLayerId) || !selected.has(connector.targetLayerId)) return connector
+              const start = currentFrame + sequenceIndex * stagger
+              sequenceIndex += 1
+              return { ...connector, drawStartFrame: start, drawEndFrame: start + duration }
+            })
+          })(),
+        }))
       },
 
       updateScriptSegment: (id, text) => set((s) => ({ script: updateScriptSegmentInDocument(s.script, id, text) })),
@@ -1958,7 +2112,7 @@ export const useStore = create<Store>()(
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, locked: !l.locked } : l) })),
 
       selectLayer: (id, multi = false) => {
-        if (!id) { set({ selectedLayerIds: [], selectedKeyframes: [], editingTextLayerId: null, textSelection: null }); return }
+        if (!id) { set({ selectedLayerIds: [], selectedConnectorId: null, selectedKeyframes: [], editingTextLayerId: null, textSelection: null }); return }
         if (multi) {
           const { selectedLayerIds } = get()
           const next = selectedLayerIds.includes(id)
@@ -1966,6 +2120,7 @@ export const useStore = create<Store>()(
             : [...selectedLayerIds, id]
           set({
             selectedLayerIds: next,
+            selectedConnectorId: null,
             selectedKeyframes: [],
             editingTextLayerId: null,
             textSelection: null,
@@ -1973,6 +2128,7 @@ export const useStore = create<Store>()(
         } else {
           set({
             selectedLayerIds: [id],
+            selectedConnectorId: null,
             selectedKeyframes: [],
             editingTextLayerId: null,
             textSelection: null,
@@ -1982,6 +2138,15 @@ export const useStore = create<Store>()(
 
       selectLayers: (ids) => set({
         selectedLayerIds: ids,
+        selectedConnectorId: null,
+        selectedKeyframes: [],
+        editingTextLayerId: null,
+        textSelection: null,
+      }),
+
+      selectConnector: (id) => set({
+        selectedConnectorId: id,
+        selectedLayerIds: [],
         selectedKeyframes: [],
         editingTextLayerId: null,
         textSelection: null,

@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react'
 import { OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
-import { Connector, Layer, GradientStop, FillType, VideoSegment } from '../types'
+import { Connector, ConnectorPort, Layer, GradientStop, FillType, VideoSegment } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
 import { connectorLine } from '../domains/connectors/geometry'
+import { connectorDash, connectorDrawProgress } from '../domains/connectors/draw'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -230,6 +231,17 @@ function renderWheelText(layer: Layer) {
 
 function isGroupLayer(layer: Layer) {
   return layer.type === 'group' || layer.isGroup
+}
+
+function dispatchConnectorPortDrag(detail: {
+  sourceLayerId: string
+  sourcePort: ConnectorPort
+  clientX: number
+  clientY: number
+  reassign?: { connectorId: string; endpoint: 'source' | 'target' }
+}) {
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent('tech-explainer:connector-port-drag-start', { detail }))
 }
 
 function layerBorderRadius(layer: Layer): number | string {
@@ -856,6 +868,32 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   return (
     <div data-layer-id={animatedLayer.id} style={outerStyle}>
       <div style={surfaceStyle} onClick={handleClick} />
+      {isSelected && (
+        <>
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute', inset: -6,
+              border: '3px solid #38bdf8', borderRadius: 8,
+              boxShadow: '0 0 0 2px rgba(56,189,248,0.22), 0 0 18px rgba(56,189,248,0.45)',
+              pointerEvents: 'none', zIndex: 20,
+            }}
+          />
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'absolute', left: -6, top: -28,
+              padding: '3px 7px', borderRadius: 4,
+              background: '#0284c7', color: '#ffffff',
+              fontSize: 12, lineHeight: 1, fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.28)',
+              pointerEvents: 'none', zIndex: 21,
+            }}
+          >
+            Selected
+          </div>
+        </>
+      )}
       <div style={childPlaneStyle}>
       {children.map((child, index) => (
         <div
@@ -959,23 +997,43 @@ function connectorRect(layer: Layer, layers: Layer[], frame: number, canvasWidth
   return { x: x - resolved.width / 2, y: y - resolved.height / 2, width: resolved.width, height: resolved.height }
 }
 
-function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number }) {
+function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight, selectedConnectorId, onSelect }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number; selectedConnectorId: string | null; onSelect: (id: string) => void }) {
   if (!connectors.length) return null
   const byId = new Map(layers.map((layer) => [layer.id, layer]))
   return (
-    <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'visible' }}>
+    <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', zIndex: 0, overflow: 'visible' }}>
       <defs><marker id="connector-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
       {connectors.map((connector) => {
         const source = byId.get(connector.sourceLayerId)
         const target = byId.get(connector.targetLayerId)
         if (!source || !target) return null
         const line = connectorLine(connectorRect(source, layers, frame, canvasWidth, canvasHeight), connector.sourcePort, connectorRect(target, layers, frame, canvasWidth, canvasHeight), connector.targetPort)
+        const length = Math.hypot(line.to.x - line.from.x, line.to.y - line.from.y)
+        const progress = connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame)
+        const dash = connectorDash(length, progress)
         const labelX = (line.from.x + line.to.x) / 2
         const labelY = (line.from.y + line.to.y) / 2 - 10
         return (
           <g key={connector.id}>
-            <line x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke={connector.color} strokeWidth={connector.strokeWidth} markerEnd="url(#connector-arrow)" />
-            {connector.label && <text x={labelX} y={labelY} fill={connector.color} fontSize={18} fontWeight={600} textAnchor="middle">{connector.label}</text>}
+            <line data-connector-id={connector.id} x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke="transparent" strokeWidth={Math.max(16, connector.strokeWidth + 12)} style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); onSelect(connector.id) }} />
+            <line x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke={connector.color} strokeWidth={connector.strokeWidth} strokeDasharray={dash.dashArray} strokeDashoffset={dash.dashOffset} markerEnd={progress === 1 ? 'url(#connector-arrow)' : undefined} style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }} />
+            {selectedConnectorId === connector.id && (
+              <>
+                <circle data-connector-endpoint="source" data-connector-id={connector.id} cx={line.from.x} cy={line.from.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
+                  if (event.button !== 0) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  dispatchConnectorPortDrag({ sourceLayerId: connector.sourceLayerId, sourcePort: connector.sourcePort, clientX: event.clientX, clientY: event.clientY, reassign: { connectorId: connector.id, endpoint: 'source' } })
+                }} />
+                <circle data-connector-endpoint="target" data-connector-id={connector.id} cx={line.to.x} cy={line.to.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
+                  if (event.button !== 0) return
+                  event.preventDefault()
+                  event.stopPropagation()
+                  dispatchConnectorPortDrag({ sourceLayerId: connector.targetLayerId, sourcePort: connector.targetPort, clientX: event.clientX, clientY: event.clientY, reassign: { connectorId: connector.id, endpoint: 'target' } })
+                }} />
+              </>
+            )}
+            {connector.label && progress === 1 && <text x={labelX} y={labelY} fill={connector.color} fontSize={18} fontWeight={600} textAnchor="middle">{connector.label}</text>}
           </g>
         )
       })}
@@ -985,7 +1043,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
 
 export function EditorComposition({ layers, connectors = [], canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
-  const { selectedLayerIds, selectLayer } = useStore()
+  const { selectedLayerIds, selectedConnectorId, selectLayer, selectConnector } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))
   const childrenByParent = new Map<string | null, Layer[]>()
   layers.forEach((layer) => {
@@ -999,7 +1057,7 @@ export function EditorComposition({ layers, connectors = [], canvasWidth, canvas
       style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
       onClick={() => selectLayer(null)}
     >
-      <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
+      <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} selectedConnectorId={selectedConnectorId} onSelect={selectConnector} />
       {rootLayers.map((layer, index) => (
         <RenderLayerNode
           key={layer.id}

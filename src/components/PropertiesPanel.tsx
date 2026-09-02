@@ -9,7 +9,7 @@ import { EffectsPanel } from './panels/EffectsPanel'
 import { AnimationPresetsPanel } from './panels/AnimationPresetsPanel'
 import { TimingPanel } from './panels/TimingPanel'
 import { SegmentControls } from './panels/SegmentControls'
-import { ConnectorPanel } from './panels/ConnectorPanel'
+import { ConnectorAnimationPanel, ConnectorPanel } from './panels/ConnectorPanel'
 
 type Tab = 'transform' | 'style' | 'effects' | 'presets' | 'video'
 
@@ -24,10 +24,11 @@ const AUDIO_TAB = { id: 'video' as const, labelKey: 'panels.audio', icon: Music 
 
 export function PropertiesPanel() {
   const { t } = useTranslation()
-  const { selectedLayerIds, selectedKeyframes, layers, autoKeyframe, setAutoKeyframe } = useStore()
+  const { selectedLayerIds, selectedConnectorId, selectedKeyframes, layers, connectors, autoKeyframe, setAutoKeyframe } = useStore()
   const [activeTab, setActiveTab] = useState<Tab>('transform')
 
   const layer = layers.find((l) => l.id === selectedLayerIds[0])
+  const connector = connectors.find((item) => item.id === selectedConnectorId)
   const isVideo = layer?.type === 'video' || layer?.type === 'audio'
   // The media tab is only present for video/audio layers; build the tab list
   // dynamically and pick the appropriate label/icon ("Video" vs "Audio").
@@ -61,7 +62,9 @@ export function PropertiesPanel() {
         <div className="section-header" style={{ padding: 0, marginBottom: 2 }}>
           {t('panels.properties')}
         </div>
-        {layer ? (
+        {connector ? (
+          <div className="truncate" style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>Connection</div>
+        ) : layer ? (
           <div className="truncate" style={{ fontSize: 11, color: 'var(--text)', fontWeight: 500 }}>{layer.name}</div>
         ) : (
           <div className="truncate" style={{ fontSize: 11, color: 'var(--text3)' }}>{t('panels.selectLayer')}</div>
@@ -100,7 +103,9 @@ export function PropertiesPanel() {
         )}
       </div>
 
-      {!layer ? (
+      {connector ? (
+        <ConnectorAnimationPanel connectorId={connector.id} />
+      ) : !layer ? (
         <div className="flex-1 flex items-center justify-center px-4 text-center">
           <span style={{ color: 'var(--text3)', fontSize: 11 }}>{t('panels.selectLayerHelp')}</span>
         </div>

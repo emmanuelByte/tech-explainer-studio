@@ -22,7 +22,7 @@ Current delivery status:
 | 1 — Script + Scenes | Complete |
 | 2 — Technical Component Kit | Complete (V1 foundation) |
 | 3 — Smart Connectors | In progress — rendering verified |
-| 4 — Explainer Motion + Sketch Style | Planned |
+| 4 — Explainer Motion + Sketch Style | In progress |
 | 5 — Video Camera | Planned |
 | 6 — Narration + Captions | Planned |
 | 7 — Acceptance Lesson + Local Release | Planned |

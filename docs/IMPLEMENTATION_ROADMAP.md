@@ -43,7 +43,7 @@ Out of scope until after V1:
 | 1. Script and scenes | Complete | A lesson script and scene ranges are first-class project data | 0 |
 | 2. Technical component kit | Complete (V1 foundation) | Reusable editable technical diagram primitives | 1 |
 | 3. Smart connectors | In progress | Components remain semantically connected while being edited | 2 |
-| 4. Explainer motion and sketch style | Planned | Clear progressive draw/reveal behavior | 3 |
+| 4. Explainer motion and sketch style | In progress | Clear progressive draw/reveal behavior | 3 |
 | 5. Video camera | Planned | Editable pan/zoom with preview/export parity | 4 |
 | 6. Narration and captions | Planned | Timed script, narration and captions share one source of truth | 5 |
 | 7. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 6 |
@@ -197,9 +197,11 @@ and visual style independently from layers. Pure geometry resolves the four
 standard component ports and deterministic source-to-target lines. The shared
 preview/export renderer is verified with the Load Balancer topology: connectors
 stay attached as components move and component labels render above their bodies.
-Interactive connection authoring has been manually verified for creating,
-moving, and deleting connections; endpoint and style controls are the remaining
-work package.
+Interactive connection authoring supports selected-component creation plus
+visible component ports for direct drag-to-connect. A selected connector shows
+endpoint handles that can be dragged onto another component port to reassign
+that endpoint. Endpoint and style controls remain part of the final connector
+polish work package.
 
 ### Work packages
 
@@ -226,6 +228,16 @@ work package.
 
 **Goal:** turn a static architecture diagram into a clear progression of
 teaching moments.
+
+**Status: in progress.** Schema v6 adds deterministic connector draw ranges.
+The Properties panel can animate a connector drawing in from the current
+playhead, using the same SVG dash calculation in preview and export. The Layers
+panel can also create editable, staggered reveal keyframes for selected
+technical components, with author-controlled start time, reveal duration, and
+stagger interval. Connectors are directly selectable on the canvas; their
+inspector exposes precise draw start and end times. Selected technical
+components can receive an editable highlight-pulse emphasis at the playhead.
+Selected-component connections can also be sequenced as a draw-in flow.
 
 ### Work packages
 
