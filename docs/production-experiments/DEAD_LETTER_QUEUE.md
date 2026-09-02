@@ -72,9 +72,9 @@ because an activity was attempted.
 | 1 | Define the lesson | ChatGPT | Topic, audience, format and teaching outcome are locked | Complete |
 | 2 | Write narration | ChatGPT | Script below is approved without unresolved wording | Complete |
 | 3 | Break narration into scenes | ChatGPT | Every sentence has a visual purpose and scene assignment | Complete |
-| 4 | Plan assets | ChatGPT + repository component inventory | Reusable assets and state variations are listed | Pending |
+| 4 | Plan assets | ChatGPT + repository component inventory | Reusable assets and state variations are listed | Complete |
 | 5 | Establish visual rules | Tech Explainer Studio design system | Sizes, typography, colors, strokes and spacing are defined | Pending |
-| 6 | Create/source assets | Lucide + editable layer groups/custom SVG | Each required asset can be inserted, edited and reused | Pending |
+| 6 | Create/source assets | Lucide + editable layer groups/custom SVG | Each required asset can be inserted, edited and reused | Complete (core set) |
 | 7 | Generate narration | Google Cloud TTS | Final audio uses the exact approved script | Pending |
 | 8 | Extract timing | Google Speech-to-Text or Whisper | Transcript contains usable word/phrase timestamps and matches narration | Pending |
 | 9 | Create the project | Tech Explainer Studio | `1080 x 1920` project with script and 13 scene ranges | Pending |
@@ -225,7 +225,12 @@ Scene 9 applies concrete labels to the established model instead of cutting to
 a second unrelated diagram. This reduces cognitive load and proves that the
 technical components remain editable.
 
-## Asset inventory
+## Step 4 — Asset inventory
+
+**Status: complete.** The first vendor-neutral messaging set is implemented on
+`feat/messaging-component-assets`: Queue, Dead Letter Queue, Event Message, and
+Worker. The editor inserts each as an SVG artwork layer plus a separate editable
+label inside a normal technical-component group.
 
 Do not create one flattened illustration per scene. Create reusable components
 and semantic states.
@@ -280,7 +285,8 @@ This experiment depends on roadmap work that is still in progress or planned:
 - an independent video-camera track;
 - narration semantics, timed transcript import, and captions derived from the
   script;
-- a broader vendor-neutral messaging component kit.
+- editable payload fields and failure/monitoring state variants beyond the
+  four base messaging components.
 
 Do not bypass these gaps with video-specific hard-coded rendering. Either land
 the reusable roadmap capability first or record the manual workaround clearly.
