@@ -72,7 +72,7 @@ because an activity was attempted.
 | 1 | Define the lesson | ChatGPT | Topic, audience, format and teaching outcome are locked | Complete |
 | 2 | Write narration | ChatGPT | Script below is approved without unresolved wording | Complete |
 | 3 | Break narration into scenes | ChatGPT | Every sentence has a visual purpose and scene assignment | Complete |
-| 4 | Plan assets | ChatGPT + repository component inventory | Reusable assets and state variations are listed | Complete |
+| 4 | Plan assets | ChatGPT + repository component inventory | Reusable assets and state variations are listed | Pending |
 | 5 | Establish visual rules | Tech Explainer Studio design system | Sizes, typography, colors, strokes and spacing are defined | Pending |
 | 6 | Create/source assets | Lucide + editable layer groups/custom SVG | Each required asset can be inserted, edited and reused | Pending |
 | 7 | Generate narration | Google Cloud TTS | Final audio uses the exact approved script | Pending |
@@ -86,7 +86,19 @@ because an activity was attempted.
 | 15 | Render | Tech Explainer Studio + Remotion | Valid vertical H.264 MP4 with complete audio | Pending |
 | 16 | QA and publish | Manual playback + `ffprobe`; manual publishing initially | QA checklist passes; publication is a separate explicit action | Pending |
 
-## Teaching outcome
+## Step 1 — Lesson definition
+
+**Status: complete.**
+
+- **Working title:** What Is a Dead Letter Queue?
+- **Audience:** software/backend engineers who understand APIs but are new to
+  message queues and event-driven systems.
+- **Example:** a malformed `OrderCreated` event processed by a Payment Worker.
+- **Core message:** a DLQ isolates messages that cannot be processed after the
+  configured attempt limit, allowing healthy work to continue while engineers
+  investigate the failures.
+
+### Teaching outcome
 
 After watching, a software engineer new to messaging should understand:
 
@@ -100,65 +112,100 @@ After watching, a software engineer new to messaging should understand:
 The video must not imply that adding a DLQ alone solves failures. An unmonitored
 DLQ is delayed data loss.
 
-## Approved narration script
+### Out of scope
 
-> Imagine your application sends a message to a queue.
+- RabbitMQ, Kafka, or Amazon SQS configuration;
+- retry delay and exponential-backoff implementation;
+- retention-period configuration;
+- automated redrive architecture; and
+- vendor-specific terminology.
+
+These deserve separate lessons. Adding them here would weaken the introductory
+explanation.
+
+## Step 2 — Approved narration script
+
+**Status: complete.** This is the exact text to send to the narration tool.
+Wording changes after audio generation require regenerated audio, timestamps,
+scene boundaries, and captions.
+
+> Imagine your application publishes a message to a queue.
 >
-> Normally, a consumer picks up that message, processes it, and everything
+> Normally, a consumer receives it, processes it successfully, and everything
 > moves on.
 >
 > But what happens when one message keeps failing?
 >
-> Maybe the payload is invalid, an important field is missing, or the consumer
-> simply cannot process it.
+> Its payload may be malformed, a required field may be missing, or the
+> consumer may contain a bug.
 >
-> The system can retry the message, but retrying forever is a bad idea. A single
-> problematic message can waste resources and repeatedly fail without making
-> any progress.
+> The system can try again. But retrying forever wastes resources, floods your
+> logs, and makes no progress.
 >
 > This is where a Dead Letter Queue, or DLQ, comes in.
 >
-> After a message fails a configured number of times, the system moves it out
-> of the main queue and places it into a separate Dead Letter Queue.
+> Once a message reaches the configured attempt limit, the messaging system
+> removes it from the normal processing path and stores it in a separate queue.
 >
-> The main queue can continue processing healthy messages, while the failed
-> message stays in the DLQ for investigation.
+> Healthy messages continue through the main queue while the failed message
+> waits for investigation.
 >
-> For example, imagine an OrderCreated event reaches a payment worker, but the
-> message contains malformed data.
+> Imagine an OrderCreated event reaches a payment worker with a missing order
+> ID.
 >
-> The worker retries it three times.
+> The worker tries to process it three times, and all three attempts fail.
 >
-> All three attempts fail.
+> Instead of retrying forever, the system sends that event to the DLQ.
 >
-> The message is moved to the Dead Letter Queue.
+> An engineer can inspect the event, find the cause, fix the producer or
+> consumer, and then decide whether to reprocess or discard it.
 >
-> An engineer can inspect it, understand what went wrong, fix the problem, and
-> reprocess the message later if needed.
+> But a DLQ is not a solution by itself. If nobody monitors it, failed messages
+> can sit there unnoticed.
 >
-> So a Dead Letter Queue is essentially a safety net for messages your system
-> could not process successfully.
+> A Dead Letter Queue is a safety net: it isolates persistent failures,
+> protects normal processing, and gives engineers a controlled way to recover.
 
-## Scene plan
+### Script acceptance checks
 
-The generated narration timestamps will set the exact frame boundaries. The
-scene numbers below define narrative order, not hard-coded durations.
+- The normal path is explained before failure handling.
+- The configured limit is presented as a system choice, not a universal value.
+- The example uses three total processing attempts; it does not ambiguously say
+  “three retries.”
+- Inspection, reprocessing, safe discard, and monitoring are acknowledged.
+- The script stays vendor-neutral and contains no setup instructions.
 
-| Scene | Narration beat | Visual action | Implementation |
+## Step 3 — Scene breakdown
+
+**Status: complete.** Each narration beat below has one active visual purpose.
+The generated narration timestamps will set exact frame boundaries later; the
+scene numbers define narrative order, not guessed durations.
+
+| Scene | Exact narration beat | Visual action | Implementation |
 | --- | --- | --- | --- |
-| 1 | Application sends a message | Reveal Producer, then one message, then Main Queue | Editable components and connector |
-| 2 | Consumer processes normally | Reveal Consumer; move message Queue → Consumer; show success | Editable components and keyframes |
-| 3 | One message keeps failing | Reuse the same message; Consumer rejects it; failure accent appears | Message state + failure indicator |
-| 4 | Invalid or missing payload | Open a small payload card and highlight malformed fields | Editable payload card |
-| 5 | Retrying forever is harmful | Animate one retry loop while counter changes `1/3`, `2/3`, `3/3` | Semantic connector/path + text |
-| 6 | Introduce the DLQ | Reveal the DLQ for the first time and name it | Editable DLQ component |
-| 7 | Move after configured failures | Show Consumer failure path terminating at the DLQ | Attached connector + moving message |
-| 8 | Healthy work continues | Healthy messages keep flowing; failed message remains isolated | Parallel keyframes on the same canvas |
-| 9 | `OrderCreated` example | Rename/reuse Producer as Checkout Service, message as `OrderCreated`, Consumer as Payment Worker | Existing components with edited labels |
-| 10 | Three retries | Repeat the same retry loop with an explicit counter | Reused animation pattern |
-| 11 | Message enters DLQ | Move the failed `OrderCreated` event into DLQ | Message keyframes + connector |
-| 12 | Inspect, fix, reprocess | Reveal Inspect → Fix → Reprocess actions and a controlled return path | Lucide/custom vector actions; no generated video required |
-| 13 | Final definition | Fit the completed topology and reveal the closing definition | Camera hold + caption/text reveal |
+| 1 | “Imagine your application publishes a message to a queue.” | Reveal Producer, then one message, then Main Queue. Draw the path only as the narration introduces it. | Editable components and connector |
+| 2 | “Normally, a consumer receives it…” | Reveal Consumer. Move the same message from Main Queue to Consumer and show a success state. | Editable components and keyframes |
+| 3 | “But what happens when one message keeps failing?” | Send a new message along the established path. Consumer rejects it; the message changes to its failed state. | Message state and failure indicator |
+| 4 | “Its payload may be malformed…” | Expand the failed message into a payload card. Highlight a missing required field and show the Consumer bug as an alternative cause. | Editable payload card and short labels |
+| 5 | “The system can try again…” | Animate a loop from Consumer back to the processing path. Repeated motion and log marks demonstrate wasted work without inventing a fixed limit yet. | Semantic retry path and repeated keyframes |
+| 6 | “This is where a Dead Letter Queue…” | Dim the retry motion and reveal the DLQ for the first time. Draw and label it deterministically. | Editable DLQ component |
+| 7 | “Once a message reaches the configured attempt limit…” | Emphasize `MAX ATTEMPTS`, stop the retry loop, and move the failed message along the failure path into the DLQ. | Attached connector and moving message |
+| 8 | “Healthy messages continue…” | Keep healthy messages flowing Main Queue → Consumer while the failed message remains isolated in the DLQ. | Parallel keyframes on the same canvas |
+| 9 | “Imagine an OrderCreated event…” | Apply concrete labels to the existing architecture: Checkout Service, `OrderCreated`, Payment Worker. Show `orderId: missing`. | Existing components with editable labels |
+| 10 | “The worker tries to process it three times…” | Run the same loop with `Attempt 1/3`, `Attempt 2/3`, and `Attempt 3/3`. Each attempt visibly fails. | Reused retry animation and text state |
+| 11 | “Instead of retrying forever…” | Stop the loop after attempt three and move the same `OrderCreated` card into the DLQ. | Message keyframes and connector |
+| 12 | “An engineer can inspect…” through “failed messages can sit there unnoticed.” | Reveal Inspect → Fix → Reprocess or Discard. Add a monitoring alert beside the DLQ and show the ignored-alert state briefly. | Lucide/custom vector actions; no generated video required |
+| 13 | “A Dead Letter Queue is a safety net…” | Fit the completed topology, restore healthy flow, and reveal the three closing ideas: `ISOLATE`, `PROTECT`, `RECOVER`. | Camera hold and text reveal |
+
+### Scene acceptance checks
+
+- All thirteen scenes reuse one evolving architecture canvas.
+- The same failed message persists through failure, attempts, and DLQ transfer.
+- Scene 10 says `Attempt`, not `Retry`, so the total count is unambiguous.
+- Scene 12 includes monitoring and a deliberate discard path, not automatic
+  blind replay.
+- Exact technical labels remain deterministic editor text; generative video is
+  not part of any required scene.
 
 ## Canvas continuity
 
@@ -193,7 +240,7 @@ and semantic states.
 | Success indicator | Lucide or simple vector | Draw/fade in |
 | Failure indicator | Lucide or simple vector | Pulse/flash without relying on color alone |
 | Retry connector | Smart connector/path | Attached endpoints; progressive draw; reusable animation |
-| Retry counter | Text layer | `1/3`, `2/3`, `3/3` |
+| Attempt counter | Text layer | `Attempt 1/3`, `Attempt 2/3`, `Attempt 3/3` |
 | Malformed payload card | Custom editable component group | Invalid fields remain individually highlightable |
 | Inspect action | Lucide/custom vector + label | Progressive reveal |
 | Fix action | Lucide/custom vector + label | Progressive reveal |
@@ -275,7 +322,7 @@ explicitly.
 - Labels are readable on a phone at normal playback size.
 - No important content sits under common vertical-video UI safe areas.
 - Progressive reveals follow the narration rather than preceding it.
-- Retry numbers, arrow direction and message state remain unambiguous.
+- Attempt numbers, arrow direction and message state remain unambiguous.
 - Captions match the spoken words and do not cover the active diagram.
 - Preview and export agree on positions, connectors, timing and camera framing.
 
