@@ -73,7 +73,7 @@ because an activity was attempted.
 | 2 | Write narration | ChatGPT | Script below is approved without unresolved wording | Complete |
 | 3 | Break narration into scenes | ChatGPT | Every sentence has a visual purpose and scene assignment | Complete |
 | 4 | Plan assets | ChatGPT + repository component inventory | Reusable assets and state variations are listed | Complete |
-| 5 | Establish visual rules | Tech Explainer Studio design system | Sizes, typography, colors, strokes and spacing are defined | Pending |
+| 5 | Establish visual rules | Tech Explainer Studio design system | Sizes, typography, colors, strokes and spacing are defined | Complete |
 | 6 | Create/source assets | Lucide + editable layer groups/custom SVG | Each required asset can be inserted, edited and reused | Complete (core set) |
 | 7 | Generate narration | Google Cloud TTS | Final audio uses the exact approved script | Pending |
 | 8 | Extract timing | Google Speech-to-Text or Whisper | Transcript contains usable word/phrase timestamps and matches narration | Pending |
@@ -227,8 +227,8 @@ technical components remain editable.
 
 ## Step 4 — Asset inventory
 
-**Status: complete.** The first vendor-neutral messaging set is implemented on
-`feat/messaging-component-assets`: Queue, Dead Letter Queue, Event Message, and
+**Status: complete.** The first vendor-neutral messaging set is integrated on
+`feat/dlq-visual-system`: Queue, Dead Letter Queue, Event Message, and
 Worker. The editor inserts each as an SVG artwork layer plus a separate editable
 label inside a normal technical-component group.
 
@@ -256,37 +256,50 @@ library, not a video-specific asset folder. Queue, event, worker, retry, DLQ and
 reprocess semantics will be reused in Kafka, RabbitMQ, SQS, idempotency and
 poison-message lessons.
 
-## Visual rules to lock in Step 5
+## Step 5 — Visual system
 
-Step 5 is intentionally still open, but it must produce exact tokens rather
-than adjectives such as “clean” or “modern.” At minimum, lock:
+**Status: complete.** The typed source of truth is
+`src/domains/technical-components/visualSystem.ts` on
+`feat/dlq-visual-system`. The complete usage contract is documented in
+`docs/TECHNICAL_VISUAL_SYSTEM.md`.
 
-- background, surface, primary text, muted text, healthy, warning, failure and
-  focus colors;
-- heading/body/caption font families, weights and minimum vertical-video sizes;
-- component width/height, internal padding, corner radius and stroke width;
-- connector width, arrowhead dimensions, port placement and routing defaults;
-- horizontal/vertical spacing grid and safe areas for TikTok/Reels overlays;
-- normal, active, failed and selected component states;
-- caption line length, maximum line count, background treatment and screen
-  position;
-- deterministic sketch treatment, if used.
+Locked rules:
 
-Color must reinforce meaning, not carry it alone. Failure also needs a symbol,
-label, motion, or shape change.
+- Canvas `#0B1020`; surface `#151C2F`; primary text `#F8FAFC`; muted
+  text `#94A3B8`; neutral line `#CBD5E1`.
+- Healthy `#34D399`; warning `#FBBF24`; failure `#FB7185`; active focus
+  `#60A5FA`. Component category does not determine runtime-state color.
+- Inter typography: heading `72/800`, body `42/500`, component label
+  `36/700`, connector label `28/600`, caption `52/700`.
+- Standard component group `280 x 200`, `16 px` internal padding, `20 px`
+  radius, `4 px` stroke, `96 px` horizontal gap, and `64 px` vertical gap.
+- Connector default: right-to-left ports, straight route, `4 px` neutral
+  stroke, and a `10 x 10` arrow view box with a `7 x 7` marker.
+- Portrait safe area: top `160`, right `180`, bottom `300`, left `72`.
+  Auto-placement now uses the real canvas size and these portrait bounds.
+- Captions: maximum two lines and about 32 characters per line, with a `340
+  px` bottom offset and an opaque dark backing card.
+- Active, healthy, warning, and failed variants add pulse, check, warning, or
+  failure symbols. Color is never the only state signal.
+- Sketch styling remains disabled until a deterministic shared renderer can
+  seed variation from the layer id.
+
+New projects, component templates, connector defaults, auto-placement, and the
+Remotion connector renderer consume the shared tokens. Creator-facing safe-area
+guides, a state switcher, captions, and sketch rendering remain later reusable
+editor capabilities.
 
 ## Current editor gaps exposed by this experiment
 
 The repository is not yet capable of completing every step through the UI.
 This experiment depends on roadmap work that is still in progress or planned:
 
-- smart connector endpoint/style controls;
-- progressive connector/path drawing and reusable reveal presets;
 - an independent video-camera track;
 - narration semantics, timed transcript import, and captions derived from the
   script;
-- editable payload fields and failure/monitoring state variants beyond the
-  four base messaging components.
+- creator-facing safe-area guides and a technical-component state switcher;
+- editable payload fields and monitoring-specific variants beyond the four
+  base messaging components.
 
 Do not bypass these gaps with video-specific hard-coded rendering. Either land
 the reusable roadmap capability first or record the manual workaround clearly.
