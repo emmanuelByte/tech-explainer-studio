@@ -4,6 +4,10 @@ Tech Explainer Studio is a local-first visual editor for creating editable techn
 
 The goal is to keep authoring direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved components and animation snippets, and export a video without setting up a hosted backend. The product is manual-first and AI-assisted; it is not a prompt-to-video black box or a general-purpose social-video editor.
 
+## Production Experiments
+
+- [Dead Letter Queue explainer production plan](docs/production-experiments/DEAD_LETTER_QUEUE.md)
+
 ## Preview
 
 ![MotionEditor map animation timeline](docs/images/motioneditor-map-timeline.png)
