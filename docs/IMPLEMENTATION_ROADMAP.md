@@ -156,6 +156,11 @@ Deferred expansion: additional component families (data, messaging, and
 observability) will be added from real lesson requirements, without changing
 the editable-group model proven by this milestone.
 
+The first requirement-driven expansion adds Queue, Dead Letter Queue, Event
+Message, and Worker components for the DLQ production experiment. Their vector
+artwork is embedded in normal editable component groups with separate text
+layers; connectors remain semantic project data.
+
 ### Work packages
 
 1. Define a restrained design system: spacing, label typography, color roles,

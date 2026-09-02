@@ -66,6 +66,27 @@ describe('migrateProject', () => {
     expect(migrated.connectors?.[0]).toMatchObject({ id: 'connection-1', routing: 'straight' })
   })
 
+  it('advances version 7 projects for the expanded technical component catalog', () => {
+    const messagingLayer = {
+      id: 'queue-1',
+      type: 'group',
+      technicalComponent: { kind: 'queue', version: 1 },
+    }
+    const raw = {
+      ...legacyProject,
+      schemaVersion: 7,
+      script: { rawText: '', segments: [] },
+      scenes: [],
+      connectors: [],
+      layers: [messagingLayer],
+    }
+
+    expect(migrateProject(raw)).toMatchObject({
+      schemaVersion: 8,
+      layers: [messagingLayer],
+    })
+  })
+
   it('rejects malformed and future project versions without downgrading them', () => {
     expect(() => migrateProject([])).toThrow(ProjectMigrationError)
     expect(() => migrateProject({ ...legacyProject, schemaVersion: -1 })).toThrow(ProjectMigrationError)

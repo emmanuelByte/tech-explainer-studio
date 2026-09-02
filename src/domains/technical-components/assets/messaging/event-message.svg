@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Event message</title>
+  <desc id="desc">A structured event card with a header and payload fields.</desc>
+  <rect id="card" x="38" y="21" width="164" height="108" rx="13"/>
+  <path id="header-divider" d="M38 51h164"/>
+  <circle cx="54" cy="36" r="3"/>
+  <circle cx="67" cy="36" r="3"/>
+  <circle cx="80" cy="36" r="3"/>
+  <g id="payload">
+    <path d="M62 73c-8 0-8 7-8 11s0 11-8 11M178 73c8 0 8 7 8 11s0 11 8 11"/>
+    <path d="M75 72h67M75 85h90M75 98h52"/>
+  </g>
+</svg>

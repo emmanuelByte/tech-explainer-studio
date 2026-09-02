@@ -5,7 +5,7 @@ import type { MotionProject } from '../../types'
  * Projects are migrated one version at a time so an old file never relies on
  * incidental UI sanitisation to remain usable.
  */
-export const CURRENT_PROJECT_SCHEMA_VERSION = 7
+export const CURRENT_PROJECT_SCHEMA_VERSION = 8
 
 type ProjectRecord = Record<string, unknown>
 
@@ -87,6 +87,11 @@ const PROJECT_MIGRATIONS: ProjectMigration[] = [
         ))
         : [],
     }),
+  },
+  {
+    from: 7,
+    to: 8,
+    migrate: (project) => ({ ...project, schemaVersion: 8 }),
   },
 ]
 

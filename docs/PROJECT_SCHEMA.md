@@ -1,7 +1,7 @@
 # Project schema and migrations
 
 Tech Explainer Studio persists a complete project as JSON. Every project now
-has a top-level `schemaVersion`; the current version is **1**.
+has a top-level `schemaVersion`; the current version is **8**.
 
 ## Loading and saving
 
@@ -22,7 +22,7 @@ imported object.
 ## Version rules
 
 - An unversioned MotionEditor project is version `0` and migrates to version
-  `1` by adding `schemaVersion: 1`.
+  `1` by adding `schemaVersion: 1` before continuing through later migrations.
 - A project whose version is newer than the editor supports is rejected. It is
   never silently downgraded or overwritten.
 - Any future persisted-field change must increment
@@ -33,3 +33,16 @@ imported object.
 
 The empty tracked `data/assets/index.json` is a build seed for Remotion. All
 real project files and imported asset files remain ignored by Git.
+
+## Version history
+
+| Version | Persisted contract |
+| --- | --- |
+| 1 | Introduced explicit project schema versioning. |
+| 2 | Added script documents and scene ranges. |
+| 3 | Reserved an explicit compatibility boundary for editor-domain changes. |
+| 4 | Added optional technical-component metadata to editable layer groups. |
+| 5 | Added persisted semantic connectors. |
+| 6 | Added optional connector draw timing for progressive reveal animation. |
+| 7 | Added connector routing modes and defaulted existing connectors to straight routing. |
+| 8 | Expanded technical-component kinds with Queue, Dead Letter Queue, Event Message, and Worker. |

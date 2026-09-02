@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
   Film, Layers, Library, Lock, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
-  Type, Unlock, Server, Network,
+  Type, Unlock, Server, Network, Inbox, ArchiveX, FileJson2, Cog,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
@@ -636,6 +636,8 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             style={{
               zIndex: 2300,
               minWidth: 160,
+              maxHeight: 'min(560px, calc(100vh - 140px))',
+              overflowY: 'auto',
               background: 'var(--panel)',
               border: '1px solid var(--border)',
               boxShadow: '0 8px 24px rgba(0,0,0,0.28)',
@@ -674,6 +676,11 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             <AddMenuItem label={t('layers.addClient')} icon={Server} onClick={() => { addTechnicalComponent('client'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.addLoadBalancer')} icon={Server} onClick={() => { addTechnicalComponent('load-balancer'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.addServer')} icon={Server} onClick={() => { addTechnicalComponent('server'); setAddMenuOpen(false) }} />
+            <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text3)' }}>{t('layers.messagingComponents')}</div>
+            <AddMenuItem label={t('layers.addQueue')} icon={Inbox} onClick={() => { addTechnicalComponent('queue'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addDeadLetterQueue')} icon={ArchiveX} onClick={() => { addTechnicalComponent('dead-letter-queue'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addEventMessage')} icon={FileJson2} onClick={() => { addTechnicalComponent('event-message'); setAddMenuOpen(false) }} />
+            <AddMenuItem label={t('layers.addWorker')} icon={Cog} onClick={() => { addTechnicalComponent('worker'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.audio')} icon={Music} onClick={() => { setShowAudios(true); setAddMenuOpen(false) }} />

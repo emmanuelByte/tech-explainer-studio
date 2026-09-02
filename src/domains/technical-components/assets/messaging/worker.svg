@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Message worker</title>
+  <desc id="desc">A processing service with a central gear and status indicators.</desc>
+  <rect id="service" x="32" y="20" width="176" height="110" rx="18"/>
+  <g id="processor">
+    <circle cx="120" cy="75" r="25"/>
+    <circle cx="120" cy="75" r="9"/>
+    <path d="M120 39v11M120 100v11M84 75h11M145 75h11M95 50l8 8M137 92l8 8M95 100l8-8M137 58l8-8"/>
+  </g>
+  <g id="status">
+    <path d="M51 49h22M51 62h14M51 88h22M51 101h14"/>
+    <circle cx="184" cy="51" r="4"/>
+    <circle cx="184" cy="75" r="4"/>
+    <circle cx="184" cy="99" r="4"/>
+  </g>
+</svg>

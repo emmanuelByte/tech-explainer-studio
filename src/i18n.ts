@@ -252,6 +252,11 @@ export const resources = {
         addClient: 'Client',
         addLoadBalancer: 'Load balancer',
         addServer: 'Server',
+        messagingComponents: 'Messaging',
+        addQueue: 'Main queue',
+        addDeadLetterQueue: 'Dead letter queue',
+        addEventMessage: 'Event message',
+        addWorker: 'Worker',
         noItems: 'No saved library items yet.',
       },
       scenes: {
