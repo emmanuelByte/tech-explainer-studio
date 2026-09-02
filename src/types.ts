@@ -1,5 +1,12 @@
 export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'video' | 'audio' | 'group'
-export type TechnicalComponentKind = 'client' | 'load-balancer' | 'server'
+export type TechnicalComponentKind =
+  | 'client'
+  | 'load-balancer'
+  | 'server'
+  | 'queue'
+  | 'dead-letter-queue'
+  | 'event-message'
+  | 'worker'
 
 export interface TechnicalComponentMeta {
   kind: TechnicalComponentKind
