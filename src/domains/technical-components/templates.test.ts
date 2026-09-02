@@ -56,10 +56,20 @@ describe('technical component templates', () => {
       endFrame: 180,
     })
 
-    const [parent, artwork, label] = layers
+    const parent = layers[0]
+    const body = layers.find((layer) => layer.name.endsWith(' body'))
+    const artwork = layers.find((layer) => layer.name.endsWith(' artwork'))
+    const label = layers.find((layer) => layer.name.endsWith(' label'))
     expect(parent.type).toBe('group')
     expect(parent.technicalComponent).toEqual({ kind, version: 1 })
     expect(parent.keyframes[0].props).toMatchObject({ x: 120, y: -80 })
+    expect(body).toMatchObject({
+      type: 'rectangle',
+      parentId: parent.id,
+      width: 264,
+      height: 144,
+      strokeWidth: 4,
+    })
     expect(artwork).toMatchObject({
       type: 'image',
       parentId: parent.id,
@@ -67,12 +77,13 @@ describe('technical component templates', () => {
       startFrame: 15,
       endFrame: 180,
     })
-    expect(artwork.src).toMatch(/^data:image\/svg\+xml;charset=utf-8,/)
-    expect(decodeURIComponent(artwork.src!.split(',')[1])).toContain('<svg')
+    expect(artwork?.src).toMatch(/^data:image\/svg\+xml;charset=utf-8,/)
+    expect(decodeURIComponent(artwork?.src?.split(',')[1] ?? '')).toContain('<svg')
     expect(label).toMatchObject({
       type: 'text',
       parentId: parent.id,
       text: technicalComponentLabel(kind),
+      fontSize: 36,
       startFrame: 15,
       endFrame: 180,
     })
@@ -90,7 +101,7 @@ describe('technical component templates', () => {
     })
 
     expect(layers[0].name).toBe('OrderCreated')
-    expect(layers[2]).toMatchObject({ type: 'text', text: 'OrderCreated' })
+    expect(layers[3]).toMatchObject({ type: 'text', text: 'OrderCreated' })
   })
 
   it('preserves the existing editable server template', () => {
@@ -116,5 +127,27 @@ describe('technical component templates', () => {
       imageKind: 'svg',
     })
     expect(layers[layers.length - 1]).toMatchObject({ type: 'text', text: 'Server' })
+  })
+
+  it('creates an editable, non-color failure indicator for failed messages', () => {
+    const layers = makeTechnicalComponentLayers({
+      makeLayer: layerFactory(),
+      kind: 'event-message',
+      title: 'OrderCreated',
+      visualState: 'failed',
+      x: 0,
+      y: 0,
+      startFrame: 0,
+      endFrame: 90,
+    })
+
+    expect(layers).toHaveLength(5)
+    expect(layers[1]).toMatchObject({ fillColor: '#3F121B', strokeColor: '#FB7185' })
+    expect(layers[4]).toMatchObject({
+      type: 'path',
+      name: 'OrderCreated failure-x',
+      strokeColor: '#FB7185',
+      pathData: 'M 5 5 L 31 31 M 31 5 L 5 31',
+    })
   })
 })

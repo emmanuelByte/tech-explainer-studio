@@ -7,6 +7,7 @@ import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
 import { connectorPath } from '../domains/connectors/geometry'
 import { connectorDash, connectorDrawProgress } from '../domains/connectors/draw'
+import { TECHNICAL_VISUAL_SYSTEM } from '../domains/technical-components/visualSystem'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -1000,9 +1001,11 @@ function connectorRect(layer: Layer, layers: Layer[], frame: number, canvasWidth
 function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight, selectedConnectorId, onSelect }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number; selectedConnectorId: string | null; onSelect: (id: string) => void }) {
   if (!connectors.length) return null
   const byId = new Map(layers.map((layer) => [layer.id, layer]))
+  const connectorTokens = TECHNICAL_VISUAL_SYSTEM.connector
+  const arrowhead = connectorTokens.arrowhead
   return (
     <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', zIndex: 0, overflow: 'visible' }}>
-      <defs><marker id="connector-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
+      <defs><marker id="connector-arrow" viewBox={`0 0 ${arrowhead.viewBoxSize} ${arrowhead.viewBoxSize}`} refX={arrowhead.refX} refY={arrowhead.refY} markerWidth={arrowhead.markerWidth} markerHeight={arrowhead.markerHeight} orient="auto"><path d={`M 0 0 L ${arrowhead.viewBoxSize} ${arrowhead.refY} L 0 ${arrowhead.viewBoxSize} z`} fill="context-stroke" /></marker></defs>
       {connectors.map((connector) => {
         const source = byId.get(connector.sourceLayerId)
         const target = byId.get(connector.targetLayerId)
@@ -1011,7 +1014,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
         const progress = connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame)
         const dash = connectorDash(path.length, progress)
         const labelX = path.label.x
-        const labelY = path.label.y - 10
+        const labelY = path.label.y - connectorTokens.labelOffset
         return (
           <g key={connector.id}>
             <path data-connector-id={connector.id} d={path.d} fill="none" stroke="transparent" strokeWidth={Math.max(16, connector.strokeWidth + 12)} style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); onSelect(connector.id) }} />
@@ -1032,7 +1035,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
                 }} />
               </>
             )}
-            {connector.label && progress === 1 && <text x={labelX} y={labelY} fill={connector.color} fontSize={18} fontWeight={600} textAnchor="middle">{connector.label}</text>}
+            {connector.label && progress === 1 && <text x={labelX} y={labelY} fill={connector.color} fontFamily={TECHNICAL_VISUAL_SYSTEM.typography.family} fontSize={TECHNICAL_VISUAL_SYSTEM.typography.connectorLabel.fontSize} fontWeight={TECHNICAL_VISUAL_SYSTEM.typography.connectorLabel.fontWeight} textAnchor="middle">{connector.label}</text>}
           </g>
         )
       })}
@@ -1040,7 +1043,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
   )
 }
 
-export function EditorComposition({ layers, connectors = [], canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
+export function EditorComposition({ layers, connectors = [], canvasWidth, canvasHeight, backgroundColor = TECHNICAL_VISUAL_SYSTEM.color.canvas, showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectedConnectorId, selectLayer, selectConnector } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))

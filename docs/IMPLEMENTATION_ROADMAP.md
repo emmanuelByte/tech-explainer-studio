@@ -161,6 +161,11 @@ Message, and Worker components for the DLQ production experiment. Their vector
 artwork is embedded in normal editable component groups with separate text
 layers; connectors remain semantic project data.
 
+The technical visual system is now locked in code and documented in
+`docs/TECHNICAL_VISUAL_SYSTEM.md`. It defines semantic color roles, phone-safe
+typography, common component geometry, connector defaults, portrait safe areas,
+caption constraints, and deterministic sketch requirements.
+
 ### Work packages
 
 1. Define a restrained design system: spacing, label typography, color roles,

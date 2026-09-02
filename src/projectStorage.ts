@@ -3,6 +3,7 @@ import { useStore } from './store'
 import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
 import { CURRENT_PROJECT_SCHEMA_VERSION, migrateProject } from './domains/project/migrations'
+import { TECHNICAL_VISUAL_SYSTEM } from './domains/technical-components/visualSystem'
 
 export interface ProjectStorageStats {
   totalBytes: number
@@ -513,7 +514,7 @@ export function createBlankProject(options: {
       height: isCustom ? options.height : preset.height,
       fps: options.fps,
       durationFrames: Math.max(1, Math.round(options.durationSeconds * options.fps)),
-      backgroundColor: '#1a1a2e',
+      backgroundColor: TECHNICAL_VISUAL_SYSTEM.color.canvas,
       presetName: isCustom ? 'Custom' : preset.name,
     },
     layers: [],

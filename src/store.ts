@@ -32,6 +32,7 @@ import {
 } from './domains/scenes/model'
 import type { StructuredScriptImport } from './domains/scenes/structuredScript'
 import { makeTechnicalComponentLayers, technicalComponentLabel } from './domains/technical-components/templates'
+import { TECHNICAL_VISUAL_SYSTEM, technicalComponentPlacementBounds } from './domains/technical-components/visualSystem'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -1098,7 +1099,13 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
 }
 
 /** Find a nearby open position for a newly inserted technical component. */
-function technicalComponentPlacement(layers: Layer[], currentFrame: number, selectedLayerIds: string[]) {
+function technicalComponentPlacement(
+  layers: Layer[],
+  currentFrame: number,
+  selectedLayerIds: string[],
+  canvasWidth: number,
+  canvasHeight: number,
+) {
   const components = layers.filter((layer) => Boolean(layer.technicalComponent))
   const selected = selectedLayerIds
     .map((id) => components.find((layer) => layer.id === id))
@@ -1111,14 +1118,12 @@ function technicalComponentPlacement(layers: Layer[], currentFrame: number, sele
     const props = interpolateProps(currentFrame, layer.keyframes)
     return { x: props.x, y: props.y, width: layer.width, height: layer.height }
   })
-  const cardWidth = 240
-  const cardHeight = 150
-  const horizontalStep = 296
-  const verticalStep = 198
-  const canvasLeft = -840
-  const canvasRight = 840
-  const canvasTop = -465
-  const canvasBottom = 465
+  const { component, spacing } = TECHNICAL_VISUAL_SYSTEM
+  const cardWidth = component.width
+  const cardHeight = component.height
+  const horizontalStep = cardWidth + spacing.componentGapX
+  const verticalStep = cardHeight + spacing.componentGapY
+  const bounds = technicalComponentPlacementBounds(canvasWidth, canvasHeight)
   const directions = [
     [1, 0], [0, 1], [0, -1], [-1, 0],
     [1, 1], [1, -1], [-1, 1], [-1, -1],
@@ -1128,7 +1133,7 @@ function technicalComponentPlacement(layers: Layer[], currentFrame: number, sele
     for (const [column, row] of directions) {
       const x = anchorProps.x + column * horizontalStep * ring
       const y = anchorProps.y + row * verticalStep * ring
-      if (x < canvasLeft || x > canvasRight || y < canvasTop || y > canvasBottom) continue
+      if (x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) continue
       const overlaps = occupied.some((item) => (
         Math.abs(x - item.x) < (cardWidth + item.width) / 2 + 20
         && Math.abs(y - item.y) < (cardHeight + item.height) / 2 + 20
@@ -1138,8 +1143,8 @@ function technicalComponentPlacement(layers: Layer[], currentFrame: number, sele
   }
 
   return {
-    x: Math.max(canvasLeft, Math.min(canvasRight, anchorProps.x + horizontalStep)),
-    y: Math.max(canvasTop, Math.min(canvasBottom, anchorProps.y + verticalStep)),
+    x: Math.max(bounds.left, Math.min(bounds.right, anchorProps.x + horizontalStep)),
+    y: Math.max(bounds.top, Math.min(bounds.bottom, anchorProps.y + verticalStep)),
   }
 }
 
@@ -1384,7 +1389,7 @@ export const useStore = create<Store>()(
       canvasPreset: CANVAS_PRESETS[0],
       customWidth: 1280,
       customHeight: 720,
-      canvasBackgroundColor: '#1a1a2e',
+      canvasBackgroundColor: TECHNICAL_VISUAL_SYSTEM.color.canvas,
       theme: 'dark',
       currentTool: 'select',
       timelineZoom: 1,
@@ -1430,7 +1435,7 @@ export const useStore = create<Store>()(
           canvasPreset: preset.name === 'Custom' ? CANVAS_PRESETS[CANVAS_PRESETS.length - 1] : preset,
           customWidth: project.canvas.width,
           customHeight: project.canvas.height,
-          canvasBackgroundColor: project.canvas.backgroundColor ?? '#1a1a2e',
+          canvasBackgroundColor: project.canvas.backgroundColor ?? TECHNICAL_VISUAL_SYSTEM.color.canvas,
           selectedLayerIds: project.editor.selectedLayerIds ?? [],
           selectedConnectorId: null,
           selectedKeyframes: [],
@@ -1476,9 +1481,11 @@ export const useStore = create<Store>()(
 
       addTechnicalComponent: (kind) => {
         get()._snapshot()
-        const { layers, totalFrames, currentFrame, selectedLayerIds } = get()
+        const state = get()
+        const { layers, totalFrames, currentFrame, selectedLayerIds } = state
+        const canvas = getCanvasSize(state)
         const timing = timingForNewLayer(layers, totalFrames, currentFrame)
-        const placement = technicalComponentPlacement(layers, currentFrame, selectedLayerIds)
+        const placement = technicalComponentPlacement(layers, currentFrame, selectedLayerIds, canvas.width, canvas.height)
         const componentLayers = makeTechnicalComponentLayers({
           makeLayer,
           kind,
@@ -1506,22 +1513,31 @@ export const useStore = create<Store>()(
         })
         const client = component('client', 'Clients', -620, 0)
         const loadBalancer = component('load-balancer', 'Load Balancer', -220, 0)
-        const server1 = component('server', 'Server 1', 260, -190)
+        const server1 = component('server', 'Server 1', 260, -264)
         const server2 = component('server', 'Server 2', 260, 0)
-        const server3 = component('server', 'Server 3', 260, 190)
+        const server3 = component('server', 'Server 3', 260, 264)
         const components = [...client, ...loadBalancer, ...server1, ...server2, ...server3]
         const connection = (targetLayerId: string): Connector => ({
           id: `connector_${uid()}`,
           sourceLayerId: loadBalancer[0].id,
           targetLayerId,
-          sourcePort: 'right',
-          targetPort: 'left',
-          routing: 'straight',
-          color: '#60a5fa',
-          strokeWidth: 4,
+          sourcePort: TECHNICAL_VISUAL_SYSTEM.connector.sourcePort,
+          targetPort: TECHNICAL_VISUAL_SYSTEM.connector.targetPort,
+          routing: TECHNICAL_VISUAL_SYSTEM.connector.routing,
+          color: TECHNICAL_VISUAL_SYSTEM.connector.color,
+          strokeWidth: TECHNICAL_VISUAL_SYSTEM.connector.strokeWidth,
         })
         const topologyConnectors: Connector[] = [
-          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', routing: 'straight', color: '#c4b5fd', strokeWidth: 4 },
+          {
+            id: `connector_${uid()}`,
+            sourceLayerId: client[0].id,
+            targetLayerId: loadBalancer[0].id,
+            sourcePort: TECHNICAL_VISUAL_SYSTEM.connector.sourcePort,
+            targetPort: TECHNICAL_VISUAL_SYSTEM.connector.targetPort,
+            routing: TECHNICAL_VISUAL_SYSTEM.connector.routing,
+            color: TECHNICAL_VISUAL_SYSTEM.connector.color,
+            strokeWidth: TECHNICAL_VISUAL_SYSTEM.connector.strokeWidth,
+          },
           connection(server1[0].id),
           connection(server2[0].id),
           connection(server3[0].id),
@@ -1534,7 +1550,12 @@ export const useStore = create<Store>()(
         })
       },
 
-      addConnector: (sourceLayerId, targetLayerId, sourcePort = 'right', targetPort = 'left') => {
+      addConnector: (
+        sourceLayerId,
+        targetLayerId,
+        sourcePort = TECHNICAL_VISUAL_SYSTEM.connector.sourcePort,
+        targetPort = TECHNICAL_VISUAL_SYSTEM.connector.targetPort,
+      ) => {
         if (sourceLayerId === targetLayerId) return
         const { layers } = get()
         const source = layers.find((layer) => layer.id === sourceLayerId)
@@ -1547,10 +1568,10 @@ export const useStore = create<Store>()(
             sourceLayerId,
             targetLayerId,
             sourcePort,
-          targetPort,
-          routing: 'straight',
-          color: '#60a5fa',
-            strokeWidth: 4,
+            targetPort,
+            routing: TECHNICAL_VISUAL_SYSTEM.connector.routing,
+            color: TECHNICAL_VISUAL_SYSTEM.connector.color,
+            strokeWidth: TECHNICAL_VISUAL_SYSTEM.connector.strokeWidth,
           }],
         }))
       },
