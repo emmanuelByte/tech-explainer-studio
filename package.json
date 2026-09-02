@@ -12,6 +12,7 @@
     "render": "remotion render src/remotion/index.tsx EditorComposition",
     "remotion:compositions": "remotion compositions src/remotion/index.tsx",
     "preview": "vite preview",
+    "assets:validate": "node tooling/validate-technical-svg-assets.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

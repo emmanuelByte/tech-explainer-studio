@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Message queue</title>
+  <desc id="desc">A holding container with three ordered message cards.</desc>
+  <rect id="container" x="24" y="20" width="192" height="110" rx="18"/>
+  <g id="messages">
+    <rect x="43" y="48" width="44" height="54" rx="7"/>
+    <path d="M52 63h26M52 77h18"/>
+    <rect x="98" y="48" width="44" height="54" rx="7"/>
+    <path d="M107 63h26M107 77h18"/>
+    <rect x="153" y="48" width="44" height="54" rx="7"/>
+    <path d="M162 63h26M162 77h18"/>
+  </g>
+</svg>

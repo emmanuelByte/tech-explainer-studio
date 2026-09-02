@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Dead letter queue</title>
+  <desc id="desc">A holding queue containing an isolated message marked as failed.</desc>
+  <rect id="container" x="24" y="20" width="192" height="110" rx="18"/>
+  <path id="holding-tray" d="M43 105h154"/>
+  <g id="failed-message">
+    <rect x="70" y="39" width="100" height="66" rx="9"/>
+    <path d="M70 57h100"/>
+    <circle cx="84" cy="48" r="2"/>
+    <circle cx="95" cy="48" r="2"/>
+    <path d="m105 70 30 25M135 70l-30 25"/>
+  </g>
+  <g id="warning">
+    <path d="m188 38 22 40h-44l22-40Z"/>
+    <path d="M188 52v12M188 71v1"/>
+  </g>
+</svg>
