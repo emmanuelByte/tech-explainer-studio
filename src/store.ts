@@ -1557,11 +1557,12 @@ export const useStore = create<Store>()(
           targetLayerId,
           sourcePort: 'right',
           targetPort: 'left',
+          routing: 'straight',
           color: '#60a5fa',
           strokeWidth: 4,
         })
         const topologyConnectors: Connector[] = [
-          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', color: '#c4b5fd', strokeWidth: 4 },
+          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', routing: 'straight', color: '#c4b5fd', strokeWidth: 4 },
           connection(server1[0].id),
           connection(server2[0].id),
           connection(server3[0].id),
@@ -1587,8 +1588,9 @@ export const useStore = create<Store>()(
             sourceLayerId,
             targetLayerId,
             sourcePort,
-            targetPort,
-            color: '#60a5fa',
+          targetPort,
+          routing: 'straight',
+          color: '#60a5fa',
             strokeWidth: 4,
           }],
         }))

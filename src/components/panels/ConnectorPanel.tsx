@@ -1,8 +1,9 @@
 import { Trash2 } from 'lucide-react'
-import type { ConnectorPort } from '../../types'
+import type { ConnectorPort, ConnectorRouting } from '../../types'
 import { useStore } from '../../store'
 
 const ports: ConnectorPort[] = ['left', 'right', 'top', 'bottom']
+const routes: ConnectorRouting[] = ['straight', 'orthogonal', 'bezier']
 
 export function ConnectorPanel({ layerId }: { layerId: string }) {
   const { connectors, layers, currentFrame, fps, updateConnector, deleteConnector } = useStore()
@@ -31,6 +32,9 @@ export function ConnectorPanel({ layerId }: { layerId: string }) {
                   {ports.map((port) => <option key={port} value={port}>To: {port}</option>)}
                 </select>
               </div>
+              <select value={connector.routing ?? 'straight'} onChange={(event) => updateConnector(connector.id, { routing: event.target.value as ConnectorRouting })} className="mt-1 w-full rounded px-1 py-1 text-[10px]" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }} aria-label="Connection path">
+                {routes.map((route) => <option key={route} value={route}>Path: {route}</option>)}
+              </select>
               <input value={connector.label ?? ''} onChange={(event) => updateConnector(connector.id, { label: event.target.value || undefined })} placeholder="Connection label" className="mt-1 w-full rounded px-2 py-1 text-[11px]" style={{ background: 'var(--panel)', border: '1px solid var(--border)' }} />
               <div className="mt-1 flex items-center gap-2">
                 <input type="color" value={connector.color} onChange={(event) => updateConnector(connector.id, { color: event.target.value })} aria-label="Connection color" />

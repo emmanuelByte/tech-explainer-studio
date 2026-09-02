@@ -5,7 +5,7 @@ import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
-import { connectorLine } from '../domains/connectors/geometry'
+import { connectorPath } from '../domains/connectors/geometry'
 import { connectorDash, connectorDrawProgress } from '../domains/connectors/draw'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
@@ -1007,25 +1007,24 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
         const source = byId.get(connector.sourceLayerId)
         const target = byId.get(connector.targetLayerId)
         if (!source || !target) return null
-        const line = connectorLine(connectorRect(source, layers, frame, canvasWidth, canvasHeight), connector.sourcePort, connectorRect(target, layers, frame, canvasWidth, canvasHeight), connector.targetPort)
-        const length = Math.hypot(line.to.x - line.from.x, line.to.y - line.from.y)
+        const path = connectorPath(connectorRect(source, layers, frame, canvasWidth, canvasHeight), connector.sourcePort, connectorRect(target, layers, frame, canvasWidth, canvasHeight), connector.targetPort, connector.routing)
         const progress = connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame)
-        const dash = connectorDash(length, progress)
-        const labelX = (line.from.x + line.to.x) / 2
-        const labelY = (line.from.y + line.to.y) / 2 - 10
+        const dash = connectorDash(path.length, progress)
+        const labelX = path.label.x
+        const labelY = path.label.y - 10
         return (
           <g key={connector.id}>
-            <line data-connector-id={connector.id} x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke="transparent" strokeWidth={Math.max(16, connector.strokeWidth + 12)} style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); onSelect(connector.id) }} />
-            <line x1={line.from.x} y1={line.from.y} x2={line.to.x} y2={line.to.y} stroke={connector.color} strokeWidth={connector.strokeWidth} strokeDasharray={dash.dashArray} strokeDashoffset={dash.dashOffset} markerEnd={progress === 1 ? 'url(#connector-arrow)' : undefined} style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }} />
+            <path data-connector-id={connector.id} d={path.d} fill="none" stroke="transparent" strokeWidth={Math.max(16, connector.strokeWidth + 12)} style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); onSelect(connector.id) }} />
+            <path d={path.d} fill="none" stroke={connector.color} strokeWidth={connector.strokeWidth} strokeDasharray={dash.dashArray} strokeDashoffset={dash.dashOffset} markerEnd={progress === 1 ? 'url(#connector-arrow)' : undefined} style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }} />
             {selectedConnectorId === connector.id && (
               <>
-                <circle data-connector-endpoint="source" data-connector-id={connector.id} cx={line.from.x} cy={line.from.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
+                <circle data-connector-endpoint="source" data-connector-id={connector.id} cx={path.from.x} cy={path.from.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
                   if (event.button !== 0) return
                   event.preventDefault()
                   event.stopPropagation()
                   dispatchConnectorPortDrag({ sourceLayerId: connector.sourceLayerId, sourcePort: connector.sourcePort, clientX: event.clientX, clientY: event.clientY, reassign: { connectorId: connector.id, endpoint: 'source' } })
                 }} />
-                <circle data-connector-endpoint="target" data-connector-id={connector.id} cx={line.to.x} cy={line.to.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
+                <circle data-connector-endpoint="target" data-connector-id={connector.id} cx={path.to.x} cy={path.to.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
                   if (event.button !== 0) return
                   event.preventDefault()
                   event.stopPropagation()

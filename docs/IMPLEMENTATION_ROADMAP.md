@@ -200,8 +200,11 @@ stay attached as components move and component labels render above their bodies.
 Interactive connection authoring supports selected-component creation plus
 visible component ports for direct drag-to-connect. A selected connector shows
 endpoint handles that can be dragged onto another component port to reassign
-that endpoint. Endpoint and style controls remain part of the final connector
-polish work package.
+that endpoint. Connection panels provide endpoint, label, color, stroke-width,
+and straight, orthogonal, or bezier routing controls. Each route is resolved
+by shared deterministic geometry for selection, preview, and export. The
+remaining connector work is focused on final end-to-end persistence/export
+verification with nested components.
 
 ### Work packages
 

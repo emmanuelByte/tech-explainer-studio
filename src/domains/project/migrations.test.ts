@@ -56,6 +56,16 @@ describe('migrateProject', () => {
     })
   })
 
+  it('gives existing connectors the deterministic straight routing default', () => {
+    const migrated = migrateProject({
+      ...legacyProject,
+      schemaVersion: 6,
+      connectors: [{ id: 'connection-1', sourceLayerId: 'source', targetLayerId: 'target', sourcePort: 'right', targetPort: 'left', color: '#60a5fa', strokeWidth: 4 }],
+    })
+
+    expect(migrated.connectors?.[0]).toMatchObject({ id: 'connection-1', routing: 'straight' })
+  })
+
   it('rejects malformed and future project versions without downgrading them', () => {
     expect(() => migrateProject([])).toThrow(ProjectMigrationError)
     expect(() => migrateProject({ ...legacyProject, schemaVersion: -1 })).toThrow(ProjectMigrationError)

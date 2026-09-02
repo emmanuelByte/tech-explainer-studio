@@ -4,7 +4,7 @@ import { Connector, ConnectorPort, DEFAULT_TRANSFORM, Layer, TransformProps } fr
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
 import { buildTransform } from '../remotion/interpolateProps'
-import { connectorLine, portPosition } from '../domains/connectors/geometry'
+import { connectorPath, portPosition } from '../domains/connectors/geometry'
 import { LayerOrderMenu } from './LayerOrderMenu'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
@@ -627,11 +627,11 @@ function connectorAtPoint(connectors: Connector[], layers: Layer[], frame: numbe
     if (!source || !target) continue
     const sourceBox = getLayerBox(source, layers, frame, canvasW, canvasH)
     const targetBox = getLayerBox(target, layers, frame, canvasW, canvasH)
-    const line = connectorLine(
+    const path = connectorPath(
       { x: sourceBox.left, y: sourceBox.top, width: sourceBox.width, height: sourceBox.height }, connector.sourcePort,
-      { x: targetBox.left, y: targetBox.top, width: targetBox.width, height: targetBox.height }, connector.targetPort,
+      { x: targetBox.left, y: targetBox.top, width: targetBox.width, height: targetBox.height }, connector.targetPort, connector.routing,
     )
-    if (distanceToSegment(point, line.from, line.to) <= Math.max(10, connector.strokeWidth + 6)) return connector
+    if (path.segments.some((segment) => distanceToSegment(point, segment.from, segment.to) <= Math.max(10, connector.strokeWidth + 6))) return connector
   }
   return null
 }

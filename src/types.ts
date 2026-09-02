@@ -7,6 +7,7 @@ export interface TechnicalComponentMeta {
 }
 
 export type ConnectorPort = 'left' | 'right' | 'top' | 'bottom'
+export type ConnectorRouting = 'straight' | 'orthogonal' | 'bezier'
 
 export interface Connector {
   id: string
@@ -14,6 +15,7 @@ export interface Connector {
   targetLayerId: string
   sourcePort: ConnectorPort
   targetPort: ConnectorPort
+  routing?: ConnectorRouting
   label?: string
   color: string
   strokeWidth: number
