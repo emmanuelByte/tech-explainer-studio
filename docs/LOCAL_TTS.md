@@ -205,3 +205,105 @@ Before the Phase 7 acceptance lesson is called complete, validate at least one s
 3. timing/captions still use the existing script source of truth;
 4. preview and Remotion export play the generated audio correctly;
 5. restarting without the Python TTS service does not break the saved project.
+
+## Editor integration plan
+
+### Current readiness
+
+The branch provides the local generation boundary, but it is not yet a complete
+creator workflow. The Vite proxy, browser client and asset persistence path are
+in place. The editor still needs controls for selecting a voice, generating a
+segment and attaching the resulting asset to the timeline.
+
+Keep local TTS optional. Opening, editing, previewing and exporting a project
+must continue to work when the Python environment, model or reference voices
+are unavailable.
+
+### Recommended creator flow
+
+Add a **Local voice** section to the Script panel:
+
+1. Show service status, active device and available reference voices.
+2. Let the creator choose one voice and adjust exaggeration and guidance.
+3. Add **Generate voice** to each timed script segment.
+4. Add **Generate missing** for a serial batch across all timed segments.
+5. Let the creator preview generated speech before or after placing it.
+6. Store the WAV through the existing asset service, then create a normal audio
+   layer with `audioRole: 'narration'` at the segment start frame.
+7. On regeneration, replace the linked layer source while preserving its
+   timeline position, volume and mute state.
+
+Service errors should appear in the Local voice section without blocking other
+editor controls. When the service is offline, show the existing narration
+import action as the available fallback.
+
+### Project model and migration
+
+Add an optional link and generation provenance to narration audio layers:
+
+```ts
+interface NarrationGeneration {
+  provider: 'local-chatterbox'
+  voiceId: string
+  sourceText: string
+  exaggeration?: number
+  cfgWeight?: number
+}
+
+interface Layer {
+  scriptSegmentId?: string
+  narrationGeneration?: NarrationGeneration
+}
+```
+
+Advance the project schema to version 12 and add an explicit migration. Existing
+audio remains unchanged because both fields are optional. The stored WAV stays
+the render source; generation metadata only supports regeneration and stale-text
+warnings.
+
+### Timing policy
+
+Use the generated WAV duration for the narration layer. Start it at the linked
+segment's `startFrame` and never change playback speed automatically.
+
+If the clip ends after its scene, show an overflow warning with a **Fit scene to
+narration** action. That action should extend the segment and scene, shift later
+scene ranges, and extend the project duration when required. Keep this timing
+operation explicit so the creator retains control over pacing.
+
+If the script text changes after generation, compare it with
+`narrationGeneration.sourceText` and mark the clip as stale. Do not regenerate
+or discard audio automatically.
+
+### Implementation slices
+
+1. Add unit tests for the browser client and Vite proxy, including offline,
+   validation, upstream error and valid WAV responses.
+2. Add the version 12 project fields, migration and persistence tests.
+3. Extract a narration-layer factory in the narration domain so imported and
+   generated speech share the same timeline normalization.
+4. Build the Local voice status/settings control and per-segment generation UI.
+5. Add serial batch generation, progress, retry and stale-text states.
+6. Add pure scene-fitting helpers and tests for overflow and project extension.
+7. Verify one real Chatterbox generation on the target machine, then test
+   reload, preview, caption timing and MP4 export with the generated asset.
+
+### Runtime guardrails
+
+- Keep generation serialized; the service already enforces this with a lock.
+- Limit request size in the Vite proxy as well as the Python model validation.
+- Bind both services to loopback by default and keep voice files out of Git.
+- Report model download/loading progress separately from speech generation.
+- Provide a stop/restart path for the Python worker because local model memory
+  usage can be substantial during repeated generations.
+- Do not bundle PyTorch or model weights into the web application or Node
+  dependency graph.
+
+### Definition of done
+
+The integration is complete when a creator can select a local reference voice,
+generate one or all script segments, see narration clips aligned on the global
+timeline, resolve timing overflow, reload the project, and export an MP4 with
+matching narration and captions. The same project must still open and export
+when the TTS service is stopped because its generated WAV files are already
+stored as normal local assets.
