@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Camera, ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
@@ -47,7 +47,7 @@ function scaleTimelineHeight(base: number, max: number, zoom: number) {
   return Math.round(base + (max - base) * amount)
 }
 
-function SceneBand({ scenes, fpx, activeFrame, onScene }: { scenes: Scene[]; fpx: number; activeFrame: number; onScene: (scene: Scene) => void }) {
+function SceneBand({ scenes, fpx, activeFrame, onSelect, onOpen }: { scenes: Scene[]; fpx: number; activeFrame: number; onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void }) {
   const { t } = useTranslation()
   return (
     <div style={{ height: SCENE_BAND_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
@@ -57,7 +57,8 @@ function SceneBand({ scenes, fpx, activeFrame, onScene }: { scenes: Scene[]; fpx
           <button
             key={scene.id}
             type="button"
-            onClick={(event) => { event.stopPropagation(); onScene(scene) }}
+            onClick={(event) => { event.stopPropagation(); onSelect(scene) }}
+            onDoubleClick={(event) => { event.stopPropagation(); onOpen(scene) }}
             title={`${scene.title} · ${t('timeline.frameLabel', { frame: scene.startFrame })}`}
             style={{
               position: 'absolute', left: TIMELINE_LEFT_OFFSET + scene.startFrame * fpx,
@@ -968,7 +969,7 @@ export function Timeline() {
     setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
-    addCameraKeyframe, selectCameraKeyframe, openScene,
+    addCameraKeyframe, selectCameraKeyframe, openScene, setEditorWorkspace,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1725,8 +1726,19 @@ export function Timeline() {
       <div className="flex flex-1 overflow-hidden">
         {/* Label column */}
         <div className="flex flex-col flex-shrink-0" style={{ width: LABEL_W, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
-          <div className="flex items-center px-3" style={{ height: RULER_H + SCENE_BAND_H, flexShrink: 0, borderBottom: '1px solid var(--border2)', color: 'var(--text3)', fontSize: 10, letterSpacing: '0.06em' }}>
-            {t('scenes.title').toUpperCase()}
+          <div className="flex items-center gap-1.5 px-3" style={{ height: RULER_H + SCENE_BAND_H, flexShrink: 0, borderBottom: '1px solid var(--border2)', color: 'var(--text3)', fontSize: 10, letterSpacing: '0.06em' }}>
+            {editorWorkspace === 'scene' && (
+              <button
+                type="button"
+                className="icon-btn"
+                style={{ width: 18, height: 18, flexShrink: 0 }}
+                title={t('workspace.backToStory')}
+                onClick={() => setEditorWorkspace('story')}
+              >
+                <ChevronLeft size={13} />
+              </button>
+            )}
+            <span className="truncate">{t('scenes.title').toUpperCase()}</span>
           </div>
           <div
             ref={labelScrollRef}
@@ -1807,7 +1819,8 @@ export function Timeline() {
               scenes={editorWorkspace === 'scene' && activeScene ? [activeScene] : scenes}
               fpx={fpx}
               activeFrame={currentFrame}
-              onScene={(scene) => editorWorkspace === 'story' ? openScene(scene.id) : setCurrentFrame(scene.startFrame)}
+              onSelect={(scene) => setCurrentFrame(scene.startFrame)}
+              onOpen={(scene) => { if (editorWorkspace === 'story') openScene(scene.id) }}
             />
 
             <div
