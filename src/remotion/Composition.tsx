@@ -1,12 +1,17 @@
 import { useEffect, useRef } from 'react'
-import { OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
-import { Connector, ConnectorPort, Layer, GradientStop, FillType, VideoSegment } from '../types'
+import { Audio, OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
+import { CameraTrack, CaptionSettings, Connector, ConnectorPort, Layer, GradientStop, FillType, ScriptDocument, VideoSegment } from '../types'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
-import { connectorPath } from '../domains/connectors/geometry'
-import { connectorDash, connectorDrawProgress } from '../domains/connectors/draw'
+import { resolveConnector } from '../domains/connectors/resolve'
+import { connectorDash, connectorDrawProgress, connectorLineDash } from '../domains/connectors/draw'
+import { sketchPathVariants, sketchPolylineVariants, sketchPrimitiveVariants, type SketchPrimitive } from '../domains/sketch/geometry'
+import { normalizedDrawStroke } from '../domains/sketch/draw'
+import { cameraTransform, resolveCamera } from '../domains/camera/model'
+import { segmentAtFrame } from '../domains/narration/model'
+import { speedAtFrame } from './videoSegments'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -497,6 +502,33 @@ function TimelineSyncedAudio({ layerId, src, frame, segment, volume, muted }: {
   return <audio ref={audioRef} src={src} preload="auto" />
 }
 
+function SketchOutline({ layer, width, height, drawProgress }: { layer: Layer; width: number; height: number; drawProgress: number }) {
+  if (!layer.sketchEnabled) return null
+  const roughness = layer.sketchRoughness ?? 1
+  const variants = layer.type === 'path'
+    ? sketchPathVariants(layer.pathData ?? '', layer.id, roughness)
+    : sketchPrimitiveVariants(layer.type as SketchPrimitive, width, height, layer.id, roughness)
+  const draw = normalizedDrawStroke(drawProgress)
+  const strokeWidth = Math.max(1, layer.strokeWidth || 2)
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none' }}>
+      {variants.map((variant, index) => (
+        <path
+          key={index}
+          d={variant.d}
+          fill="none"
+          stroke={layer.strokeColor}
+          strokeWidth={strokeWidth * variant.widthScale}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={variant.opacity}
+          {...draw}
+        />
+      ))}
+    </svg>
+  )
+}
+
 function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex }: {
   layer: Layer
   frame: number
@@ -572,21 +604,36 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     const activeSegment = activeSegmentAt(animatedLayer, frame)
     if (!activeSegment) return null
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
+    const isRendering = getRemotionEnvironment().isRendering
+    const activeSegmentDuration = Math.max(1, activeSegment.timelineEndFrame - activeSegment.timelineStartFrame)
     return (
       // Audio has no visible footprint, but we still need the wrapper so
       // selection / clicks work. Use absolute 0×0 box positioned off-canvas
       // — the HTMLAudioElement plays via the parent Player's pause/play state.
       <div data-layer-id={animatedLayer.id} style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none' }}>
-        <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
-          <TimelineSyncedAudio
-            layerId={animatedLayer.id}
-            src={animatedLayer.src}
-            frame={frame}
-            segment={activeSegment}
-            volume={animatedLayer.audioVolume ?? 1}
-            muted={!!animatedLayer.audioMuted}
-          />
-        </Sequence>
+        {isRendering ? (
+          <Sequence from={activeSegment.timelineStartFrame} durationInFrames={activeSegmentDuration} layout="none">
+            <Audio
+              src={animatedLayer.src}
+              startFrom={Math.max(0, Math.round(activeSegment.sourceStartFrame))}
+              endAt={Math.max(1, Math.round(activeSegment.sourceEndFrame))}
+              playbackRate={Math.max(0.01, speedAtFrame(activeSegment, frame))}
+              volume={Math.max(0, Math.min(1, animatedLayer.audioVolume ?? 1))}
+              muted={!!animatedLayer.audioMuted}
+            />
+          </Sequence>
+        ) : (
+          <Sequence from={animatedLayer.startFrame ?? 0} durationInFrames={durationInFrames} layout="none">
+            <TimelineSyncedAudio
+              layerId={animatedLayer.id}
+              src={animatedLayer.src}
+              frame={frame}
+              segment={activeSegment}
+              volume={animatedLayer.audioVolume ?? 1}
+              muted={!!animatedLayer.audioMuted}
+            />
+          </Sequence>
+        )}
       </div>
     )
   }
@@ -714,11 +761,13 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           ...wrapperStyle,
           background: bg,
           borderRadius: '50%',
-          border: animatedLayer.strokeEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
+          border: animatedLayer.strokeEnabled && !animatedLayer.sketchEnabled ? `${animatedLayer.strokeWidth}px solid ${animatedLayer.strokeColor}` : undefined,
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
-      />
+      >
+        <SketchOutline layer={animatedLayer} width={layerWidth} height={layerHeight} drawProgress={p.drawProgress} />
+      </div>
     )
   }
 
@@ -733,26 +782,37 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           filter: [buildFilter(p), buildLayerDropShadow(animatedLayer, p)].filter(Boolean).join(' '),
         }}
         onClick={handleClick}
-      />
+      >
+        <SketchOutline layer={animatedLayer} width={layerWidth} height={layerHeight} drawProgress={p.drawProgress} />
+      </div>
     )
   }
 
   if (animatedLayer.type === 'line') {
+    const draw = normalizedDrawStroke(p.drawProgress)
     return (
       <div
         data-layer-id={animatedLayer.id}
         style={{
           ...wrapperStyle,
-          background: animatedLayer.strokeColor,
-          borderRadius: animatedLayer.strokeWidth,
+          background: 'transparent',
           boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
         }}
         onClick={handleClick}
-      />
+      >
+        {animatedLayer.sketchEnabled
+          ? <SketchOutline layer={animatedLayer} width={layerWidth} height={layerHeight} drawProgress={p.drawProgress} />
+          : (
+            <svg width={layerWidth} height={layerHeight} viewBox={`0 0 ${layerWidth} ${layerHeight}`} style={{ display: 'block', overflow: 'visible' }}>
+              <path d={`M 0 ${layerHeight / 2} L ${layerWidth} ${layerHeight / 2}`} fill="none" stroke={animatedLayer.strokeColor} strokeWidth={animatedLayer.strokeWidth} strokeLinecap="round" {...draw} />
+            </svg>
+          )}
+      </div>
     )
   }
 
   if (animatedLayer.type === 'path') {
+    const draw = normalizedDrawStroke(p.drawProgress)
     return (
       <div data-layer-id={animatedLayer.id} style={wrapperStyle} onClick={handleClick}>
         <svg
@@ -769,11 +829,15 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           <path
             d={animatedLayer.pathData || ''}
             fill={animatedLayer.fillType !== 'none' ? bg : 'none'}
-            stroke={animatedLayer.strokeEnabled ? animatedLayer.strokeColor : 'none'}
+            stroke={animatedLayer.strokeEnabled && !animatedLayer.sketchEnabled ? animatedLayer.strokeColor : 'none'}
             strokeWidth={animatedLayer.strokeEnabled ? animatedLayer.strokeWidth : 0}
             strokeLinecap="round"
             strokeLinejoin="round"
+            {...draw}
           />
+          {animatedLayer.sketchEnabled && sketchPathVariants(animatedLayer.pathData ?? '', animatedLayer.id, animatedLayer.sketchRoughness ?? 1).map((variant, index) => (
+            <path key={index} d={variant.d} fill="none" stroke={animatedLayer.strokeColor} strokeWidth={Math.max(1, animatedLayer.strokeWidth || 2) * variant.widthScale} strokeLinecap="round" strokeLinejoin="round" opacity={variant.opacity} {...draw} />
+          ))}
         </svg>
       </div>
     )
@@ -787,11 +851,13 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
         ...wrapperStyle,
         background: bg,
         borderRadius: layerBorderRadius(animatedLayer),
-        ...layerBorderStrokeStyle(animatedLayer),
+        ...(animatedLayer.sketchEnabled ? {} : layerBorderStrokeStyle(animatedLayer)),
         boxShadow: buildLayerSurfaceShadow(animatedLayer, p),
       }}
       onClick={handleClick}
-    />
+    >
+      <SketchOutline layer={animatedLayer} width={layerWidth} height={layerHeight} drawProgress={p.drawProgress} />
+    </div>
   )
 }
 
@@ -971,51 +1037,87 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
 interface CompositionProps {
   layers: Layer[]
   connectors?: Connector[]
+  camera?: CameraTrack
+  applyCamera?: boolean
+  script?: ScriptDocument
+  captions?: CaptionSettings
   canvasWidth: number
   canvasHeight: number
   backgroundColor?: string
   showOutsideCanvas?: boolean
 }
 
-function connectorRect(layer: Layer, layers: Layer[], frame: number, canvasWidth: number, canvasHeight: number) {
-  const chain: Layer[] = []
-  const seen = new Set<string>()
-  let current: Layer | undefined = layer
-  while (current && !seen.has(current.id)) {
-    seen.add(current.id)
-    chain.unshift(current)
-    current = current.parentId ? layers.find((item) => item.id === current!.parentId) : undefined
-  }
-  let x = canvasWidth / 2
-  let y = canvasHeight / 2
-  chain.forEach((item) => {
-    const transform = resolveLayerAnimation(item, frame).transform
-    x += transform.x
-    y += transform.y
-  })
-  const resolved = resolveLayerAnimation(layer, frame).layer
-  return { x: x - resolved.width / 2, y: y - resolved.height / 2, width: resolved.width, height: resolved.height }
+function CaptionOverlay({ script, settings, frame, canvasWidth, canvasHeight }: { script?: ScriptDocument; settings?: CaptionSettings; frame: number; canvasWidth: number; canvasHeight: number }) {
+  if (!settings?.enabled) return null
+  const segment = segmentAtFrame(script?.segments ?? [], frame)
+  if (!segment?.text.trim()) return null
+  const technical = settings.style === 'technical'
+  return (
+    <div
+      data-caption-overlay
+      style={{
+        position: 'absolute', left: '50%', bottom: technical ? canvasHeight * 0.1 : canvasHeight * 0.13,
+        transform: 'translateX(-50%)', maxWidth: canvasWidth * 0.82,
+        padding: technical ? `${canvasHeight * 0.012}px ${canvasWidth * 0.018}px` : `${canvasHeight * 0.017}px ${canvasWidth * 0.025}px`,
+        borderRadius: technical ? 5 : 14,
+        background: technical ? 'rgba(2, 6, 23, 0.86)' : 'rgba(2, 6, 23, 0.76)',
+        border: technical ? `${Math.max(1, canvasHeight / 540)}px solid rgba(56, 189, 248, 0.7)` : 'none',
+        boxShadow: '0 8px 30px rgba(0,0,0,0.32)', color: technical ? '#bae6fd' : '#ffffff',
+        fontFamily: technical ? '"Space Grotesk", monospace' : 'Inter, sans-serif',
+        fontSize: technical ? canvasHeight * 0.034 : canvasHeight * 0.042,
+        fontWeight: technical ? 600 : 700, lineHeight: 1.28, letterSpacing: technical ? '0.01em' : '-0.01em',
+        textAlign: 'center', zIndex: 1000, pointerEvents: 'none', whiteSpace: 'pre-wrap',
+      }}
+    >
+      {segment.text}
+    </div>
+  )
 }
 
 function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight, selectedConnectorId, onSelect }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number; selectedConnectorId: string | null; onSelect: (id: string) => void }) {
   if (!connectors.length) return null
-  const byId = new Map(layers.map((layer) => [layer.id, layer]))
   return (
     <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', zIndex: 0, overflow: 'visible' }}>
-      <defs><marker id="connector-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
+      <defs><marker id="connector-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" /></marker></defs>
       {connectors.map((connector) => {
-        const source = byId.get(connector.sourceLayerId)
-        const target = byId.get(connector.targetLayerId)
-        if (!source || !target) return null
-        const path = connectorPath(connectorRect(source, layers, frame, canvasWidth, canvasHeight), connector.sourcePort, connectorRect(target, layers, frame, canvasWidth, canvasHeight), connector.targetPort, connector.routing)
+        const resolved = resolveConnector(connector, layers, frame, canvasWidth, canvasHeight)
+        if (!resolved || resolved.opacity <= 0) return null
+        const { path, opacity } = resolved
         const progress = connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame)
         const dash = connectorDash(path.length, progress)
+        const dashed = connector.lineStyle === 'dashed'
+        const visualVariants = connector.sketchEnabled && path.segments.length
+          ? sketchPolylineVariants([path.segments[0].from, ...path.segments.map((segment) => segment.to)], connector.id, connector.sketchRoughness ?? 1)
+          : [{ d: path.d, opacity: 1, widthScale: 1 }]
+        const drawMaskId = `connector-draw-${connector.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`
         const labelX = path.label.x
         const labelY = path.label.y - 10
         return (
-          <g key={connector.id}>
+          <g key={connector.id} opacity={opacity}>
+            {dashed && progress < 1 && (
+              <mask id={drawMaskId} maskUnits="userSpaceOnUse" x={0} y={0} width={canvasWidth} height={canvasHeight}>
+                <path d={path.d} fill="none" stroke="#fff" strokeWidth={connector.strokeWidth + 2} strokeDasharray={dash.dashArray} strokeDashoffset={dash.dashOffset} />
+              </mask>
+            )}
             <path data-connector-id={connector.id} d={path.d} fill="none" stroke="transparent" strokeWidth={Math.max(16, connector.strokeWidth + 12)} style={{ pointerEvents: 'stroke', cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); onSelect(connector.id) }} />
-            <path d={path.d} fill="none" stroke={connector.color} strokeWidth={connector.strokeWidth} strokeDasharray={dash.dashArray} strokeDashoffset={dash.dashOffset} markerEnd={progress === 1 ? 'url(#connector-arrow)' : undefined} style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }} />
+            {visualVariants.map((variant, index) => (
+              <path
+                key={index}
+                d={variant.d}
+                fill="none"
+                stroke={connector.color}
+                strokeWidth={connector.strokeWidth * variant.widthScale}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity={variant.opacity}
+                strokeDasharray={dashed ? connectorLineDash(connector.strokeWidth) : dash.dashArray}
+                strokeDashoffset={dashed ? 0 : dash.dashOffset}
+                mask={dashed && progress < 1 ? `url(#${drawMaskId})` : undefined}
+                markerStart={index === 0 && progress === 1 && connector.arrowStart ? 'url(#connector-arrow)' : undefined}
+                markerEnd={index === 0 && progress === 1 && connector.arrowEnd ? 'url(#connector-arrow)' : undefined}
+                style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }}
+              />
+            ))}
             {selectedConnectorId === connector.id && (
               <>
                 <circle data-connector-endpoint="source" data-connector-id={connector.id} cx={path.from.x} cy={path.from.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {
@@ -1040,7 +1142,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
   )
 }
 
-export function EditorComposition({ layers, connectors = [], canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
+export function EditorComposition({ layers, connectors = [], camera, applyCamera = true, script, captions, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectedConnectorId, selectLayer, selectConnector } = useStore()
   const layerIds = new Set(layers.map((layer) => layer.id))
@@ -1050,26 +1152,31 @@ export function EditorComposition({ layers, connectors = [], canvasWidth, canvas
     childrenByParent.set(parentId, [...(childrenByParent.get(parentId) ?? []), layer])
   })
   const rootLayers = childrenByParent.get(null) ?? []
+  const cameraView = applyCamera ? resolveCamera(camera, frame, canvasWidth, canvasHeight) : { x: canvasWidth / 2, y: canvasHeight / 2, zoom: 1 }
+  const worldTransform = cameraTransform(cameraView, canvasWidth, canvasHeight)
 
   return (
     <div
       style={{ width: canvasWidth, height: canvasHeight, background: backgroundColor, position: 'relative', overflow: showOutsideCanvas ? 'visible' : 'hidden' }}
       onClick={() => selectLayer(null)}
     >
-      <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} selectedConnectorId={selectedConnectorId} onSelect={selectConnector} />
-      {rootLayers.map((layer, index) => (
-        <RenderLayerNode
-          key={layer.id}
-          layer={layer}
-          childrenByParent={childrenByParent}
-          frame={frame}
-          canvasWidth={canvasWidth}
-          canvasHeight={canvasHeight}
-          selectedLayerIds={selectedLayerIds}
-          selectLayer={selectLayer}
-          stackIndex={rootLayers.length - index}
-        />
-      ))}
+      <div data-camera-world style={{ position: 'absolute', inset: 0, transform: worldTransform.css, transformOrigin: 'top left' }}>
+        <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} selectedConnectorId={selectedConnectorId} onSelect={selectConnector} />
+        {rootLayers.map((layer, index) => (
+          <RenderLayerNode
+            key={layer.id}
+            layer={layer}
+            childrenByParent={childrenByParent}
+            frame={frame}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            selectedLayerIds={selectedLayerIds}
+            selectLayer={selectLayer}
+            stackIndex={rootLayers.length - index}
+          />
+        ))}
+      </div>
+      <CaptionOverlay script={script} settings={captions} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} />
     </div>
   )
 }

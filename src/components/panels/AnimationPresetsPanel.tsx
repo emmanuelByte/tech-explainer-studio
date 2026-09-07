@@ -247,11 +247,26 @@ interface PresetDef {
   label: string
   category: PresetCategory
   textOnly?: boolean
+  compatibleTypes?: Layer['type'][]
   textRevealMode?: TextRevealMode
   generate: (start: number, dur: number, easing: EasingType, base: TransformProps, layer: Layer) => Keyframe[]
 }
 
 const PRESETS: Record<string, PresetDef> = {
+  'draw-in': {
+    label: 'Draw In', category: 'in', compatibleTypes: ['line', 'path'],
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, drawProgress: 0 } },
+      { frame: s + d, easing: 'linear', props: { ...b, drawProgress: 1 } },
+    ],
+  },
+  'fade-draw-in': {
+    label: 'Fade + Draw', category: 'in', compatibleTypes: ['line', 'path'],
+    generate: (s, d, e, b) => [
+      { frame: s, easing: e, props: { ...b, drawProgress: 0, opacity: 0 } },
+      { frame: s + d, easing: 'linear', props: { ...b, drawProgress: 1, opacity: 1 } },
+    ],
+  },
   'fade-in': {
     label: 'Fade In', category: 'in',
     generate: (s, d, e, b) => [
@@ -798,7 +813,11 @@ export function AnimationPresetsPanel() {
     const preset = PRESETS[key]
     const start = Math.max(0, Math.round(startFrame))
     const dur = Math.max(1, Math.round(duration))
-    const targets = preset.textOnly ? presetTargets.filter((item) => item.type === 'text') : presetTargets
+    const targets = preset.textOnly
+      ? presetTargets.filter((item) => item.type === 'text')
+      : preset.compatibleTypes
+        ? presetTargets.filter((item) => preset.compatibleTypes?.includes(item.type))
+        : presetTargets
     targets.forEach((target) => {
       const base = interpolateProps(start, target.keyframes)
       const keyframes = preset.generate(start, dur, easing, base, target)
@@ -1208,7 +1227,9 @@ export function AnimationPresetsPanel() {
         />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 4, marginTop: 6 }}>
           {Object.entries(PRESETS)
-            .filter(([, def]) => def.category === safeActiveCategory && (!def.textOnly || layer.type === 'text'))
+            .filter(([, def]) => def.category === safeActiveCategory
+              && (!def.textOnly || layer.type === 'text')
+              && (!def.compatibleTypes || def.compatibleTypes.includes(layer.type)))
             .map(([key, def]) => (
               <button
                 key={key}

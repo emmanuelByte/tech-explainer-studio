@@ -176,11 +176,14 @@ export function createScenesForScript(script: ScriptDocument, totalFrames: numbe
       ...(existing?.visual ? { visual: existing.visual } : {}),
     }
   })
-  const segmentToScene = new Map(scenes.flatMap((scene) => scene.scriptSegmentIds.map((segmentId) => [segmentId, scene.id] as const)))
+  const sceneBySegment = new Map(scenes.flatMap((scene) => scene.scriptSegmentIds.map((segmentId) => [segmentId, scene] as const)))
   return {
     script: {
       rawText: script.rawText,
-      segments: segments.map((segment) => ({ ...segment, sceneId: segmentToScene.get(segment.id) })),
+      segments: segments.map((segment) => {
+        const scene = sceneBySegment.get(segment.id)
+        return { ...segment, sceneId: scene?.id, startFrame: scene?.startFrame, endFrame: scene?.endFrame }
+      }),
     },
     scenes,
   }

@@ -169,6 +169,7 @@ export function StylePanel() {
   const hasTextSelection = Boolean(textSelectionRange && textSelectionRange.start !== textSelectionRange.end)
   const textMixed = getTextSelectionStyle(sourceLayer, textSelectionRange)
   const canSplitStroke = layer.type === 'rectangle' || layer.type === 'text' || layer.type === 'image' || layer.type === 'video' || layer.type === 'group' || layer.isGroup
+  const canSketch = layer.type === 'rectangle' || layer.type === 'ellipse' || layer.type === 'triangle' || layer.type === 'line' || layer.type === 'path'
   const strokeSideValues = STROKE_WIDTH_KEYS.map((key) => Math.round(Number(layer[key] ?? layer.strokeWidth ?? 0)))
   const strokeSidesAreEqual = strokeSideValues.every((value) => value === strokeSideValues[0])
   const strokeLinked = layer.strokeWidthLinked ?? strokeSidesAreEqual
@@ -402,6 +403,30 @@ export function StylePanel() {
           </>
         )}
       </Section>
+
+      {canSketch && (
+        <Section title={t('style.sketch')} defaultOpen={Boolean(layer.sketchEnabled)}>
+          <ToggleRow
+            label={t('style.enableSketch')}
+            checked={Boolean(layer.sketchEnabled)}
+            onChange={(value) => upd('sketchEnabled', value)}
+          />
+          {layer.sketchEnabled && (
+            <Row label={t('style.roughness')}>
+              <NumField
+                leading={<span aria-hidden>~</span>}
+                value={layer.sketchRoughness ?? 1}
+                min={0.25}
+                max={3}
+                step={0.25}
+                precision={2}
+                onChange={(value) => upd('sketchRoughness', Math.max(0.25, Math.min(3, value)))}
+                ariaLabel={t('style.roughness')}
+              />
+            </Row>
+          )}
+        </Section>
+      )}
 
       {/* Path options */}
       {layer.type === 'path' && (

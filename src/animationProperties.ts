@@ -26,7 +26,7 @@ export const ANIMATION_GROUPS: {
     label: 'Style',
     color: '#22c55e',
     keys: [
-      'opacity', 'fillColor', 'textColor', 'strokeColor', 'strokeWidth', 'borderRadius',
+      'opacity', 'drawProgress', 'fillColor', 'textColor', 'strokeColor', 'strokeWidth', 'borderRadius',
       'strokeTopWidth', 'strokeRightWidth', 'strokeBottomWidth', 'strokeLeftWidth',
       'borderTopLeftRadius', 'borderTopRightRadius', 'borderBottomRightRadius', 'borderBottomLeftRadius',
       'fontSize', 'letterSpacing', 'lineHeight',
@@ -58,6 +58,7 @@ export const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
   originX: 'Origin X',
   originY: 'Origin Y',
   opacity: 'Opacity',
+  drawProgress: 'Draw',
   fillColor: 'Fill',
   textColor: 'Text',
   strokeColor: 'Stroke',

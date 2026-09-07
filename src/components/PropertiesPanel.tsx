@@ -9,7 +9,7 @@ import { EffectsPanel } from './panels/EffectsPanel'
 import { AnimationPresetsPanel } from './panels/AnimationPresetsPanel'
 import { TimingPanel } from './panels/TimingPanel'
 import { SegmentControls } from './panels/SegmentControls'
-import { ConnectorAnimationPanel, ConnectorPanel } from './panels/ConnectorPanel'
+import { ConnectorInspector, ConnectorPanel } from './panels/ConnectorPanel'
 
 type Tab = 'transform' | 'style' | 'effects' | 'presets' | 'video'
 
@@ -104,7 +104,7 @@ export function PropertiesPanel() {
       </div>
 
       {connector ? (
-        <ConnectorAnimationPanel connectorId={connector.id} />
+        <ConnectorInspector connectorId={connector.id} />
       ) : !layer ? (
         <div className="flex-1 flex items-center justify-center px-4 text-center">
           <span style={{ color: 'var(--text3)', fontSize: 11 }}>{t('panels.selectLayerHelp')}</span>

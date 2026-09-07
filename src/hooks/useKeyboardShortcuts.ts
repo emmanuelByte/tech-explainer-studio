@@ -276,6 +276,11 @@ export function useKeyboardShortcuts() {
 
       // Delete selected layers
       if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (store.selectedConnectorId) {
+          e.preventDefault()
+          store.deleteConnector(store.selectedConnectorId)
+          return
+        }
         e.preventDefault()
         if (store.selectedKeyframes.length) {
           store.deleteSelectedKeyframes()

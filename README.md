@@ -17,9 +17,15 @@ The goal is to keep authoring direct: create or import a project, add editable l
 - Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, drag/shift multi-selection, import, export, duplicate, rename, and delete.
 - Create projects with common canvas presets for YouTube, Instagram, TikTok, and custom sizes.
 - Edit a canvas with rectangles, ellipses, lines, triangles, custom SVG paths, text, raster images, SVG images, videos, audio, and Lucide icons.
+- Insert a Load Balancer topology as editable components, then connect components using canvas ports.
+- Select any connection to change its source/target, ports, straight/elbow/curved path, label, color, line width, solid/dashed style, arrowheads, and draw timing. Connector changes autosave and support Undo/Redo.
+- Animate a separate video camera with editable pan/zoom keyframes. Focus the selection, fit the architecture, hold or reset framing, and preview the exact movement used by Remotion export.
+- Mark audio as narration, music, a sound effect, or generic audio; edit script-segment timing or align it to scenes; and render readable or technical captions from that same script timing in preview and export.
+- Keep connections attached through nested 2D group movement, scale, rotation, skew, and animated resizing; connections follow endpoint visibility in preview and export.
 - Import HTML into the reusable library and convert DOM-like structures into editable layer trees with nested layout, text, SVG, fills, strokes, shadows, and common CSS box styles.
 - Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, layer ordering, and reusable library insertion.
 - Animate layers with transform keyframes, per-property animation tracks, multi-selected keyframes across layers, timeline resizing, easing controls, value graph support, and direct keyframe editing.
+- Draw line/path layers progressively with editable Draw In and Fade + Draw presets, and apply deterministic hand-drawn outlines to compatible shapes and connectors without export jitter.
 - Build text animations such as typewriter, character pop, fall, rise, spin, blur, word reveal, and line reveal.
 - Build custom motion by entering rotation, skew, scale, opacity, perspective, and other transform/effect values.
 - Style layers with fills, gradients, per-side strokes, per-corner radius, SVG stroke/fill controls, image/video fit options, shadows, blur, brightness, contrast, grayscale, and backdrop blur.
@@ -76,7 +82,7 @@ npm run dev
 Open:
 
 ```text
-http://localhost:3000
+http://localhost:3005
 ```
 
 The app is local-first. Projects are saved by the dev server into:
@@ -179,6 +185,8 @@ Stored data includes:
 - Text styling, shape styling, SVG data, media source references, and imported asset references
 - Transform keyframes, per-property keyframes, easing, and custom curves
 - Timeline state
+- Video-camera keyframes, centre coordinates, zoom, and easing
+- Audio roles, timed script segments, and caption presentation settings
 - Editor viewport state
 - Manual history snapshots
 

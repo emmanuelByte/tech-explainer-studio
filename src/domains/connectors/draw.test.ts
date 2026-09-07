@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { connectorDash, connectorDrawProgress } from './draw'
+import { connectorDash, connectorDrawProgress, connectorLineDash } from './draw'
 
 describe('connector draw animation', () => {
   it('clamps progress to its authored frame range', () => {
@@ -11,5 +11,10 @@ describe('connector draw animation', () => {
 
   it('creates a deterministic dash reveal', () => {
     expect(connectorDash(200, 0.25)).toEqual({ dashArray: 200, dashOffset: 150 })
+  })
+
+  it('derives a stable dashed-line pattern from the line width', () => {
+    expect(connectorLineDash(4)).toBe('12 8')
+    expect(connectorLineDash(100)).toBe('48 32')
   })
 })

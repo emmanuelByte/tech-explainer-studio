@@ -127,6 +127,9 @@ Offer a restrained hand-drawn visual treatment suitable for technical teaching. 
 
 ### Camera
 
+**Implemented in V1:** camera state is persisted separately from workspace
+navigation and is shared by canvas preview, full-screen playback and export.
+
 Add a persisted video-camera track independent of the editor viewport.
 
 Creators should be able to:
@@ -139,6 +142,11 @@ Creators should be able to:
 - preview the exact camera motion that exports
 
 ### Narration and captions
+
+**Implemented in V1:** imported audio has semantic roles, narration is
+highlighted on the timeline, script segment timing can be edited or aligned to
+scenes, and captions use those timed segments in preview and export. TTS and
+automatic speech alignment remain optional future work.
 
 - Import narration audio.
 - Mark an audio layer as narration.

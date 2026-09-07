@@ -501,6 +501,7 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
         videoDuration: asset.duration,
         audioVolume: 1,
         audioMuted: false,
+        audioRole: 'generic',
         width: 1,
         height: 1,
         fillType: 'none',

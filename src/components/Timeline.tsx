@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { Camera, ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
@@ -513,6 +513,7 @@ function SortableLabel({
   const hasMultipleKf = layer.keyframes.length >= 2
   const canExpandValues = hasMultipleKf || animProps.length > 0
   const isGroup = childCount > 0 || layer.type === 'group' || layer.isGroup
+  const isNarration = layer.type === 'audio' && layer.audioRole === 'narration'
 
   return (
     <div
@@ -534,8 +535,8 @@ function SortableLabel({
           cursor: 'pointer', paddingLeft: 2, paddingRight: 6,
           background: isDragging
             ? 'var(--selected-bg)'
-            : selected ? 'var(--selected-bg)' : 'transparent',
-          borderLeft: selected ? '2px solid #0d99ff' : '2px solid transparent',
+            : selected ? 'var(--selected-bg)' : isNarration ? 'rgba(167,139,250,0.12)' : 'transparent',
+          borderLeft: selected ? '2px solid #0d99ff' : isNarration ? '2px solid #a78bfa' : '2px solid transparent',
           overflow: 'hidden',
         }}
       >
@@ -573,6 +574,7 @@ function SortableLabel({
         <span className="flex-1 truncate" style={{ fontSize: 10, color: 'var(--text)', opacity: outOfRange ? 0.45 : 1 }}>
           {layer.name}
         </span>
+        {isNarration && <span style={{ fontSize: 8, fontWeight: 700, color: '#c4b5fd', letterSpacing: '0.05em' }}>VOICE</span>}
 
         {isGroup && (
           <button
@@ -680,7 +682,7 @@ function TrackRow({
   const endF = groupRange?.end ?? (layer.endFrame ?? (totalWidth / fpx))
   const barLeft = frameX(startF)
   const barW = Math.max(4, (endF - startF) * fpx)
-  const color = LAYER_TYPE_COLOR[layer.type] ?? '#0d99ff'
+  const color = layer.type === 'audio' && layer.audioRole === 'narration' ? '#a78bfa' : LAYER_TYPE_COLOR[layer.type] ?? '#0d99ff'
   const hasMultipleKf = layer.keyframes.length >= 2
   const barH = Math.min(18, Math.max(12, Math.round(rowH * 0.42)))
 
@@ -954,7 +956,7 @@ function TimingModal({ state, fps, onClose, onApply }: {
 export function Timeline() {
   const { t } = useTranslation()
   const {
-    layers, scenes, currentFrame, totalFrames, fps, isPlaying, playbackRate,
+    layers, scenes, camera, selectedCameraFrame, currentFrame, totalFrames, fps, isPlaying, playbackRate,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, trimTimelineAtFrame, trimTimelineStartAtFrame, setPlaybackRate,
@@ -965,6 +967,7 @@ export function Timeline() {
     setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
+    addCameraKeyframe, selectCameraKeyframe,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1027,7 +1030,7 @@ export function Timeline() {
   }
 
   const rowLayouts = useMemo(() => {
-    let top = RULER_H + SCENE_BAND_H
+    let top = RULER_H + SCENE_BAND_H + rowH
     return rows.map(({ layer }) => {
       const animProps = getVisibleAnimProps(layer, showAllSubtracks)
       const hasMultipleKf = layer.keyframes.length >= 2
@@ -1728,6 +1731,10 @@ export function Timeline() {
             style={{ overflowY: 'auto' }}
             onScroll={(e) => syncVerticalScroll('labels', e.currentTarget.scrollTop)}
           >
+            <div className="flex items-center gap-2 px-3" style={{ height: rowH, minHeight: rowH, borderBottom: '1px solid var(--border2)', color: '#38bdf8', fontSize: 11, fontWeight: 600 }}>
+              <Camera size={13} />Camera
+              <button type="button" className="icon-btn" style={{ marginLeft: 'auto', width: 20, height: 20 }} title="Add camera keyframe at playhead" onClick={() => addCameraKeyframe()}><span style={{ fontSize: 14 }}>+</span></button>
+            </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={rows.map((r) => r.layer.id)} strategy={verticalListSortingStrategy}>
                 {rows.map(({ layer, depth }) => (
@@ -1794,6 +1801,28 @@ export function Timeline() {
               ))}
             </div>
             <SceneBand scenes={scenes} fpx={fpx} activeFrame={currentFrame} onSeek={setCurrentFrame} />
+
+            <div
+              data-camera-lane
+              style={{ height: rowH, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'rgba(56,189,248,0.055)' }}
+              onDoubleClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                addCameraKeyframe(Math.max(0, Math.min(totalFrames - 1, Math.round((event.clientX - rect.left - TIMELINE_LEFT_OFFSET) / fpx))))
+              }}
+              title="Double-click to add a camera keyframe"
+            >
+              {camera.keyframes.map((keyframe) => (
+                <button
+                  key={keyframe.frame}
+                  type="button"
+                  aria-label={`Camera keyframe at frame ${keyframe.frame}`}
+                  className={`kf-diamond ${keyframe.frame === currentFrame ? 'active' : ''}`}
+                  style={{ position: 'absolute', left: TIMELINE_LEFT_OFFSET + keyframe.frame * fpx, top: rowH / 2 - 5, outline: selectedCameraFrame === keyframe.frame ? '2px solid #fff' : undefined, background: '#38bdf8', zIndex: 4 }}
+                  onClick={(event) => { event.stopPropagation(); selectCameraKeyframe(keyframe.frame); setCurrentFrame(keyframe.frame) }}
+                  title={`Camera ${Math.round(keyframe.zoom * 100)}% · frame ${keyframe.frame}`}
+                />
+              ))}
+            </div>
 
             {/* Track rows — same order as label column */}
             {rows.map(({ layer }) => (

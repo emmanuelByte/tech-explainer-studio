@@ -2,6 +2,7 @@ import type { ConnectorPort, ConnectorRouting } from '../../types'
 
 export type Rect = { x: number; y: number; width: number; height: number }
 export type Point = { x: number; y: number }
+export type PortAnchor = { point: Point; direction: Point }
 export type ConnectorPath = { d: string; from: Point; to: Point; label: Point; length: number; segments: Array<{ from: Point; to: Point }> }
 
 export function portPosition(rect: Rect, port: ConnectorPort): Point {
@@ -56,7 +57,16 @@ function portVector(port: ConnectorPort): Point {
  * does not depend on browser-only SVG path measurement APIs.
  */
 export function connectorPath(source: Rect, sourcePort: ConnectorPort, target: Rect, targetPort: ConnectorPort, routing: ConnectorRouting = 'straight'): ConnectorPath {
-  const { from, to } = connectorLine(source, sourcePort, target, targetPort)
+  return routeConnector(
+    { point: portPosition(source, sourcePort), direction: portVector(sourcePort) },
+    { point: portPosition(target, targetPort), direction: portVector(targetPort) },
+    routing,
+  )
+}
+
+export function routeConnector(source: PortAnchor, target: PortAnchor, routing: ConnectorRouting = 'straight'): ConnectorPath {
+  const from = source.point
+  const to = target.point
   if (routing === 'straight') {
     const segments = [{ from, to }]
     const length = distance(from, to)
@@ -64,24 +74,29 @@ export function connectorPath(source: Rect, sourcePort: ConnectorPort, target: R
   }
 
   if (routing === 'orthogonal') {
-    const sourceHorizontal = sourcePort === 'left' || sourcePort === 'right'
-    const middle = sourceHorizontal
-      ? { x: (from.x + to.x) / 2, y: from.y }
-      : { x: from.x, y: (from.y + to.y) / 2 }
-    const beforeTarget = sourceHorizontal
-      ? { x: middle.x, y: to.y }
-      : { x: to.x, y: middle.y }
-    const points = [from, middle, beforeTarget, to]
+    // Route between outward stubs so both endpoint ports are respected,
+    // including mixed horizontal/vertical ports and targets behind the source.
+    const stub = Math.max(24, Math.min(48, distance(from, to) / 3))
+    const sourceVector = cardinalDirection(source.direction)
+    const targetVector = cardinalDirection(target.direction)
+    const start = { x: from.x + sourceVector.x * stub, y: from.y + sourceVector.y * stub }
+    const end = { x: to.x + targetVector.x * stub, y: to.y + targetVector.y * stub }
+    const sourceHorizontal = sourceVector.x !== 0
+    const targetHorizontal = targetVector.x !== 0
+    const bends = sourceHorizontal !== targetHorizontal
+      ? [sourceHorizontal ? { x: end.x, y: start.y } : { x: start.x, y: end.y }]
+      : sourceHorizontal
+        ? [{ x: (start.x + end.x) / 2, y: start.y }, { x: (start.x + end.x) / 2, y: end.y }]
+        : [{ x: start.x, y: (start.y + end.y) / 2 }, { x: end.x, y: (start.y + end.y) / 2 }]
+    const points = [from, start, ...bends, end, to]
     const segments = pointsToSegments(points).filter((segment) => distance(segment.from, segment.to) > 0)
     const length = pointsLength(points)
-    return { d: `M ${from.x} ${from.y} L ${middle.x} ${middle.y} L ${beforeTarget.x} ${beforeTarget.y} L ${to.x} ${to.y}`, from, to, label: midpointOnSegments(segments, length), length, segments }
+    return { d: points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' '), from, to, label: midpointOnSegments(segments, length), length, segments }
   }
 
-  const sourceVector = portVector(sourcePort)
-  const targetVector = portVector(targetPort)
   const bend = Math.max(48, Math.min(180, distance(from, to) * 0.45))
-  const control1 = { x: from.x + sourceVector.x * bend, y: from.y + sourceVector.y * bend }
-  const control2 = { x: to.x - targetVector.x * bend, y: to.y - targetVector.y * bend }
+  const control1 = { x: from.x + source.direction.x * bend, y: from.y + source.direction.y * bend }
+  const control2 = { x: to.x + target.direction.x * bend, y: to.y + target.direction.y * bend }
   const points: Point[] = []
   for (let index = 0; index <= 24; index += 1) {
     const t = index / 24
@@ -94,4 +109,10 @@ export function connectorPath(source: Rect, sourcePort: ConnectorPort, target: R
   const segments = pointsToSegments(points)
   const length = pointsLength(points)
   return { d: `M ${from.x} ${from.y} C ${control1.x} ${control1.y}, ${control2.x} ${control2.y}, ${to.x} ${to.y}`, from, to, label: midpointOnSegments(segments, length), length, segments }
+}
+
+function cardinalDirection(direction: Point): Point {
+  return Math.abs(direction.x) >= Math.abs(direction.y)
+    ? { x: Math.sign(direction.x) || 1, y: 0 }
+    : { x: 0, y: Math.sign(direction.y) || 1 }
 }

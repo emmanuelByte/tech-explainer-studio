@@ -42,10 +42,10 @@ Out of scope until after V1:
 | 0. Harden the fork | Complete | Safe project persistence, tests, branding and a working export baseline | — |
 | 1. Script and scenes | Complete | A lesson script and scene ranges are first-class project data | 0 |
 | 2. Technical component kit | Complete (V1 foundation) | Reusable editable technical diagram primitives | 1 |
-| 3. Smart connectors | In progress | Components remain semantically connected while being edited | 2 |
-| 4. Explainer motion and sketch style | In progress | Clear progressive draw/reveal behavior | 3 |
-| 5. Video camera | Planned | Editable pan/zoom with preview/export parity | 4 |
-| 6. Narration and captions | Planned | Timed script, narration and captions share one source of truth | 5 |
+| 3. Smart connectors | Complete | Components remain semantically connected while being edited | 2 |
+| 4. Explainer motion and sketch style | Complete | Clear progressive draw/reveal behavior | 3 |
+| 5. Video camera | Complete | Editable pan/zoom with preview/export parity | 4 |
+| 6. Narration and captions | Complete | Timed script, narration and captions share one source of truth | 5 |
 | 7. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 6 |
 | 8. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 7 |
 
@@ -187,10 +187,10 @@ the editable-group model proven by this milestone.
 **Goal:** give diagrams semantic connections rather than fragile manually
 positioned line layers.
 
-**Status: in progress.** Begin with source/target component relationships,
-deterministic port geometry, and preview/export rendering. Drag-to-connect,
-advanced routing, and endpoint reassignment follow once the base semantic
-model is persisted and tested.
+**Status: complete.** Source/target component relationships, deterministic port
+geometry, preview/export rendering, drag-to-connect, endpoint reassignment,
+straight/elbow/curved routing, labels, solid/dashed lines, arrowheads, styling,
+draw timing, autosave, and Undo/Redo are implemented and tested.
 
 Delivered foundation: schema v5 persists connector endpoints, ports, labels,
 and visual style independently from layers. Pure geometry resolves the four
@@ -203,8 +203,17 @@ endpoint handles that can be dragged onto another component port to reassign
 that endpoint. Connection panels provide endpoint, label, color, stroke-width,
 and straight, orthogonal, or bezier routing controls. Each route is resolved
 by shared deterministic geometry for selection, preview, and export. The
-remaining connector work is focused on final end-to-end persistence/export
-verification with nested components.
+connection inspector now includes endpoint reassignment, route, label, color,
+width, and removable draw animation. Connector-only changes trigger autosave;
+Undo/Redo restores layers and connections together, including endpoint deletion.
+Shared domain helpers resolve nested 2D transforms, animated sizes, port drag
+positions, and inherited visibility/opacity for preview, selection, and export.
+Bezier target approach direction is corrected; elbow paths respect both ports.
+
+Schema v8 adds explicit solid/dashed line style and start/end arrowhead fields,
+with compatibility defaults for older projects. The current routing does not
+avoid unrelated diagram obstacles. Perspective and X/Y 3D rotation are outside
+the supported 2D connector plane.
 
 ### Work packages
 
@@ -232,7 +241,7 @@ verification with nested components.
 **Goal:** turn a static architecture diagram into a clear progression of
 teaching moments.
 
-**Status: in progress.** Schema v6 adds deterministic connector draw ranges.
+**Status: complete.** Schema v6 adds deterministic connector draw ranges.
 The Properties panel can animate a connector drawing in from the current
 playhead, using the same SVG dash calculation in preview and export. The Layers
 panel can also create editable, staggered reveal keyframes for selected
@@ -241,6 +250,12 @@ stagger interval. Connectors are directly selectable on the canvas; their
 inspector exposes precise draw start and end times. Selected technical
 components can receive an editable highlight-pulse emphasis at the playhead.
 Selected-component connections can also be sequenced as a draw-in flow.
+Schema v9 adds keyframeable draw progress for line/path layers, editable Draw
+In and Fade + Draw presets, and optional seeded sketch outlines for compatible
+shapes and connectors. Sketch geometry derives from stable layer/connector ids,
+uses exact semantic connector endpoints, and is shared by preview and export.
+Tests cover progress clamping, normalized SVG dash values, stable seeded output,
+endpoint preservation, migration defaults, and the existing reveal timing.
 
 ### Work packages
 
@@ -262,6 +277,13 @@ Selected-component connections can also be sequenced as a draw-in flow.
 - Exported frames match preview and have no sketch jitter.
 
 ## Phase 5 — Video camera
+
+**Status:** Complete. Projects now persist a separate camera track with a
+version 10 migration. The timeline exposes camera keyframes, while the canvas
+camera panel supports add, hold, focus selection, fit architecture, reset,
+numeric framing and easing edits. Preview, full-screen playback and Remotion
+export all resolve the same deterministic camera transform; the canvas overlay
+uses the inverse transform for aligned selection and hit testing.
 
 **Goal:** add an animated video camera without confusing it with editor
 navigation.
@@ -285,6 +307,16 @@ navigation.
   return wide. Every framing change is editable and exports identically.
 
 ## Phase 6 — Narration and captions
+
+**Status:** Complete. Schema v11 adds semantic audio roles and persisted
+caption presentation settings while preserving timed script segments as the
+caption source of truth. Audio properties now expose narration, music, sound
+effect and generic roles; narration tracks receive prominent timeline styling.
+Script segments have editable In/Out frames, scene alignment, and seek controls.
+Readable and technical captions render outside the camera world in canvas,
+full-screen preview and Remotion export. Rendering uses Remotion audio during
+export and the existing frame-synchronised audio path in the editor. Automatic
+TTS and forced alignment remain optional future helpers.
 
 **Goal:** let a creator align what is said with what appears, without making
 speech synthesis or alignment a prerequisite.

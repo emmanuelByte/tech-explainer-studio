@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Player, PlayerRef } from '@remotion/player'
-import { Eye, Maximize2, Minus, Plus, Scan } from 'lucide-react'
+import { Camera, Crosshair, Eye, Maximize2, Minus, Plus, RotateCcw, Scan } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { EditorComposition } from '../remotion/Composition'
@@ -25,10 +25,12 @@ function ZoomButton({ children, onClick, title }: { children: React.ReactNode; o
 export function PreviewCanvas() {
   const { t } = useTranslation()
   const {
-    layers, connectors, currentFrame, totalFrames, fps,
+    layers, connectors, camera, captions, script, cameraPreviewEnabled, selectedLayerIds, currentFrame, totalFrames, fps,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
     setCanvasPreset, setCustomDimension, currentTool,
     editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas, selectLayers,
+    selectedCameraFrame, addCameraKeyframe, updateCameraKeyframe, deleteCameraKeyframe, holdCamera,
+    focusCameraOnSelection, fitCameraToArchitecture, resetCamera, setCameraPreviewEnabled,
   } = useStore()
 
   const playerRef = useRef<PlayerRef>(null)
@@ -45,10 +47,12 @@ export function PreviewCanvas() {
   const wheelPanCommit = useRef<number | null>(null)
   const spaceHeld = useRef(false)
   const [isPanningUi, setIsPanningUi] = useState(false)
+  const [showCameraControls, setShowCameraControls] = useState(false)
 
   const isCustom = canvasPreset.name === 'Custom'
   const canvasW = isCustom ? customWidth : canvasPreset.width
   const canvasH = isCustom ? customHeight : canvasPreset.height
+  const selectedCameraKeyframe = camera.keyframes.find((keyframe) => keyframe.frame === selectedCameraFrame)
 
   // Sync player to store frame
   useEffect(() => {
@@ -347,6 +351,16 @@ export function PreviewCanvas() {
         <div className="flex-1" />
 
         <button
+          type="button"
+          onClick={() => setShowCameraControls((visible) => !visible)}
+          className={`icon-btn ${showCameraControls ? 'active' : ''}`}
+          title="Video camera"
+          style={{ height: 22, minWidth: 72, padding: '0 7px', display: 'flex', alignItems: 'center', gap: 5, fontSize: 11 }}
+        >
+          <Camera size={12} /><span>Camera</span>
+        </button>
+
+        <button
           onClick={() => setShowOutsideCanvas(!showOutsideCanvas)}
           className={`icon-btn ${showOutsideCanvas ? 'active' : ''}`}
           title={showOutsideCanvas ? t('preview.hideOutsideCanvas') : t('preview.showOutsideCanvas')}
@@ -398,12 +412,61 @@ export function PreviewCanvas() {
       <div
         ref={outerRef}
         className={`flex-1 flex items-center justify-center overflow-hidden select-none ${cursorStyle}`}
-        style={{ background: 'var(--canvas-bg)' }}
+        style={{ background: 'var(--canvas-bg)', position: 'relative' }}
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
       >
+        {showCameraControls && (
+          <div
+            data-camera-controls
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{ position: 'absolute', top: 12, left: 12, zIndex: 60, width: 286, padding: 10, borderRadius: 9, background: 'color-mix(in srgb, var(--panel) 94%, transparent)', border: '1px solid var(--border)', boxShadow: '0 12px 34px rgba(0,0,0,0.28)', color: 'var(--text)' }}
+          >
+            <div className="flex items-center gap-2" style={{ marginBottom: 8 }}>
+              <Camera size={14} style={{ color: '#38bdf8' }} />
+              <strong style={{ fontSize: 12 }}>Video Camera</strong>
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--text3)' }}>{camera.keyframes.length} keyframe{camera.keyframes.length === 1 ? '' : 's'}</span>
+            </div>
+            <div className="flex items-center gap-1" style={{ marginBottom: 8, flexWrap: 'wrap' }}>
+              <button className="pill-btn" onClick={() => addCameraKeyframe()}><Plus size={12} />Add keyframe</button>
+              <button className="pill-btn" onClick={() => holdCamera()}>Hold</button>
+              <button className="pill-btn" onClick={() => focusCameraOnSelection()} disabled={!selectedLayerIds.length}><Crosshair size={12} />Focus</button>
+              <button className="pill-btn" onClick={() => fitCameraToArchitecture()}><Maximize2 size={12} />Fit all</button>
+              <button className="pill-btn" onClick={() => resetCamera()}><RotateCcw size={12} />Reset</button>
+            </div>
+            <label className="flex items-center gap-2" style={{ fontSize: 11, color: 'var(--text2)', marginBottom: selectedCameraKeyframe ? 8 : 0 }}>
+              <input type="checkbox" checked={cameraPreviewEnabled} onChange={(event) => setCameraPreviewEnabled(event.target.checked)} />
+              Preview camera moves on canvas
+            </label>
+            {selectedCameraKeyframe && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                {(['x', 'y', 'zoom'] as const).map((key) => (
+                  <label key={key} style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>
+                    {key}
+                    <input
+                      aria-label={`Camera ${key}`}
+                      type="number"
+                      step={key === 'zoom' ? 0.05 : 1}
+                      value={Number(selectedCameraKeyframe[key].toFixed(key === 'zoom' ? 2 : 0))}
+                      onChange={(event) => updateCameraKeyframe(selectedCameraKeyframe.frame, { [key]: Number(event.target.value) })}
+                      className="input-base"
+                      style={{ width: '100%', height: 25 }}
+                    />
+                  </label>
+                ))}
+                <label style={{ gridColumn: '1 / span 2', display: 'flex', flexDirection: 'column', gap: 3, fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase' }}>
+                  Easing
+                  <select className="input-base" value={selectedCameraKeyframe.easing} onChange={(event) => updateCameraKeyframe(selectedCameraKeyframe.frame, { easing: event.target.value as typeof selectedCameraKeyframe.easing })} style={{ height: 25 }}>
+                    {['linear', 'ease', 'ease-in', 'ease-out', 'ease-in-out', 'spring', 'bounce'].map((easing) => <option key={easing} value={easing}>{easing}</option>)}
+                  </select>
+                </label>
+                <button className="pill-btn" style={{ alignSelf: 'end', height: 25, color: '#ef4444' }} disabled={camera.keyframes.length <= 1} onClick={() => deleteCameraKeyframe(selectedCameraKeyframe.frame)}>Delete</button>
+              </div>
+            )}
+          </div>
+        )}
         {/* Zoom/pan transform wrapper */}
         <div
           ref={transformRef}
@@ -429,7 +492,7 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers, connectors, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+              inputProps={{ layers, connectors, camera, script, captions, applyCamera: cameraPreviewEnabled, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}
@@ -444,6 +507,7 @@ export function PreviewCanvas() {
               containerRef={playerWrapperRef}
               canvasW={canvasW}
               canvasH={canvasH}
+              camera={cameraPreviewEnabled ? camera : undefined}
             />
           </div>
         </div>

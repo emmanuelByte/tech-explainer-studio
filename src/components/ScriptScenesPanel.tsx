@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, FileText, ListVideo, Merge, Plus, Scissors, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Captions, FileText, ListVideo, Merge, Plus, Scissors, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/model'
@@ -17,11 +17,11 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const [structuredInput, setStructuredInput] = useState('')
   const [structuredError, setStructuredError] = useState<string | null>(null)
   const {
-    script, scenes, currentFrame, fps, totalFrames,
+    script, scenes, captions, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
     splitScene, mergeSceneWithNext, moveScene, setCurrentFrame,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
-    importStructuredScript,
+    importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
   } = useStore()
   const activeScene = useMemo(() => sceneAtFrame(scenes, currentFrame), [scenes, currentFrame])
 
@@ -79,6 +79,22 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
           <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
             {t('scenes.segmentCount', { count: script.segments.length })}
           </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 7, background: 'var(--input)' }}>
+            <label className="flex items-center gap-2" style={{ fontSize: 11, color: 'var(--text2)' }}>
+              <Captions size={13} style={{ color: captions.enabled ? '#38bdf8' : 'var(--text3)' }} />
+              <input type="checkbox" checked={captions.enabled} onChange={(event) => setCaptions({ enabled: event.target.checked })} />
+              Show captions from timed segments
+            </label>
+            {captions.enabled && (
+              <div className="flex items-center gap-2" style={{ marginTop: 7 }}>
+                <select aria-label="Caption style" className="input-base" value={captions.style} onChange={(event) => setCaptions({ style: event.target.value as typeof captions.style })} style={{ flex: 1, height: 26 }}>
+                  <option value="readable">Readable bottom</option>
+                  <option value="technical">Technical minimal</option>
+                </select>
+                <button type="button" className="pill-btn" onClick={alignScriptSegmentsToScenes} disabled={!scenes.length}>Align to scenes</button>
+              </div>
+            )}
+          </div>
           {!script.rawText.trim() && (
             <ol className="flex flex-col gap-2 mt-1" style={{ color: 'var(--text3)' }}>
               {[t('scenes.scriptStepPaste'), t('scenes.scriptStepSeparate'), t('scenes.scriptStepGenerate')].map((step, index) => (
@@ -106,6 +122,38 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
                     rows={3}
                     style={{ padding: 6, minHeight: 64 }}
                   />
+                  <div className="flex items-center gap-1 mt-1.5">
+                    <button type="button" className="pill-btn" style={{ height: 23, padding: '0 6px', fontSize: 10 }} onClick={() => setCurrentFrame(segment.startFrame ?? 0)}>Seek</button>
+                    <label className="flex items-center gap-1" style={{ color: 'var(--text3)', fontSize: 10 }}>
+                      In
+                      <input
+                        aria-label={`Segment ${index + 1} start frame`}
+                        className="input-base text-[10px] text-right"
+                        type="number"
+                        min={0}
+                        max={Math.max(0, totalFrames - 1)}
+                        value={segment.startFrame ?? 0}
+                        onChange={(event) => updateScriptSegmentRange(segment.id, Number(event.target.value), segment.endFrame ?? totalFrames)}
+                        style={{ width: 52, height: 23 }}
+                      />
+                    </label>
+                    <label className="flex items-center gap-1" style={{ color: 'var(--text3)', fontSize: 10 }}>
+                      Out
+                      <input
+                        aria-label={`Segment ${index + 1} end frame`}
+                        className="input-base text-[10px] text-right"
+                        type="number"
+                        min={1}
+                        max={totalFrames}
+                        value={segment.endFrame ?? totalFrames}
+                        onChange={(event) => updateScriptSegmentRange(segment.id, segment.startFrame ?? 0, Number(event.target.value))}
+                        style={{ width: 52, height: 23 }}
+                      />
+                    </label>
+                    <span style={{ marginLeft: 'auto', color: 'var(--text3)', fontSize: 9 }}>
+                      {seconds(segment.startFrame ?? 0, fps)}–{seconds(segment.endFrame ?? totalFrames, fps)}s
+                    </span>
+                  </div>
                 </div>
               ))}
             </div>

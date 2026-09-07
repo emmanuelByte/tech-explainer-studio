@@ -8,3 +8,8 @@ export function connectorDash(length: number, progress: number) {
   const safeProgress = Math.max(0, Math.min(1, progress))
   return { dashArray: safeLength, dashOffset: safeLength * (1 - safeProgress) }
 }
+
+export function connectorLineDash(strokeWidth: number) {
+  const safeWidth = Math.max(1, Math.min(16, strokeWidth))
+  return `${safeWidth * 3} ${safeWidth * 2}`
+}

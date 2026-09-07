@@ -1,10 +1,12 @@
+import { restoreDiagram, serializeDiagram } from './domains/connectors/history'
+import { editConnector } from './domains/connectors/edit'
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -34,6 +36,9 @@ import type { StructuredScriptImport } from './domains/scenes/structuredScript'
 import clientGroupSvg from './domains/technical-components/assets/clients/client-group.svg?raw'
 import applicationServerSvg from './domains/technical-components/assets/compute/application-server.svg?raw'
 import loadBalancerSvg from './domains/technical-components/assets/traffic-edge/load-balancer.svg?raw'
+import { defaultCameraTrack, fitCameraToBounds, normalizeCameraTrack, resolveCamera, upsertCameraKeyframe } from './domains/camera/model'
+import { resolveComponentPorts } from './domains/connectors/resolve'
+import { alignSegmentsToScenes, normalizeSegmentRange } from './domains/narration/model'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -1078,6 +1083,8 @@ function makeLayer(type: LayerType = 'rectangle', overrides: Partial<Layer> = {}
     borderRadiusLinked: true,
     pathData: type === 'path' ? 'M 20 180 L 100 20 L 180 180' : undefined,
     pathClosed: false,
+    sketchEnabled: false,
+    sketchRoughness: 1,
     shadowEnabled: false,
     shadowColor: 'rgba(0,0,0,0.5)',
     shadowFollowsPerspective: false,
@@ -1267,6 +1274,9 @@ interface Actions {
   applyHighlightPulse: (layerIds: string[]) => void
   animateSelectedConnectors: (layerIds: string[]) => void
   updateScriptSegment: (id: string, text: string) => void
+  updateScriptSegmentRange: (id: string, startFrame: number, endFrame: number) => void
+  alignScriptSegmentsToScenes: () => void
+  setCaptions: (patch: Partial<CaptionSettings>) => void
   splitScriptSegment: (id: string, offset?: number) => void
   mergeScriptSegmentWithNext: (id: string) => void
   addScene: (startFrame?: number) => void
@@ -1370,6 +1380,15 @@ interface Actions {
   setCanvasPreset: (name: string) => void
   setCustomDimension: (key: 'customWidth' | 'customHeight', value: number) => void
   setCanvasBackgroundColor: (color: string) => void
+  addCameraKeyframe: (frame?: number) => void
+  updateCameraKeyframe: (frame: number, patch: Partial<Omit<CameraKeyframe, 'frame'>>) => void
+  deleteCameraKeyframe: (frame: number) => void
+  holdCamera: (frame?: number) => void
+  focusCameraOnSelection: (frame?: number) => void
+  fitCameraToArchitecture: (frame?: number) => void
+  resetCamera: (frame?: number) => void
+  setCameraPreviewEnabled: (enabled: boolean) => void
+  selectCameraKeyframe: (frame: number | null) => void
   // UI
   setTheme: (theme: 'dark' | 'light') => void
   setTool: (tool: Tool) => void
@@ -1430,6 +1449,10 @@ export const useStore = create<Store>()(
       script: { ...EMPTY_SCRIPT_DOCUMENT },
   scenes: [],
       connectors: [],
+      camera: defaultCameraTrack(CANVAS_PRESETS[0].width, CANVAS_PRESETS[0].height),
+      captions: { enabled: false, style: 'readable' },
+      cameraPreviewEnabled: true,
+      selectedCameraFrame: null,
       selectedLayerIds: [],
       selectedConnectorId: null,
       selectedKeyframes: [],
@@ -1482,6 +1505,10 @@ export const useStore = create<Store>()(
           script: project.script ?? { ...EMPTY_SCRIPT_DOCUMENT },
           scenes: normalizeScenes(project.scenes ?? [], project.canvas.durationFrames),
           connectors: project.connectors ?? [],
+          camera: normalizeCameraTrack(project.camera, project.canvas.width, project.canvas.height),
+          captions: project.captions ?? { enabled: false, style: 'readable' },
+          cameraPreviewEnabled: true,
+          selectedCameraFrame: null,
           totalFrames: project.canvas.durationFrames,
           fps: project.canvas.fps,
           canvasPreset: preset.name === 'Custom' ? CANVAS_PRESETS[CANVAS_PRESETS.length - 1] : preset,
@@ -1558,11 +1585,16 @@ export const useStore = create<Store>()(
           sourcePort: 'right',
           targetPort: 'left',
           routing: 'straight',
+          lineStyle: 'solid',
+          arrowStart: false,
+          arrowEnd: true,
+          sketchEnabled: false,
+          sketchRoughness: 1,
           color: '#60a5fa',
           strokeWidth: 4,
         })
         const topologyConnectors: Connector[] = [
-          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', routing: 'straight', color: '#c4b5fd', strokeWidth: 4 },
+          { id: `connector_${uid()}`, sourceLayerId: client[0].id, targetLayerId: loadBalancer[0].id, sourcePort: 'right', targetPort: 'left', routing: 'straight', lineStyle: 'solid', arrowStart: false, arrowEnd: true, sketchEnabled: false, sketchRoughness: 1, color: '#c4b5fd', strokeWidth: 4 },
           connection(server1[0].id),
           connection(server2[0].id),
           connection(server3[0].id),
@@ -1590,6 +1622,11 @@ export const useStore = create<Store>()(
             sourcePort,
           targetPort,
           routing: 'straight',
+          lineStyle: 'solid',
+          arrowStart: false,
+          arrowEnd: true,
+          sketchEnabled: false,
+          sketchRoughness: 1,
           color: '#60a5fa',
             strokeWidth: 4,
           }],
@@ -1597,17 +1634,20 @@ export const useStore = create<Store>()(
       },
 
       updateConnector: (id, patch) => {
-        if (!get().connectors.some((connector) => connector.id === id)) return
+        const current = get().connectors.find((connector) => connector.id === id)
+        if (!current) return
+        const next = editConnector(current, patch, get().layers)
+        if (next === current) return
         get()._snapshot()
         set((s) => ({
-          connectors: s.connectors.map((connector) => connector.id === id ? { ...connector, ...patch } : connector),
+          connectors: s.connectors.map((connector) => connector.id === id ? next : connector),
         }))
       },
 
       deleteConnector: (id) => {
         if (!get().connectors.some((connector) => connector.id === id)) return
         get()._snapshot()
-        set((s) => ({ connectors: s.connectors.filter((connector) => connector.id !== id) }))
+        set((s) => ({ connectors: s.connectors.filter((connector) => connector.id !== id), selectedConnectorId: s.selectedConnectorId === id ? null : s.selectedConnectorId }))
       },
 
       applySequentialReveal: (layerIds, options) => {
@@ -1708,6 +1748,21 @@ export const useStore = create<Store>()(
 
       updateScriptSegment: (id, text) => set((s) => ({ script: updateScriptSegmentInDocument(s.script, id, text) })),
 
+      updateScriptSegmentRange: (id, startFrame, endFrame) => set((s) => ({
+        script: {
+          ...s.script,
+          segments: s.script.segments.map((segment) => (
+            segment.id === id ? { ...segment, ...normalizeSegmentRange(startFrame, endFrame, s.totalFrames) } : segment
+          )),
+        },
+      })),
+
+      alignScriptSegmentsToScenes: () => set((s) => ({
+        script: { ...s.script, segments: alignSegmentsToScenes(s.script.segments, s.scenes, s.totalFrames) },
+      })),
+
+      setCaptions: (patch) => set((s) => ({ captions: { ...s.captions, ...patch } })),
+
       splitScriptSegment: (id, offset) => set((s) => {
         const original = s.script.segments.find((segment) => segment.id === id)
         if (!original) return {}
@@ -1760,32 +1815,34 @@ export const useStore = create<Store>()(
       renameProject: (name) => set({ projectName: name, projectUpdatedAt: new Date().toISOString() }),
 
       _snapshot: () => {
-        const { layers, _past } = get()
-        const snapshot = JSON.stringify(layers)
+        const { _past } = get()
+        const snapshot = serializeDiagram(get())
         if (_past[_past.length - 1] === snapshot) return
         set({ _past: [..._past.slice(-49), snapshot], _future: [] })
       },
 
       undo: () => {
-        const { _past, layers, _future } = get()
+        const { _past, _future } = get()
         if (!_past.length) return
         const newPast = [..._past]
-        const prev = JSON.parse(newPast.pop()!) as Layer[]
+        const prev = restoreDiagram(newPast.pop()!)
         set({
-          layers: prev,
+          ...prev,
+          selectedConnectorId: null,
           _past: newPast,
-          _future: [JSON.stringify(layers), ..._future.slice(0, 49)],
+          _future: [serializeDiagram(get()), ..._future.slice(0, 49)],
         })
       },
 
       redo: () => {
-        const { _past, layers, _future } = get()
+        const { _past, _future } = get()
         if (!_future.length) return
         const newFuture = [..._future]
-        const next = JSON.parse(newFuture.shift()!) as Layer[]
+        const next = restoreDiagram(newFuture.shift()!)
         set({
-          layers: next,
-          _past: [..._past, JSON.stringify(layers)],
+          ...next,
+          selectedConnectorId: null,
+          _past: [..._past, serializeDiagram(get())],
           _future: newFuture,
         })
       },
@@ -2012,6 +2069,7 @@ export const useStore = create<Store>()(
               src,
               audioVolume: 1,
               audioMuted: false,
+              audioRole: 'generic',
               videoDuration: duration,
               sourceDurationFrames: audioFrames,
               // Audio layers reuse the videoSegments infrastructure — same
@@ -3486,6 +3544,91 @@ export const useStore = create<Store>()(
 
       setCustomDimension: (key, value) => set({ [key]: value }),
       setCanvasBackgroundColor: (color) => set({ canvasBackgroundColor: color }),
+
+      addCameraKeyframe: (frame) => {
+        get()._snapshot()
+        const state = get()
+        const { width, height } = getCanvasSize(state)
+        const keyframeFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))
+        const view = resolveCamera(state.camera, keyframeFrame, width, height)
+        set({
+          camera: upsertCameraKeyframe(state.camera, { frame: keyframeFrame, ...view, easing: 'ease-in-out' }),
+          selectedCameraFrame: keyframeFrame,
+        })
+      },
+
+      updateCameraKeyframe: (frame, patch) => {
+        get()._snapshot()
+        const state = get()
+        const existing = state.camera.keyframes.find((item) => item.frame === frame)
+        if (!existing) return
+        set({ camera: upsertCameraKeyframe(state.camera, { ...existing, ...patch, frame }) })
+      },
+
+      deleteCameraKeyframe: (frame) => {
+        const state = get()
+        if (state.camera.keyframes.length <= 1) return
+        get()._snapshot()
+        set({ camera: { keyframes: state.camera.keyframes.filter((item) => item.frame !== frame) }, selectedCameraFrame: null })
+      },
+
+      holdCamera: (frame) => {
+        const state = get()
+        const keyframeFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))
+        const { width, height } = getCanvasSize(state)
+        const view = resolveCamera(state.camera, Math.max(0, keyframeFrame - 1), width, height)
+        get()._snapshot()
+        set({ camera: upsertCameraKeyframe(state.camera, { frame: keyframeFrame, ...view, easing: 'linear' }), selectedCameraFrame: keyframeFrame })
+      },
+
+      focusCameraOnSelection: (frame) => {
+        const state = get()
+        const ids = state.selectedLayerIds
+        if (!ids.length) return
+        const { width, height } = getCanvasSize(state)
+        const activeFrame = frame ?? state.currentFrame
+        const anchors = ids.flatMap((id) => {
+          const resolved = resolveComponentPorts(id, state.layers, activeFrame, width, height)
+          return resolved ? Object.values(resolved.ports).map((port) => port.point) : []
+        })
+        if (!anchors.length) return
+        const view = fitCameraToBounds({
+          left: Math.min(...anchors.map((point) => point.x)),
+          top: Math.min(...anchors.map((point) => point.y)),
+          right: Math.max(...anchors.map((point) => point.x)),
+          bottom: Math.max(...anchors.map((point) => point.y)),
+        }, width, height)
+        get()._snapshot()
+        set({ camera: upsertCameraKeyframe(state.camera, { frame: activeFrame, ...view, easing: 'ease-in-out' }), selectedCameraFrame: activeFrame })
+      },
+
+      fitCameraToArchitecture: (frame) => {
+        const state = get()
+        const { width, height } = getCanvasSize(state)
+        const activeFrame = frame ?? state.currentFrame
+        const rootIds = state.layers.filter((layer) => !layer.parentId && layer.visible).map((layer) => layer.id)
+        const anchors = rootIds.flatMap((id) => {
+          const resolved = resolveComponentPorts(id, state.layers, activeFrame, width, height)
+          return resolved ? Object.values(resolved.ports).map((port) => port.point) : []
+        })
+        const view = anchors.length ? fitCameraToBounds({
+          left: Math.min(...anchors.map((point) => point.x)), top: Math.min(...anchors.map((point) => point.y)),
+          right: Math.max(...anchors.map((point) => point.x)), bottom: Math.max(...anchors.map((point) => point.y)),
+        }, width, height) : { x: width / 2, y: height / 2, zoom: 1 }
+        get()._snapshot()
+        set({ camera: upsertCameraKeyframe(state.camera, { frame: activeFrame, ...view, easing: 'ease-in-out' }), selectedCameraFrame: activeFrame })
+      },
+
+      resetCamera: (frame) => {
+        const state = get()
+        const { width, height } = getCanvasSize(state)
+        const activeFrame = clampInt(frame ?? state.currentFrame, 0, Math.max(0, state.totalFrames - 1))
+        get()._snapshot()
+        set({ camera: upsertCameraKeyframe(state.camera, { frame: activeFrame, x: width / 2, y: height / 2, zoom: 1, easing: 'ease-in-out' }), selectedCameraFrame: activeFrame })
+      },
+
+      setCameraPreviewEnabled: (enabled) => set({ cameraPreviewEnabled: enabled }),
+      selectCameraKeyframe: (frame) => set({ selectedCameraFrame: frame }),
       setTheme: (theme) => set({ theme }),
       setTool: (tool) => set({ currentTool: tool }),
       setTimelineZoom: (zoom) => set({ timelineZoom: zoom }),

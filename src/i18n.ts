@@ -136,6 +136,11 @@ export const resources = {
         audio: 'Audio',
       },
       layers: {
+        technicalComponents: 'Technical components',
+        addLoadBalancerTopology: 'Load Balancer topology',
+        addClient: 'Client',
+        addLoadBalancer: 'Load balancer',
+        addServer: 'Server',
         title: 'Layers',
         composition: 'Composition',
         background: 'Background',
@@ -247,11 +252,6 @@ export const resources = {
         layerCount: '{{count}} layer',
         layerCount_other: '{{count}} layers',
         insert: 'Insert',
-        technicalComponents: 'Technical components',
-        addLoadBalancerTopology: 'Load Balancer topology',
-        addClient: 'Client',
-        addLoadBalancer: 'Load balancer',
-        addServer: 'Server',
         noItems: 'No saved library items yet.',
       },
       scenes: {
@@ -369,6 +369,7 @@ export const resources = {
         borderBottomRightRadius: 'Radius BR',
         borderBottomLeftRadius: 'Radius BL',
         charProgress: 'Char',
+        drawProgress: 'Draw',
       },
       transform: {
         frame: 'Frame',
@@ -503,6 +504,9 @@ export const resources = {
         right: 'Right',
         letterSpacing: 'LS',
         lineHeight: 'LH',
+        sketch: 'Sketch',
+        enableSketch: 'Enable sketch outline',
+        roughness: 'Roughness',
       },
       effects: {
         filters: 'Filters',

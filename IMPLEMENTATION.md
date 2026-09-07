@@ -21,10 +21,10 @@ Current delivery status:
 | 0 — Harden the fork | Complete |
 | 1 — Script + Scenes | Complete |
 | 2 — Technical Component Kit | Complete (V1 foundation) |
-| 3 — Smart Connectors | In progress — rendering verified |
-| 4 — Explainer Motion + Sketch Style | In progress |
-| 5 — Video Camera | Planned |
-| 6 — Narration + Captions | Planned |
+| 3 — Smart Connectors | Complete |
+| 4 — Explainer Motion + Sketch Style | Complete |
+| 5 — Video Camera | Complete |
+| 6 — Narration + Captions | Complete |
 | 7 — Acceptance Lesson + Local Release | Planned |
 | 8 — Hosted-product Readiness | Deferred |
 
@@ -383,6 +383,19 @@ Cover:
 - connector deletion/detachment rules
 - serialization/migration
 
+## Connector reliability update (September 2026)
+
+Connections now share pure 2D port resolution across rendering, selection and
+canvas drag/drop, including nested scale/rotation/skew, custom transform origins,
+animated dimensions, and ancestor visibility/opacity. The inspector supports
+source/target reassignment, ports, routing, appearance, and removable draw timing.
+Connector edits autosave; diagram Undo/Redo restores connectors and layers
+atomically. Deleting a component removes its connectors, and Undo restores both.
+No persisted fields were added, so the project schema remains v7. History is
+session-only. Schema v8 adds configurable start/end arrowheads and solid/dashed
+styles with compatibility defaults. Obstacle avoidance and 3D perspective
+attachment remain outside this completed 2D connector phase.
+
 ## Exit criteria
 
 Build this diagram entirely through the UI:
@@ -547,6 +560,15 @@ The Load Balancer lesson can:
 
 All moves are editable on the timeline and export identically.
 
+**Delivered:** schema v10 persists camera centre, zoom, frame and easing
+independently from editor navigation. The camera panel provides add, hold,
+focus selection, fit architecture, reset and numeric editing. A dedicated
+timeline lane exposes each camera keyframe. Canvas preview, selection overlays,
+full-screen preview and Remotion export share the same interpolation and
+world/screen transforms. The saved acceptance project and
+`data/exports/phase5-camera-verification-20260907.mp4` prove a wide → Server
+focus → wide sequence.
+
 ---
 
 # Phase 5 — Narration + Captions
@@ -608,6 +630,17 @@ Cover:
 ## Exit criteria
 
 The Load Balancer lesson has narration audio, timed script segments and captions that survive reload and export correctly.
+
+**Delivered:** schema v11 adds audio roles and caption settings. Imported audio
+can be marked as narration, music, sound effect or generic audio without
+replacing the existing segment editor. Narration is highlighted as a VOICE
+track on the timeline. Script segments expose editable frame ranges, seek
+actions and one-click scene alignment. Captions are derived directly from the
+active timed script segment and offer readable-bottom and technical-minimal
+styles. Preview and Remotion export share the caption renderer; Remotion audio
+is used for exported media. The saved acceptance project contains three timed
+segments, and `data/exports/phase6-captions-verification-20260907.mp4` verifies
+the exported caption result.
 
 ---
 

@@ -346,6 +346,9 @@ function EditorScreen({ projectId }: { projectId: string }) {
   }, [
     storeState.projectName,
     storeState.layers,
+    storeState.connectors,
+    storeState.camera,
+    storeState.captions,
     storeState.guides,
     storeState.script,
     storeState.scenes,

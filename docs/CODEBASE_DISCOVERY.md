@@ -1,5 +1,10 @@
 # Codebase Discovery
 
+> Historical baseline: this audit describes the inherited editor before the
+> delivery roadmap. Script/scenes, technical components, connectors, sketch
+> motion, and the video camera have since been implemented. Current status
+> lives in `IMPLEMENTATION_ROADMAP.md`.
+
 ## Summary
 
 This repository is a fork of `tomaslachmann/motion-editor`. After reviewing the inherited codebase, the conclusion is to **keep MotionEditor as the foundation** and extend it into Tech Explainer Studio rather than rebuilding a new editor.

@@ -8,6 +8,7 @@ export interface TechnicalComponentMeta {
 
 export type ConnectorPort = 'left' | 'right' | 'top' | 'bottom'
 export type ConnectorRouting = 'straight' | 'orthogonal' | 'bezier'
+export type ConnectorLineStyle = 'solid' | 'dashed'
 
 export interface Connector {
   id: string
@@ -16,19 +17,44 @@ export interface Connector {
   sourcePort: ConnectorPort
   targetPort: ConnectorPort
   routing?: ConnectorRouting
+  lineStyle: ConnectorLineStyle
+  arrowStart: boolean
+  arrowEnd: boolean
   label?: string
   color: string
   strokeWidth: number
   drawStartFrame?: number
   drawEndFrame?: number
+  sketchEnabled?: boolean
+  sketchRoughness?: number
 }
 export type EasingType = 'linear' | 'ease' | 'ease-in' | 'ease-out' | 'ease-in-out' | 'spring' | 'bounce'
 export type PairEasingType = EasingType | 'custom'
+
+export interface CameraKeyframe {
+  frame: number
+  /** World-space point, in canvas pixels, placed at the centre of the video. */
+  x: number
+  y: number
+  zoom: number
+  easing: PairEasingType
+}
+
+export interface CameraTrack {
+  keyframes: CameraKeyframe[]
+}
 export type FillType = 'solid' | 'linear-gradient' | 'radial-gradient' | 'none'
 export type SizeMode = 'fixed' | 'fit-content' | 'fill-canvas'
 export type ImageFit = 'contain' | 'cover' | 'fill' | 'scale-down'
 export type ImageKind = 'raster' | 'svg'
 export type AssetKind = 'image' | 'video' | 'audio'
+export type AudioRole = 'narration' | 'music' | 'sound-effect' | 'generic'
+export type CaptionStyle = 'readable' | 'technical'
+
+export interface CaptionSettings {
+  enabled: boolean
+  style: CaptionStyle
+}
 export type LayoutMode = 'none' | 'flex' | 'grid'
 export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
@@ -50,7 +76,7 @@ export interface TextRangeStyle {
 export type AnimatableProperty =
   | 'x' | 'y' | 'z' | 'width' | 'height' | 'scale' | 'scaleX' | 'scaleY'
   | 'rotateX' | 'rotateY' | 'rotateZ' | 'skewX' | 'skewY'
-  | 'perspective' | 'originX' | 'originY' | 'opacity'
+  | 'perspective' | 'originX' | 'originY' | 'opacity' | 'drawProgress'
   | 'fillColor' | 'textColor' | 'strokeColor' | 'strokeWidth'
   | 'strokeTopWidth' | 'strokeRightWidth' | 'strokeBottomWidth' | 'strokeLeftWidth'
   | 'borderRadius'
@@ -92,6 +118,8 @@ export interface TransformProps {
   shadowSpread: number
   // Text animation
   charProgress: number
+  // Path and sketch-outline drawing
+  drawProgress: number
 }
 
 export const DEFAULT_TRANSFORM: TransformProps = {
@@ -111,6 +139,7 @@ export const DEFAULT_TRANSFORM: TransformProps = {
   backdropBlur: 0,
   shadowX: 0, shadowY: 4, shadowBlur: 12, shadowSpread: 0,
   charProgress: 1,
+  drawProgress: 1,
 }
 
 export interface Keyframe {
@@ -207,6 +236,8 @@ export interface Layer {
   borderRadiusLinked?: boolean
   pathData?: string
   pathClosed?: boolean
+  sketchEnabled?: boolean
+  sketchRoughness?: number
   // Shadow static props (color; position/size are keyframeable)
   shadowEnabled: boolean
   shadowColor: string
@@ -240,6 +271,8 @@ export interface Layer {
   audioVolume?: number
   /** Audio-only: mute the layer's playback (transport silent, layer still visible/scheduled). */
   audioMuted?: boolean
+  /** Audio-only semantic role used by narration and timeline workflows. */
+  audioRole?: AudioRole
   svgStrokeColor?: string
   svgFillColor?: string
   svgFillEnabled?: boolean
@@ -308,6 +341,8 @@ export interface MotionProject {
   script?: ScriptDocument
   scenes?: Scene[]
   connectors?: Connector[]
+  camera?: CameraTrack
+  captions?: CaptionSettings
 }
 
 export interface ScriptDocument {
@@ -411,6 +446,10 @@ export interface EditorState {
   script: ScriptDocument
   scenes: Scene[]
   connectors: Connector[]
+  camera: CameraTrack
+  captions: CaptionSettings
+  cameraPreviewEnabled: boolean
+  selectedCameraFrame: number | null
   selectedLayerIds: string[]
   selectedConnectorId: string | null
   selectedKeyframes: KeyframeSelection[]

@@ -5,7 +5,7 @@ import type { MotionProject } from '../../types'
  * Projects are migrated one version at a time so an old file never relies on
  * incidental UI sanitisation to remain usable.
  */
-export const CURRENT_PROJECT_SCHEMA_VERSION = 7
+export const CURRENT_PROJECT_SCHEMA_VERSION = 11
 
 type ProjectRecord = Record<string, unknown>
 
@@ -87,6 +87,108 @@ const PROJECT_MIGRATIONS: ProjectMigration[] = [
         ))
         : [],
     }),
+  },
+  {
+    from: 7,
+    to: 8,
+    migrate: (project) => ({
+      ...project,
+      schemaVersion: 8,
+      connectors: Array.isArray(project.connectors)
+        ? project.connectors.map((connector) => (
+          isProjectRecord(connector)
+            ? {
+                ...connector,
+                lineStyle: connector.lineStyle ?? 'solid',
+                arrowStart: connector.arrowStart ?? false,
+                arrowEnd: connector.arrowEnd ?? true,
+              }
+            : connector
+        ))
+        : [],
+    }),
+  },
+  {
+    from: 8,
+    to: 9,
+    migrate: (project) => ({
+      ...project,
+      schemaVersion: 9,
+      layers: Array.isArray(project.layers)
+        ? project.layers.map((layer) => {
+          if (!isProjectRecord(layer)) return layer
+          return {
+            ...layer,
+            sketchEnabled: layer.sketchEnabled ?? false,
+            sketchRoughness: layer.sketchRoughness ?? 1,
+            keyframes: Array.isArray(layer.keyframes)
+              ? layer.keyframes.map((keyframe) => (
+                isProjectRecord(keyframe) && isProjectRecord(keyframe.props)
+                  ? { ...keyframe, props: { ...keyframe.props, drawProgress: keyframe.props.drawProgress ?? 1 } }
+                  : keyframe
+              ))
+              : layer.keyframes,
+          }
+        })
+        : [],
+      connectors: Array.isArray(project.connectors)
+        ? project.connectors.map((connector) => (
+          isProjectRecord(connector)
+            ? { ...connector, sketchEnabled: connector.sketchEnabled ?? false, sketchRoughness: connector.sketchRoughness ?? 1 }
+            : connector
+        ))
+        : [],
+    }),
+  },
+  {
+    from: 9,
+    to: 10,
+    migrate: (project) => {
+      const canvas = isProjectRecord(project.canvas) ? project.canvas : {}
+      const width = typeof canvas.width === 'number' ? canvas.width : 1920
+      const height = typeof canvas.height === 'number' ? canvas.height : 1080
+      return {
+        ...project,
+        schemaVersion: 10,
+        camera: project.camera ?? {
+          keyframes: [{ frame: 0, x: width / 2, y: height / 2, zoom: 1, easing: 'ease-in-out' }],
+        },
+      }
+    },
+  },
+  {
+    from: 10,
+    to: 11,
+    migrate: (project) => {
+      const scenes = Array.isArray(project.scenes) ? project.scenes : []
+      const sceneById = new Map(scenes.filter(isProjectRecord).map((scene) => [scene.id, scene]))
+      const script = isProjectRecord(project.script) ? project.script : { rawText: '', segments: [] }
+      const segments = Array.isArray(script.segments) ? script.segments : []
+      return {
+        ...project,
+        schemaVersion: 11,
+        layers: Array.isArray(project.layers)
+          ? project.layers.map((layer) => (
+            isProjectRecord(layer) && layer.type === 'audio'
+              ? { ...layer, audioRole: layer.audioRole ?? 'generic' }
+              : layer
+          ))
+          : [],
+        script: {
+          ...script,
+          segments: segments.map((segment) => {
+            if (!isProjectRecord(segment)) return segment
+            const scene = typeof segment.sceneId === 'string' ? sceneById.get(segment.sceneId) : undefined
+            return {
+              ...segment,
+              startFrame: segment.startFrame ?? scene?.startFrame,
+              endFrame: segment.endFrame ?? scene?.endFrame,
+            }
+          }),
+        },
+        captions: project.captions ?? { enabled: false, style: 'readable' },
+      }
+    },
   },
 ]
 

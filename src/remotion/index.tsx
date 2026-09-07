@@ -134,6 +134,9 @@ function projectValues(props: RenderProps) {
   return {
     layers: resolveLayerAssets(projectProps.layers ?? []),
     connectors: projectProps.connectors ?? [],
+    camera: projectProps.camera,
+    script: projectProps.script,
+    captions: projectProps.captions,
     width: projectProps.canvasWidth ?? canvas.width,
     height: projectProps.canvasHeight ?? canvas.height,
     fps: canvas.fps,
@@ -151,6 +154,9 @@ function ProjectComposition(props: RenderProps) {
       <EditorComposition
         layers={project.layers}
         connectors={project.connectors}
+        camera={project.camera}
+        script={project.script}
+        captions={project.captions}
         canvasWidth={project.width}
         canvasHeight={project.height}
         backgroundColor={project.backgroundColor}

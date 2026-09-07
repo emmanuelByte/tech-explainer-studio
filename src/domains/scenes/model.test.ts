@@ -71,6 +71,10 @@ describe('script helpers', () => {
       { startFrame: 0, endFrame: 30 },
       { startFrame: 30, endFrame: 60 },
     ])
+    expect(result.script.segments).toMatchObject([
+      { startFrame: 0, endFrame: 30 },
+      { startFrame: 30, endFrame: 60 },
+    ])
   })
 
   it('retains storyboard titles and visual notes when regenerating the same scene count', () => {

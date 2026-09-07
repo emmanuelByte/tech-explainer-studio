@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { Connector, ConnectorPort, DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
+import { CameraTrack, Connector, ConnectorPort, DEFAULT_TRANSFORM, Layer, TransformProps } from '../types'
 import { resolveLayerAnimation } from '../animationProperties'
 import { descendantsOf } from '../layerTree'
 import { buildTransform } from '../remotion/interpolateProps'
-import { connectorPath, portPosition } from '../domains/connectors/geometry'
+import { resolveComponentPorts, resolveConnector } from '../domains/connectors/resolve'
+import { connectorDrawProgress } from '../domains/connectors/draw'
 import { LayerOrderMenu } from './LayerOrderMenu'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
+import { cameraToWorld, cameraTransform, resolveCamera } from '../domains/camera/model'
 
 interface Props {
   containerRef: React.RefObject<HTMLDivElement | null>
   canvasW: number
   canvasH: number
+  camera?: CameraTrack
 }
 
 type HandleType = 'move' | 'tl' | 'tr' | 'bl' | 'br' | 'ml' | 'mr' | 'mt' | 'mb' | 'rotate' | 'skewX' | 'skewY' | 'perspective'
@@ -622,15 +625,9 @@ function distanceToSegment(point: PenPoint, start: PenPoint, end: PenPoint) {
 
 function connectorAtPoint(connectors: Connector[], layers: Layer[], frame: number, canvasW: number, canvasH: number, point: PenPoint) {
   for (const connector of [...connectors].reverse()) {
-    const source = layers.find((layer) => layer.id === connector.sourceLayerId)
-    const target = layers.find((layer) => layer.id === connector.targetLayerId)
-    if (!source || !target) continue
-    const sourceBox = getLayerBox(source, layers, frame, canvasW, canvasH)
-    const targetBox = getLayerBox(target, layers, frame, canvasW, canvasH)
-    const path = connectorPath(
-      { x: sourceBox.left, y: sourceBox.top, width: sourceBox.width, height: sourceBox.height }, connector.sourcePort,
-      { x: targetBox.left, y: targetBox.top, width: targetBox.width, height: targetBox.height }, connector.targetPort, connector.routing,
-    )
+    const resolved = resolveConnector(connector, layers, frame, canvasW, canvasH)
+    if (!resolved || resolved.opacity <= 0 || connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame) <= 0) continue
+    const { path } = resolved
     if (path.segments.some((segment) => distanceToSegment(point, segment.from, segment.to) <= Math.max(10, connector.strokeWidth + 6))) return connector
   }
   return null
@@ -915,13 +912,15 @@ function textRuns(layer: Layer) {
   return runs.length ? runs : [{ text: layer.text }]
 }
 
-export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
+export function CanvasOverlay({ containerRef, canvasW, canvasH, camera }: Props) {
   const {
     layers, connectors, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
     selectLayer, selectLayers, selectConnector, clearSelectedKeyframes, currentTool, setTool, addGeneratedLayer, resizeLayerBox,
     reorderLayersById, addConnector, updateConnector,
   } = useStore()
+  const cameraView = resolveCamera(camera, currentFrame, canvasW, canvasH)
+  const cameraWorldTransform = cameraTransform(cameraView, canvasW, canvasH)
   // Tools that should drag-to-create a new layer on the canvas (vs.
   // marquee-select). Pen has its own dedicated flow above.
   const isCreationTool = currentTool === 'rectangle' || currentTool === 'ellipse'
@@ -1168,10 +1167,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
       applyLayerTransformPreviews(containerRef.current, moveUpdates)
 
     } else if (d.type === 'rotate') {
-      const rect = containerRef.current?.getBoundingClientRect()
-      if (!rect) return
-      const mx = (e.clientX - rect.left) / d.displayScale - d.centerCx
-      const my = (e.clientY - rect.top) / d.displayScale - d.centerCy
+      const pointer = getCanvasPoint(e.clientX, e.clientY)
+      const mx = pointer.x - d.centerCx
+      const my = pointer.y - d.centerCy
       const angle = Math.atan2(my, mx) * (180 / Math.PI) + 90
       const nextAngle = e.shiftKey ? Math.round(angle / 15) * 15 : Math.round(angle)
       if (autoKeyframe) addKeyframe(layer.id, currentFrame, { ...d.props, rotateZ: nextAngle })
@@ -1276,7 +1274,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const activeConnectorDrag = connectorDragRef.current
     if (activeConnectorDrag) {
       const target = technicalComponentPortAtPoint(getCanvasPoint(event.clientX, event.clientY))
-      if (target && target.layerId !== activeConnectorDrag.sourceLayerId) {
+      if (target) {
         if (activeConnectorDrag.reassign) {
           const patch = activeConnectorDrag.reassign.endpoint === 'source'
             ? { sourceLayerId: target.layerId, sourcePort: target.port }
@@ -1512,10 +1510,11 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
   function getCanvasPoint(clientX: number, clientY: number) {
     const rect = containerRef.current?.getBoundingClientRect()
     const scale = rect ? rect.width / canvasW : displayScale
-    return {
+    const screenPoint = {
       x: rect ? (clientX - rect.left) / scale : 0,
       y: rect ? (clientY - rect.top) / scale : 0,
     }
+    return cameraToWorld(screenPoint, cameraView, canvasW, canvasH)
   }
 
   function hitLayerAtPoint(x: number, y: number) {
@@ -1531,9 +1530,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     const candidates = layers
       .filter((layer) => layer.technicalComponent && isActiveLayer(layer, currentFrame))
       .flatMap((layer) => {
-        const box = getLayerBox(layer, layers, currentFrame, canvasW, canvasH)
-        const rect = { x: box.left, y: box.top, width: box.width, height: box.height }
-        return ports.map((port) => ({ layerId: layer.id, port, point: portPosition(rect, port) }))
+        const resolved = resolveComponentPorts(layer.id, layers, currentFrame, canvasW, canvasH)
+        if (!resolved || resolved.opacity <= 0) return []
+        return ports.map((port) => ({ layerId: layer.id, port, point: resolved.ports[port].point }))
       })
       .map((candidate) => ({ ...candidate, distance: distance(point, candidate.point) }))
       .filter((candidate) => candidate.distance <= radius)
@@ -1804,7 +1803,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         selectLayer(childHit.layer.id)
         beginInteraction(true)
         const rect = containerRef.current?.getBoundingClientRect()
-        const ds = rect ? rect.width / canvasW : displayScale
+        const ds = (rect ? rect.width / canvasW : displayScale) * cameraView.zoom
         const childMoveIds = getMovementLayerIds(layers, [childHit.layer.id])
         const childMoveBoxes = childMoveIds
           .map((id) => layers.find((item) => item.id === id))
@@ -1836,7 +1835,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
     }
     beginInteraction(true)
     const rect = containerRef.current?.getBoundingClientRect()
-    const ds = rect ? rect.width / canvasW : displayScale
+    const ds = (rect ? rect.width / canvasW : displayScale) * cameraView.zoom
     const moveIds = type === 'move' ? getMovementLayerIds(layers, selectedLayerIds) : selectedLayerIds
     const moveStartBoxes = type === 'move'
       ? moveIds
@@ -1967,7 +1966,7 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           left: 0,
           width: canvasW,
           height: canvasH,
-          transform: `scale(${displayScale})`,
+          transform: `translate(${cameraWorldTransform.x * displayScale}px, ${cameraWorldTransform.y * displayScale}px) scale(${displayScale * cameraWorldTransform.zoom})`,
           transformOrigin: 'top left',
           pointerEvents: 'all',
           cursor: isCreationTool ? 'crosshair' : currentTool === 'pen' ? 'crosshair' : undefined,
@@ -2102,10 +2101,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
           </div>
         )}
         {connectorDrag && (() => {
-          const source = layers.find((layer) => layer.id === connectorDrag.sourceLayerId)
-          if (!source) return null
-          const box = getLayerBox(source, layers, currentFrame, canvasW, canvasH)
-          const start = portPosition({ x: box.left, y: box.top, width: box.width, height: box.height }, connectorDrag.sourcePort)
+          const resolved = resolveComponentPorts(connectorDrag.sourceLayerId, layers, currentFrame, canvasW, canvasH)
+          if (!resolved) return null
+          const start = resolved.ports[connectorDrag.sourcePort].point
           return (
             <svg width={canvasW} height={canvasH} style={{ position: 'absolute', inset: 0, overflow: 'visible', pointerEvents: 'none', zIndex: 32 }}>
               <line x1={start.x} y1={start.y} x2={connectorDrag.point.x} y2={connectorDrag.point.y} stroke="#60a5fa" strokeWidth={3 / displayScale} strokeDasharray={`${8 / displayScale} ${5 / displayScale}`} />
@@ -2116,9 +2114,9 @@ export function CanvasOverlay({ containerRef, canvasW, canvasH }: Props) {
         {layers
           .filter((layer) => layer.technicalComponent && selectedLayerIds.includes(layer.id))
           .flatMap((layer) => {
-            const box = getLayerBox(layer, layers, currentFrame, canvasW, canvasH)
-            const rect = { x: box.left, y: box.top, width: box.width, height: box.height }
-            return (['left', 'right', 'top', 'bottom'] as ConnectorPort[]).map((port) => ({ layer, port, point: portPosition(rect, port) }))
+            const resolved = resolveComponentPorts(layer.id, layers, currentFrame, canvasW, canvasH)
+            if (!resolved || resolved.opacity <= 0) return []
+            return (['left', 'right', 'top', 'bottom'] as ConnectorPort[]).map((port) => ({ layer, port, point: resolved.ports[port].point }))
           })
           .map(({ layer, port, point }) => {
             const size = 14 / Math.max(displayScale, 0.1)

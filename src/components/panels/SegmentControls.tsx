@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Diamond, Minus, Pause, Plus, RotateCcw, Scissors, Trash2, Triangle, Volume2, VolumeX } from 'lucide-react'
+import { Diamond, Mic2, Minus, Pause, Plus, RotateCcw, Scissors, Trash2, Triangle, Volume2, VolumeX } from 'lucide-react'
 import { useStore } from '../../store'
-import { Layer, SpeedEasing, VideoSegment } from '../../types'
+import { AudioRole, Layer, SpeedEasing, VideoSegment } from '../../types'
 import { Section, Row, NumField } from './_panelKit'
 
 /* ──────────────────────────────────────────────────────────────
@@ -27,7 +27,46 @@ function formatSeconds(seconds: number, precision = 2): string {
 
 export function SegmentControls({ layer }: { layer: Layer }) {
   if (layer.type !== 'video' && layer.type !== 'audio') return null
-  return <SegmentControlsInner layer={layer} />
+  return (
+    <>
+      {layer.type === 'audio' && <AudioRoleControls layer={layer} />}
+      <SegmentControlsInner layer={layer} />
+    </>
+  )
+}
+
+const AUDIO_ROLES: Array<{ value: AudioRole; label: string }> = [
+  { value: 'narration', label: 'Narration' },
+  { value: 'music', label: 'Music' },
+  { value: 'sound-effect', label: 'Sound effect' },
+  { value: 'generic', label: 'Generic audio' },
+]
+
+function AudioRoleControls({ layer }: { layer: Layer }) {
+  const updateLayerProp = useStore((state) => state.updateLayerProp)
+  return (
+    <Section title="Audio role">
+      <Row label="Purpose">
+        <div className="flex items-center gap-1" style={{ flex: 1 }}>
+          <Mic2 size={12} style={{ color: layer.audioRole === 'narration' ? '#a78bfa' : 'var(--text3)' }} />
+          <select
+            aria-label="Audio role"
+            className="input-base"
+            value={layer.audioRole ?? 'generic'}
+            onChange={(event) => updateLayerProp(layer.id, 'audioRole', event.target.value as AudioRole)}
+            style={{ flex: 1, height: 26 }}
+          >
+            {AUDIO_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
+          </select>
+        </div>
+      </Row>
+      {layer.audioRole === 'narration' && (
+        <div style={{ fontSize: 10, lineHeight: 1.4, color: 'var(--text3)', padding: '0 2px 4px' }}>
+          This track is treated as the lesson voiceover and highlighted on the timeline.
+        </div>
+      )}
+    </Section>
+  )
 }
 
 function SegmentControlsInner({ layer }: { layer: Layer }) {
