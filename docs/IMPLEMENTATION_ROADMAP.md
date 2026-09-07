@@ -46,7 +46,7 @@ Out of scope until after V1:
 | 4. Explainer motion and sketch style | Complete | Clear progressive draw/reveal behavior | 3 |
 | 5. Video camera | Complete | Editable pan/zoom with preview/export parity | 4 |
 | 6. Narration and captions | Complete | Timed script, narration and captions share one source of truth | 5 |
-| 7. Scene-first editor scaling | Planned | Story assembly plus focused editing of one scene at a time | 6 |
+| 7. Scene-first editor scaling | In progress (7.1 complete) | Story assembly plus focused editing of one scene at a time | 6 |
 | 8. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 7 |
 | 9. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 8 |
 
@@ -433,7 +433,7 @@ work:
 
 ## Next implementation target
 
-Begin **Phase 7.1 — Scene Focus MVP** from `SCENE_FIRST_EDITOR.md`. Add Story and
-Scene workspace switching, active-scene navigation and filtered layer/timeline
-views without changing persisted timing. Prove the interaction before the
-scene-local schema migration.
+Begin **Phase 7.2 — Compact timelines** from `SCENE_FIRST_EDITOR.md`. Build on
+the completed Story/Scene focus boundary with compact top-level tracks,
+on-demand property rows, track controls, filters and virtualization. Prove the
+large-scene interaction before the scene-local schema migration.

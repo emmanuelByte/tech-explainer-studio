@@ -20,6 +20,7 @@ import { HomeScreen } from './components/HomeScreen'
 import { SettingsModal } from './components/SettingsModal'
 import { SelectionTracker } from './components/SelectionTracker'
 import { HtmlImportModal } from './components/HtmlImportModal'
+import { WorkspaceBar } from './components/WorkspaceBar'
 import { usePlayback } from './hooks/usePlayback'
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 import { useStore } from './store'
@@ -183,7 +184,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp
   const { t } = useTranslation()
   const {
     theme, setTheme, undo, redo, _past, _future, autoKeyframe, setAutoKeyframe,
-    timelineVisible, toggleTimelineVisible,
+    timelineVisible, toggleTimelineVisible, editorWorkspace,
   } = useStore()
   const [showHistory, setShowHistory] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -206,7 +207,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp
   ]
 
   const viewMenu: TopMenuEntry[] = [
-    { label: t('topbar.preview'), icon: Eye, shortcut: 'mod+p', onClick: onPreview },
+    { label: editorWorkspace === 'scene' ? t('workspace.previewScene') : t('workspace.previewProject'), icon: Eye, shortcut: 'mod+p', onClick: onPreview },
     {
       label: t('topbar.toggleTimeline'),
       icon: timelineVisible ? PanelBottomClose : PanelBottomOpen,
@@ -264,7 +265,7 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp
       <div className="flex items-center gap-1 flex-shrink-0">
         <button onClick={onOpenAi} className="icon-btn" title={t('topbar.ai')}><Sparkles size={14} /></button>
         <button onClick={onPreview} className="pill-btn" title={`${t('topbar.preview')} (${formatModP()})`} style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
-          <Play size={13} />{t('topbar.preview')}
+          <Play size={13} />{editorWorkspace === 'scene' ? t('workspace.previewScene') : t('workspace.previewProject')}
         </button>
         <button onClick={onExportMp4} className="primary-btn" title={`${t('topbar.exportMp4')} (${formatModE()})`} style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5, marginLeft: 4 }}>
           <Download size={13} />{t('topbar.exportMp4')}
@@ -444,10 +445,11 @@ function EditorScreen({ projectId }: { projectId: string }) {
   return (
     <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
       <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onPreview={() => setShowPreview(true)} onExportMp4={() => void openExport()} onOpenAi={() => setShowAi((v) => !v)} onShowShortcuts={() => setShowShortcuts(true)} />
+      <WorkspaceBar />
       <div className="flex-1 min-h-0 overflow-hidden flex">
         <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden">
           <div className="absolute left-0 right-0 top-0 flex min-h-0 overflow-hidden" style={{ bottom: effectiveTimelineHeight }}>
-            <ProjectSidebar />
+            <ProjectSidebar key={storeState.editorWorkspace} />
             <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden flex">
               <PreviewCanvas />
               <FloatingToolbar />

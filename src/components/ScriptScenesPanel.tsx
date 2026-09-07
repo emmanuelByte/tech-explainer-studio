@@ -24,7 +24,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const {
     script, scenes, captions, localVoice, layers, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
-    splitScene, mergeSceneWithNext, moveScene, setCurrentFrame,
+    splitScene, mergeSceneWithNext, moveScene, setCurrentFrame, openScene,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
     importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
     setLocalVoice, applyGeneratedNarration,
@@ -317,10 +317,11 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
           const canMerge = index < scenes.length - 1
           return (
             <div key={scene.id} style={{ border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`, background: isActive ? 'var(--accent-bg)' : 'var(--input)', borderRadius: 6, padding: 7 }}>
-              <button className="w-full text-left" onClick={() => setCurrentFrame(scene.startFrame)} title={t('scenes.seekScene')}>
+              <button className="w-full text-left" onClick={() => openScene(scene.id)} title={t('scenes.openScene')}>
                 <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>
                   {t('scenes.timeRange', { start: seconds(scene.startFrame, fps), end: seconds(scene.endFrame, fps) })}
                 </div>
+                <div className="text-[10px] mb-1" style={{ color: 'var(--accent)' }}>{t('scenes.openScene')}</div>
               </button>
               <input
                 className="input-base text-xs w-full"

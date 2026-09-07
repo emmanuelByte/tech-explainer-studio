@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
+import { layersForScene } from '../domains/scenes/focus'
 import { Layer, LayerType, LAYER_TYPE_COLOR } from '../types'
 import {
   DndContext, closestCenter, DragEndEvent, DragMoveEvent,
@@ -283,7 +284,7 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const { t } = useTranslation()
   const toast = useToast()
   const {
-    layers, selectedLayerIds, currentFrame, fps,
+    layers, scenes, editorWorkspace, activeSceneId, selectedLayerIds, currentFrame, fps,
     selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo, addTechnicalComponent, addLoadBalancerTopology,
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
@@ -314,8 +315,10 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   // Panel shows topmost layer first while preserving nesting.
-  const rows = visibleLayerRows(layers, true)
-  const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
+  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const visibleLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : layers
+  const rows = visibleLayerRows(visibleLayers, true)
+  const childCount = (id: string) => visibleLayers.filter((l) => l.parentId === id).length
   const selectedComponents = selectedLayerIds
     .map((id) => layers.find((layer) => layer.id === id))
     .filter((layer): layer is Layer => Boolean(layer?.technicalComponent))
@@ -747,8 +750,10 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             </button>
           </div>
         )}
-        {layers.length === 0 && (
-          <div className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>{t('layers.empty')}</div>
+        {visibleLayers.length === 0 && (
+          <div className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>
+            {editorWorkspace === 'scene' ? t('workspace.emptyScene') : t('layers.empty')}
+          </div>
         )}
         <DndContext
           sensors={sensors}

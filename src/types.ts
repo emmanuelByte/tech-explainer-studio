@@ -395,6 +395,8 @@ export interface ProjectHistorySnapshot {
   project: MotionProject
 }
 
+export type EditorWorkspace = 'story' | 'scene'
+
 export interface KeyframeSelection {
   layerId: string
   frame: number
@@ -469,6 +471,8 @@ export interface EditorState {
   camera: CameraTrack
   captions: CaptionSettings
   localVoice: LocalVoiceSettings
+  editorWorkspace: EditorWorkspace
+  activeSceneId: string | null
   cameraPreviewEnabled: boolean
   selectedCameraFrame: number | null
   selectedLayerIds: string[]

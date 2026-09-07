@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Player, PlayerRef } from '@remotion/player'
 import { Camera, Crosshair, Eye, Maximize2, Minus, Plus, RotateCcw, Scan } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { EditorComposition } from '../remotion/Composition'
 import { Layer, CANVAS_PRESETS } from '../types'
 import { CanvasOverlay } from './CanvasOverlay'
+import { layersForScene } from '../domains/scenes/focus'
 
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 5
@@ -26,6 +27,7 @@ export function PreviewCanvas() {
   const { t } = useTranslation()
   const {
     layers, connectors, camera, captions, script, cameraPreviewEnabled, selectedLayerIds, currentFrame, totalFrames, fps,
+    scenes, editorWorkspace, activeSceneId,
     canvasPreset, customWidth, customHeight, canvasBackgroundColor,
     setCanvasPreset, setCustomDimension, currentTool,
     editorZoom, editorPanX, editorPanY, showOutsideCanvas, setEditorViewport, setShowOutsideCanvas, selectLayers,
@@ -53,6 +55,18 @@ export function PreviewCanvas() {
   const canvasW = isCustom ? customWidth : canvasPreset.width
   const canvasH = isCustom ? customHeight : canvasPreset.height
   const selectedCameraKeyframe = camera.keyframes.find((keyframe) => keyframe.frame === selectedCameraFrame)
+  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const canvasLayers = useMemo(
+    () => editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : layers,
+    [activeScene, editorWorkspace, layers],
+  )
+  const canvasLayerIds = useMemo(() => new Set(canvasLayers.map((layer) => layer.id)), [canvasLayers])
+  const canvasConnectors = useMemo(
+    () => editorWorkspace === 'scene'
+      ? connectors.filter((connector) => canvasLayerIds.has(connector.sourceLayerId) && canvasLayerIds.has(connector.targetLayerId))
+      : connectors,
+    [canvasLayerIds, connectors, editorWorkspace],
+  )
 
   // Sync player to store frame
   useEffect(() => {
@@ -492,7 +506,7 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers, connectors, camera, script, captions, applyCamera: cameraPreviewEnabled, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+              inputProps={{ layers: canvasLayers, connectors: canvasConnectors, camera, script, captions, applyCamera: cameraPreviewEnabled, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}
@@ -515,7 +529,7 @@ export function PreviewCanvas() {
         {/* Minimap */}
         {zoom > 1.5 && (
           <Minimap
-            layers={layers}
+            layers={canvasLayers}
             canvasW={canvasW}
             canvasH={canvasH}
             pan={pan}

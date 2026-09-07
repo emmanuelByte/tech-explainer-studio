@@ -25,7 +25,7 @@ Current delivery status:
 | 4 — Explainer Motion + Sketch Style | Complete |
 | 5 — Video Camera | Complete |
 | 6 — Narration + Captions | Complete |
-| 7 — Scene-first Editor Scaling | Planned |
+| 7 — Scene-first Editor Scaling | In progress (7.1 complete) |
 | 8 — Acceptance Lesson + Local Release | Planned |
 | 9 — Hosted-product Readiness | Deferred |
 

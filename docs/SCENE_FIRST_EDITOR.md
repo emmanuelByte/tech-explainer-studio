@@ -217,6 +217,8 @@ phase can filter the existing global model without a migration.
 
 ### Phase 7.1 — Scene Focus MVP
 
+Status: **Complete (2026-09-08)**
+
 Goal: remove unrelated layers from the working view without changing persisted
 timing.
 
@@ -232,6 +234,25 @@ Exit criteria:
 - A project with 100 scenes can be navigated without showing 100 scenes' layer
   tracks at once.
 - Existing projects render identically because no timing data has changed.
+
+Implemented behavior:
+
+- The editor opens in Story workspace, where the sidebar shows Scenes and
+  Script and the timeline shows the scene band without expanding every layer.
+- Opening a scene switches to Scene workspace, seeks to its first frame, clears
+  stale selections and shows only layers whose global range overlaps that
+  scene. Parent groups required by matching children remain visible.
+- The preview canvas and timeline use the same focused layer set. Scene
+  playback stops at the active scene boundary.
+- A persistent workspace bar provides the project/scene breadcrumb, scene
+  position, Previous, Next and Back to Story controls.
+- The main preview action is explicitly labelled Preview Project or Preview
+  Scene. Scene preview retains global frame timing while restricting its
+  controls and playback to the active scene range.
+- Workspace and active-scene choices are local editor preferences. The saved
+  `.motionproj` schema and all layer/keyframe timing remain unchanged.
+- Pure scene focus helpers cover half-open boundary behavior, spanning layers,
+  parent-group retention and adjacent-scene navigation.
 
 ### Phase 7.2 — Compact timelines
 
@@ -305,4 +326,3 @@ follow on top of the proven scene boundary.
 Do not begin the full acceptance lesson until Phases 7.1–7.4 are complete. The
 lesson should validate the scalable workflow rather than become throwaway data
 built in the current global editor.
-

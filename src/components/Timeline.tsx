@@ -16,6 +16,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { descendantsOf, visibleLayerRows } from '../layerTree'
+import { layersForScene } from '../domains/scenes/focus'
 import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
 
 const BASE_FPX = 4
@@ -46,7 +47,7 @@ function scaleTimelineHeight(base: number, max: number, zoom: number) {
   return Math.round(base + (max - base) * amount)
 }
 
-function SceneBand({ scenes, fpx, activeFrame, onSeek }: { scenes: Scene[]; fpx: number; activeFrame: number; onSeek: (frame: number) => void }) {
+function SceneBand({ scenes, fpx, activeFrame, onScene }: { scenes: Scene[]; fpx: number; activeFrame: number; onScene: (scene: Scene) => void }) {
   const { t } = useTranslation()
   return (
     <div style={{ height: SCENE_BAND_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
@@ -56,7 +57,7 @@ function SceneBand({ scenes, fpx, activeFrame, onSeek }: { scenes: Scene[]; fpx:
           <button
             key={scene.id}
             type="button"
-            onClick={(event) => { event.stopPropagation(); onSeek(scene.startFrame) }}
+            onClick={(event) => { event.stopPropagation(); onScene(scene) }}
             title={`${scene.title} · ${t('timeline.frameLabel', { frame: scene.startFrame })}`}
             style={{
               position: 'absolute', left: TIMELINE_LEFT_OFFSET + scene.startFrame * fpx,
@@ -956,7 +957,7 @@ function TimingModal({ state, fps, onClose, onApply }: {
 export function Timeline() {
   const { t } = useTranslation()
   const {
-    layers, scenes, camera, selectedCameraFrame, currentFrame, totalFrames, fps, isPlaying, playbackRate,
+    layers, scenes, camera, selectedCameraFrame, currentFrame, totalFrames, fps, isPlaying, playbackRate, editorWorkspace, activeSceneId,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, trimTimelineAtFrame, trimTimelineStartAtFrame, setPlaybackRate,
@@ -967,7 +968,7 @@ export function Timeline() {
     setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
-    addCameraKeyframe, selectCameraKeyframe,
+    addCameraKeyframe, selectCameraKeyframe, openScene,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1009,7 +1010,9 @@ export function Timeline() {
   const groupHeaderH = scaleTimelineHeight(GROUP_HEADER_H, GROUP_HEADER_H_MAX, timelineZoom)
   const subtrackH = scaleTimelineHeight(SUBTRACK_H, SUBTRACK_H_MAX, timelineZoom)
   const valueGraphH = scaleTimelineHeight(VALUE_GRAPH_H, VALUE_GRAPH_H_MAX, timelineZoom)
-  const rows = visibleLayerRows(layers, true)
+  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const timelineLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : []
+  const rows = visibleLayerRows(timelineLayers, true)
 
   useEffect(() => {
     updateTimelineScrollbar()
@@ -1017,10 +1020,10 @@ export function Timeline() {
     return () => window.removeEventListener('resize', updateTimelineScrollbar)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contentWidth, timelineH, rowH, groupHeaderH, subtrackH, valueGraphH, rows.length, expandedLayers])
-  const childCount = (id: string) => layers.filter((l) => l.parentId === id).length
+  const childCount = (id: string) => timelineLayers.filter((l) => l.parentId === id).length
   const getGroupRange = (id: string) => {
-    const group = layers.find((l) => l.id === id)
-    const descendants = descendantsOf(layers, id)
+    const group = timelineLayers.find((l) => l.id === id)
+    const descendants = descendantsOf(timelineLayers, id)
     const rangeLayers = group ? [group, ...descendants] : descendants
     if (!rangeLayers.length) return undefined
     return {
@@ -1800,7 +1803,12 @@ export function Timeline() {
                 </div>
               ))}
             </div>
-            <SceneBand scenes={scenes} fpx={fpx} activeFrame={currentFrame} onSeek={setCurrentFrame} />
+            <SceneBand
+              scenes={editorWorkspace === 'scene' && activeScene ? [activeScene] : scenes}
+              fpx={fpx}
+              activeFrame={currentFrame}
+              onScene={(scene) => editorWorkspace === 'story' ? openScene(scene.id) : setCurrentFrame(scene.startFrame)}
+            />
 
             <div
               data-camera-lane
@@ -1811,7 +1819,7 @@ export function Timeline() {
               }}
               title="Double-click to add a camera keyframe"
             >
-              {camera.keyframes.map((keyframe) => (
+              {camera.keyframes.filter((keyframe) => !activeScene || editorWorkspace !== 'scene' || (keyframe.frame >= activeScene.startFrame && keyframe.frame < activeScene.endFrame)).map((keyframe) => (
                 <button
                   key={keyframe.frame}
                   type="button"

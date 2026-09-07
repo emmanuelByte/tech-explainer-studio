@@ -6,7 +6,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings, LocalVoiceSettings,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings, LocalVoiceSettings, EditorWorkspace,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -32,6 +32,7 @@ import {
   updateScene as updateSceneInTimeline,
   updateScriptSegment as updateScriptSegmentInDocument,
 } from './domains/scenes/model'
+import { adjacentScene } from './domains/scenes/focus'
 import type { StructuredScriptImport } from './domains/scenes/structuredScript'
 import clientGroupSvg from './domains/technical-components/assets/clients/client-group.svg?raw'
 import applicationServerSvg from './domains/technical-components/assets/compute/application-server.svg?raw'
@@ -1295,6 +1296,9 @@ interface Actions {
   splitScene: (id: string, frame?: number) => void
   mergeSceneWithNext: (id: string) => void
   moveScene: (id: string, direction: -1 | 1) => void
+  setEditorWorkspace: (workspace: EditorWorkspace) => void
+  openScene: (id: string) => void
+  goToAdjacentScene: (direction: -1 | 1) => void
   // Layers
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
@@ -1462,6 +1466,8 @@ export const useStore = create<Store>()(
       camera: defaultCameraTrack(CANVAS_PRESETS[0].width, CANVAS_PRESETS[0].height),
       captions: { enabled: false, style: 'readable' },
       localVoice: { ...DEFAULT_LOCAL_VOICE_SETTINGS },
+      editorWorkspace: 'story',
+      activeSceneId: null,
       cameraPreviewEnabled: true,
       selectedCameraFrame: null,
       selectedLayerIds: [],
@@ -1506,6 +1512,21 @@ export const useStore = create<Store>()(
         const preset = CANVAS_PRESETS.find((p) => p.name === project.canvas.presetName)
           ?? CANVAS_PRESETS.find((p) => p.width === project.canvas.width && p.height === project.canvas.height)
           ?? CANVAS_PRESETS[CANVAS_PRESETS.length - 1]
+        const normalizedProjectScenes = normalizeScenes(project.scenes ?? [], project.canvas.durationFrames)
+        const projectFrame = project.editor.playheadFrame ?? 0
+        const preferredScene = normalizedProjectScenes.find((scene) => scene.id === get().activeSceneId)
+          ?? normalizedProjectScenes.find((scene) => projectFrame >= scene.startFrame && projectFrame < scene.endFrame)
+          ?? normalizedProjectScenes[0]
+        const resumeSceneWorkspace = get().editorWorkspace === 'scene' && Boolean(preferredScene)
+        const loadedFrame = resumeSceneWorkspace && preferredScene
+          ? Math.max(preferredScene.startFrame, Math.min(projectFrame, preferredScene.endFrame - 1))
+          : projectFrame
+        const loadedSelection = resumeSceneWorkspace && preferredScene
+          ? (project.editor.selectedLayerIds ?? []).filter((id) => {
+            const layer = project.layers.find((item) => item.id === id)
+            return Boolean(layer && (layer.startFrame ?? 0) < preferredScene.endFrame && (layer.endFrame ?? project.canvas.durationFrames) > preferredScene.startFrame)
+          })
+          : []
         set({
           projectId: project.id,
           projectName: project.name,
@@ -1514,11 +1535,13 @@ export const useStore = create<Store>()(
           layers: project.layers,
           guides: project.guides ?? [],
           script: project.script ?? { ...EMPTY_SCRIPT_DOCUMENT },
-          scenes: normalizeScenes(project.scenes ?? [], project.canvas.durationFrames),
+          scenes: normalizedProjectScenes,
           connectors: project.connectors ?? [],
           camera: normalizeCameraTrack(project.camera, project.canvas.width, project.canvas.height),
           captions: project.captions ?? { enabled: false, style: 'readable' },
           localVoice: normalizeLocalVoiceSettings(project.localVoice),
+          editorWorkspace: resumeSceneWorkspace ? 'scene' : 'story',
+          activeSceneId: preferredScene?.id ?? null,
           cameraPreviewEnabled: true,
           selectedCameraFrame: null,
           totalFrames: project.canvas.durationFrames,
@@ -1527,10 +1550,10 @@ export const useStore = create<Store>()(
           customWidth: project.canvas.width,
           customHeight: project.canvas.height,
           canvasBackgroundColor: project.canvas.backgroundColor ?? '#1a1a2e',
-          selectedLayerIds: project.editor.selectedLayerIds ?? [],
+          selectedLayerIds: loadedSelection,
           selectedConnectorId: null,
           selectedKeyframes: [],
-          currentFrame: project.editor.playheadFrame ?? 0,
+          currentFrame: loadedFrame,
           playbackRate: 1,
           timelineZoom: project.timeline.zoom ?? 1,
           timelineScrollX: project.timeline.scrollX ?? 0,
@@ -1559,6 +1582,54 @@ export const useStore = create<Store>()(
       createEmptyProjectState: (project) => get().loadProject(project),
 
       setScriptText: (rawText) => set((s) => ({ script: { ...s.script, rawText } })),
+
+      setEditorWorkspace: (editorWorkspace) => set((s) => {
+        if (editorWorkspace === 'story') return {
+          editorWorkspace,
+          selectedLayerIds: [],
+          selectedKeyframes: [],
+          selectedConnectorId: null,
+          selectedCameraFrame: null,
+          isPlaying: false,
+        }
+        const scene = s.scenes.find((item) => item.id === s.activeSceneId)
+          ?? s.scenes.find((item) => s.currentFrame >= item.startFrame && s.currentFrame < item.endFrame)
+          ?? s.scenes[0]
+        if (!scene) return { editorWorkspace: 'story', activeSceneId: null, isPlaying: false }
+        return {
+          editorWorkspace,
+          activeSceneId: scene.id,
+          currentFrame: Math.max(scene.startFrame, Math.min(s.currentFrame, scene.endFrame - 1)),
+          selectedLayerIds: s.selectedLayerIds.filter((id) => {
+            const layer = s.layers.find((item) => item.id === id)
+            return Boolean(layer && (layer.startFrame ?? 0) < scene.endFrame && (layer.endFrame ?? s.totalFrames) > scene.startFrame)
+          }),
+          selectedKeyframes: [],
+          selectedConnectorId: null,
+          isPlaying: false,
+        }
+      }),
+
+      openScene: (id) => set((s) => {
+        const scene = s.scenes.find((item) => item.id === id)
+        if (!scene) return {}
+        return {
+          editorWorkspace: 'scene',
+          activeSceneId: scene.id,
+          currentFrame: scene.startFrame,
+          selectedLayerIds: [],
+          selectedKeyframes: [],
+          selectedConnectorId: null,
+          selectedCameraFrame: null,
+          isPlaying: false,
+        }
+      }),
+
+      goToAdjacentScene: (direction) => {
+        const state = get()
+        const scene = adjacentScene(state.scenes, state.activeSceneId, direction)
+        if (scene) state.openScene(scene.id)
+      },
 
       generateScenesFromScript: () => set((s) => createScenesForScript(s.script, s.totalFrames, s.scenes)),
 
@@ -1879,10 +1950,16 @@ export const useStore = create<Store>()(
 
       updateScene: (id, patch) => set((s) => ({ scenes: updateSceneInTimeline(s.scenes, id, patch, s.totalFrames) })),
 
-      deleteScene: (id) => set((s) => ({
-        scenes: deleteSceneFromTimeline(s.scenes, id, s.totalFrames),
-        script: { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === id ? { ...segment, sceneId: undefined } : segment) },
-      })),
+      deleteScene: (id) => set((s) => {
+        const scenes = deleteSceneFromTimeline(s.scenes, id, s.totalFrames)
+        const removedActiveScene = s.activeSceneId === id
+        return {
+          scenes,
+          script: { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === id ? { ...segment, sceneId: undefined } : segment) },
+          activeSceneId: removedActiveScene ? scenes[0]?.id ?? null : s.activeSceneId,
+          editorWorkspace: removedActiveScene && !scenes.length ? 'story' : s.editorWorkspace,
+        }
+      }),
 
       splitScene: (id, frame) => set((s) => ({ scenes: splitSceneAtFrame(s.scenes, id, frame ?? s.currentFrame, s.totalFrames) })),
 
@@ -1892,6 +1969,7 @@ export const useStore = create<Store>()(
         const nextScene = currentIndex >= 0 ? ordered[currentIndex + 1] : undefined
         return {
           scenes: mergeSceneWithNext(s.scenes, id, s.totalFrames),
+          activeSceneId: nextScene?.id === s.activeSceneId ? id : s.activeSceneId,
           script: nextScene
             ? { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === nextScene.id ? { ...segment, sceneId: id } : segment) }
             : s.script,
@@ -3817,7 +3895,7 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'motion-editor-v1',
-      version: 3,
+      version: 4,
       migrate: (persisted) => {
         const s = persisted as Partial<Store>
         return {
@@ -3834,6 +3912,8 @@ export const useStore = create<Store>()(
           showOutsideCanvas: s.showOutsideCanvas,
           colorPalettes: s.colorPalettes?.length ? s.colorPalettes : DEFAULT_COLOR_PALETTES,
           activeColorPaletteId: s.activeColorPaletteId ?? 'custom',
+          editorWorkspace: s.editorWorkspace === 'scene' ? 'scene' : 'story',
+          activeSceneId: s.activeSceneId ?? null,
         }
       },
       partialize: (s) => ({
@@ -3850,6 +3930,8 @@ export const useStore = create<Store>()(
         showOutsideCanvas: s.showOutsideCanvas,
         colorPalettes: s.colorPalettes,
         activeColorPaletteId: s.activeColorPaletteId,
+        editorWorkspace: s.editorWorkspace,
+        activeSceneId: s.activeSceneId,
       }),
     }
   )

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
 export function usePlayback() {
-  const { isPlaying, fps, playbackRate, currentFrame, totalFrames, loopIn, loopOut, loopEnabled, setCurrentFrame, setPlaying } =
+  const { isPlaying, fps, playbackRate, currentFrame, totalFrames, loopIn, loopOut, loopEnabled, editorWorkspace, activeSceneId, scenes, setCurrentFrame, setPlaying } =
     useStore()
   const rafRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number | null>(null)
@@ -17,8 +17,9 @@ export function usePlayback() {
     }
 
     const spf = 1000 / fps
-    const inPoint = loopEnabled && loopIn !== null ? loopIn : 0
-    const outPoint = loopEnabled && loopOut !== null ? loopOut : totalFrames - 1
+    const activeScene = editorWorkspace === 'scene' ? scenes.find((scene) => scene.id === activeSceneId) : null
+    const inPoint = loopEnabled && loopIn !== null ? loopIn : activeScene?.startFrame ?? 0
+    const outPoint = loopEnabled && loopOut !== null ? loopOut : activeScene ? activeScene.endFrame - 1 : totalFrames - 1
 
     function tick(now: number) {
       if (lastTimeRef.current === null) lastTimeRef.current = now
@@ -45,5 +46,5 @@ export function usePlayback() {
 
     rafRef.current = requestAnimationFrame(tick)
     return () => { if (rafRef.current !== null) cancelAnimationFrame(rafRef.current) }
-  }, [isPlaying, fps, playbackRate, totalFrames, loopIn, loopOut, loopEnabled])
+  }, [isPlaying, fps, playbackRate, totalFrames, loopIn, loopOut, loopEnabled, editorWorkspace, activeSceneId, scenes, setCurrentFrame, setPlaying])
 }

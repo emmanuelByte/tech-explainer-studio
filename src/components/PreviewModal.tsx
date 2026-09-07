@@ -46,13 +46,20 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
     customHeight,
     canvasBackgroundColor,
     showOutsideCanvas,
+    editorWorkspace,
+    activeSceneId,
+    scenes,
   } = useStore()
   const viewport = useViewportSize()
   const isCustom = canvasPreset.name === 'Custom'
   const canvasW = isCustom ? customWidth : canvasPreset.width
   const canvasH = isCustom ? customHeight : canvasPreset.height
   const duration = Math.max(totalFrames, 1)
-  const initialFrame = Math.min(Math.max(currentFrame, 0), duration - 1)
+  const activeScene = editorWorkspace === 'scene' ? scenes.find((scene) => scene.id === activeSceneId) : null
+  const rangeStart = activeScene?.startFrame ?? 0
+  const rangeEnd = Math.max(rangeStart + 1, activeScene?.endFrame ?? duration)
+  const lastRangeFrame = Math.min(duration - 1, rangeEnd - 1)
+  const initialFrame = Math.min(Math.max(currentFrame, rangeStart), lastRangeFrame)
   const [frame, setFrame] = useState(initialFrame)
   const [playing, setPlaying] = useState(false)
 
@@ -85,7 +92,16 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
       const player = playerRef.current
       if (!player) return
 
-      const onFrameUpdate = ({ detail }: { detail: { frame: number } }) => setFrame(detail.frame)
+      const onFrameUpdate = ({ detail }: { detail: { frame: number } }) => {
+        if (detail.frame >= lastRangeFrame) {
+          player.pause()
+          player.seekTo(lastRangeFrame)
+          setPlaying(false)
+          setFrame(lastRangeFrame)
+          return
+        }
+        setFrame(detail.frame)
+      }
       const onPlay = () => setPlaying(true)
       const onPause = () => setPlaying(false)
       const onEnded = () => setPlaying(false)
@@ -108,10 +124,10 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
       window.cancelAnimationFrame(raf)
       cleanup()
     }
-  }, [initialFrame])
+  }, [initialFrame, lastRangeFrame])
 
   function seekTo(nextFrame: number) {
-    const clamped = Math.min(Math.max(Math.round(nextFrame), 0), duration - 1)
+    const clamped = Math.min(Math.max(Math.round(nextFrame), rangeStart), lastRangeFrame)
     playerRef.current?.seekTo(clamped)
     setFrame(clamped)
   }
@@ -121,7 +137,7 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
   }
 
   function restart() {
-    seekTo(0)
+    seekTo(rangeStart)
     playerRef.current?.pause()
   }
 
@@ -157,7 +173,9 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{t('topbar.preview')}</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>
+              {activeScene ? t('workspace.previewSceneTitle', { title: activeScene.title }) : t('workspace.previewProject')}
+            </div>
             <div style={{ fontSize: 11, color: 'rgba(226, 232, 240, 0.7)', marginTop: 2 }}>
               {canvasW}x{canvasH} · {Math.round(previewSize.scale * 100)}%
             </div>
@@ -232,9 +250,9 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
           </button>
           <input
             type="range"
-            min={0}
-            max={duration - 1}
-            value={Math.min(frame, duration - 1)}
+            min={rangeStart}
+            max={lastRangeFrame}
+            value={Math.min(Math.max(frame, rangeStart), lastRangeFrame)}
             onChange={(event) => seekTo(Number(event.currentTarget.value))}
             style={{
               width: '100%',
@@ -243,7 +261,7 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
             }}
           />
           <div style={{ fontSize: 11, color: '#cbd5e1', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-            {formatTime(frame, fps)} / {formatTime(duration - 1, fps)}
+            {formatTime(frame - rangeStart, fps)} / {formatTime(lastRangeFrame - rangeStart, fps)}
           </div>
         </div>
       </div>
