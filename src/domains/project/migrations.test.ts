@@ -123,6 +123,16 @@ describe('migrateProject', () => {
     expect(migrated.captions).toEqual({ enabled: false, style: 'readable' })
   })
 
+  it('adds reusable local voice settings in version 12', () => {
+    const migrated = migrateProject({ ...legacyProject, schemaVersion: 11 })
+    expect(migrated.localVoice).toEqual({
+      baseVoiceId: '',
+      exaggeration: 0.5,
+      cfgWeight: 0.5,
+      pauseFrames: 6,
+    })
+  })
+
   it('rejects malformed and future project versions without downgrading them', () => {
     expect(() => migrateProject([])).toThrow(ProjectMigrationError)
     expect(() => migrateProject({ ...legacyProject, schemaVersion: -1 })).toThrow(ProjectMigrationError)

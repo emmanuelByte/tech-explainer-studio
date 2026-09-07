@@ -316,7 +316,9 @@ Script segments have editable In/Out frames, scene alignment, and seek controls.
 Readable and technical captions render outside the camera world in canvas,
 full-screen preview and Remotion export. Rendering uses Remotion audio during
 export and the existing frame-synchronised audio path in the editor. Automatic
-TTS and forced alignment remain optional future helpers.
+forced alignment remains optional. The local TTS follow-up adds a reusable base
+voice, one-click full-script narration generation, measured clip sequencing,
+scene/caption retiming and stale-script warnings through schema v12.
 
 **Goal:** let a creator align what is said with what appears, without making
 speech synthesis or alignment a prerequisite.

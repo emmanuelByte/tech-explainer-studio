@@ -21,6 +21,7 @@ The goal is to keep authoring direct: create or import a project, add editable l
 - Select any connection to change its source/target, ports, straight/elbow/curved path, label, color, line width, solid/dashed style, arrowheads, and draw timing. Connector changes autosave and support Undo/Redo.
 - Animate a separate video camera with editable pan/zoom keyframes. Focus the selection, fit the architecture, hold or reset framing, and preview the exact movement used by Remotion export.
 - Mark audio as narration, music, a sound effect, or generic audio; edit script-segment timing or align it to scenes; and render readable or technical captions from that same script timing in preview and export.
+- Reuse a local `baseVoice` with Chatterbox to generate the full teaching script from one button; generated WAV clips become editable narration assets and automatically drive scene and caption timing.
 - Keep connections attached through nested 2D group movement, scale, rotation, skew, and animated resizing; connections follow endpoint visibility in preview and export.
 - Import HTML into the reusable library and convert DOM-like structures into editable layer trees with nested layout, text, SVG, fills, strokes, shadows, and common CSS box styles.
 - Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, layer ordering, and reusable library insertion.

@@ -145,8 +145,10 @@ Creators should be able to:
 
 **Implemented in V1:** imported audio has semantic roles, narration is
 highlighted on the timeline, script segment timing can be edited or aligned to
-scenes, and captions use those timed segments in preview and export. TTS and
-automatic speech alignment remain optional future work.
+scenes, and captions use those timed segments in preview and export. A creator
+can also select one reusable local base voice and generate the full script as a
+continuous narration sequence. Automatic forced speech alignment remains future
+work.
 
 - Import narration audio.
 - Mark an audio layer as narration.

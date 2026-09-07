@@ -4,6 +4,7 @@ import { interpolateProps } from './remotion/interpolateProps'
 import { styledSvgDataUrl } from './svgImage'
 import { CURRENT_PROJECT_SCHEMA_VERSION, migrateProject } from './domains/project/migrations'
 import { defaultCameraTrack, normalizeCameraTrack } from './domains/camera/model'
+import { DEFAULT_LOCAL_VOICE_SETTINGS, normalizeLocalVoiceSettings } from './domains/narration/model'
 
 export interface ProjectStorageStats {
   totalBytes: number
@@ -282,6 +283,7 @@ function sanitizeProject(project: MotionProject): MotionProject {
       totalFrames,
     ),
     camera: normalizeCameraTrack(project.camera, project.canvas.width, project.canvas.height),
+    localVoice: normalizeLocalVoiceSettings(project.localVoice),
   }
 }
 
@@ -475,6 +477,7 @@ export function projectFromStore(idOverride?: string, nameOverride?: string): Mo
     connectors: s.connectors,
     camera: s.camera,
     captions: s.captions,
+    localVoice: s.localVoice,
     timeline: { zoom: s.timelineZoom, scrollX: s.timelineScrollX },
     editor: {
       zoom: s.editorZoom,
@@ -527,6 +530,7 @@ export function createBlankProject(options: {
     connectors: [],
     camera: defaultCameraTrack(isCustom ? options.width : preset.width, isCustom ? options.height : preset.height),
     captions: { enabled: false, style: 'readable' },
+    localVoice: { ...DEFAULT_LOCAL_VOICE_SETTINGS },
     timeline: { zoom: 1, scrollX: 0 },
     editor: { zoom: 1, panX: 0, panY: 0, selectedLayerIds: [], playheadFrame: 0, showOutsideCanvas: false },
   }

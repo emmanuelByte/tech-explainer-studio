@@ -642,6 +642,13 @@ is used for exported media. The saved acceptance project contains three timed
 segments, and `data/exports/phase6-captions-verification-20260907.mp4` verifies
 the exported caption result.
 
+**Local voice follow-up:** schema v12 persists one base-voice choice and its
+generation settings. The Script panel checks the local Chatterbox service,
+generates every script segment serially from that voice, stores each WAV as a
+normal asset, and arranges the clips as one continuous narration. Measured audio
+durations update segment and scene ranges for caption timing. Editing generated
+text marks its narration as stale until the creator regenerates the full voiceover.
+
 ---
 
 # Phase 6 — Full lesson validation and polish

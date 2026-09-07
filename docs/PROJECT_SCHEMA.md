@@ -1,7 +1,7 @@
 # Project schema and migrations
 
 Tech Explainer Studio persists a complete project as JSON. Every project now
-has a top-level `schemaVersion`; the current version is **11**.
+has a top-level `schemaVersion`; the current version is **12**.
 
 ## Loading and saving
 
@@ -27,7 +27,9 @@ imported object.
   deterministic sketch settings plus keyframeable path draw progress, and, in
   version `10`, a centred identity video-camera track.
   Version `11` adds audio roles, fills missing script timing from linked scenes,
-  and introduces caption presentation settings.
+  and introduces caption presentation settings. Version `12` adds persisted
+  local base-voice settings and optional generation provenance on narration
+  layers.
 - Version `8` gives older connectors the visual defaults they already had:
   solid line, no start arrow, and an end arrow.
 - Version `9` keeps older visuals unchanged by disabling sketch treatment and
@@ -36,6 +38,9 @@ imported object.
   keyframe centred on the project canvas.
 - Version `11` marks existing audio as generic, derives missing segment timing
   from linked scenes, and keeps captions disabled until the creator enables them.
+- Version `12` adds safe defaults for the selected local base voice, expression,
+  guidance, and pauses between generated narration segments. Existing audio
+  remains unchanged.
 - A project whose version is newer than the editor supports is rejected. It is
   never silently downgraded or overwritten.
 - Any future persisted-field change must increment

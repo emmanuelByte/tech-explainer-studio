@@ -6,7 +6,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings, LocalVoiceSettings,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -38,7 +38,15 @@ import applicationServerSvg from './domains/technical-components/assets/compute/
 import loadBalancerSvg from './domains/technical-components/assets/traffic-edge/load-balancer.svg?raw'
 import { defaultCameraTrack, fitCameraToBounds, normalizeCameraTrack, resolveCamera, upsertCameraKeyframe } from './domains/camera/model'
 import { resolveComponentPorts } from './domains/connectors/resolve'
-import { alignSegmentsToScenes, normalizeSegmentRange } from './domains/narration/model'
+import {
+  alignSegmentsToScenes,
+  applyNarrationTiming,
+  DEFAULT_LOCAL_VOICE_SETTINGS,
+  type GeneratedNarrationClip,
+  normalizeLocalVoiceSettings,
+  sequenceNarrationClips,
+  normalizeSegmentRange,
+} from './domains/narration/model'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
@@ -1277,6 +1285,8 @@ interface Actions {
   updateScriptSegmentRange: (id: string, startFrame: number, endFrame: number) => void
   alignScriptSegmentsToScenes: () => void
   setCaptions: (patch: Partial<CaptionSettings>) => void
+  setLocalVoice: (patch: Partial<LocalVoiceSettings>) => void
+  applyGeneratedNarration: (clips: GeneratedNarrationClip[]) => void
   splitScriptSegment: (id: string, offset?: number) => void
   mergeScriptSegmentWithNext: (id: string) => void
   addScene: (startFrame?: number) => void
@@ -1451,6 +1461,7 @@ export const useStore = create<Store>()(
       connectors: [],
       camera: defaultCameraTrack(CANVAS_PRESETS[0].width, CANVAS_PRESETS[0].height),
       captions: { enabled: false, style: 'readable' },
+      localVoice: { ...DEFAULT_LOCAL_VOICE_SETTINGS },
       cameraPreviewEnabled: true,
       selectedCameraFrame: null,
       selectedLayerIds: [],
@@ -1507,6 +1518,7 @@ export const useStore = create<Store>()(
           connectors: project.connectors ?? [],
           camera: normalizeCameraTrack(project.camera, project.canvas.width, project.canvas.height),
           captions: project.captions ?? { enabled: false, style: 'readable' },
+          localVoice: normalizeLocalVoiceSettings(project.localVoice),
           cameraPreviewEnabled: true,
           selectedCameraFrame: null,
           totalFrames: project.canvas.durationFrames,
@@ -1762,6 +1774,82 @@ export const useStore = create<Store>()(
       })),
 
       setCaptions: (patch) => set((s) => ({ captions: { ...s.captions, ...patch } })),
+
+      setLocalVoice: (patch) => set((s) => ({ localVoice: normalizeLocalVoiceSettings({ ...s.localVoice, ...patch }) })),
+
+      applyGeneratedNarration: (clips) => {
+        if (!clips.length) return
+        get()._snapshot()
+        set((s) => {
+          const placements = sequenceNarrationClips(
+            s.script.segments,
+            clips,
+            s.fps,
+            s.localVoice.pauseFrames,
+          )
+          if (!placements.length) return {}
+          const placementBySegment = new Map(placements.map((placement) => [placement.segmentId, placement]))
+          const existingSegments = new Set(
+            s.layers
+              .filter((layer) => layer.type === 'audio' && layer.audioRole === 'narration' && layer.scriptSegmentId)
+              .map((layer) => layer.scriptSegmentId!),
+          )
+          const updateNarrationLayer = (layer: Layer, placement: typeof placements[number]) => ({
+            ...layer,
+            name: placement.name,
+            src: placement.src,
+            audioRole: 'narration' as const,
+            scriptSegmentId: placement.segmentId,
+            narrationGeneration: {
+              provider: 'local-chatterbox' as const,
+              voiceId: s.localVoice.baseVoiceId,
+              sourceText: placement.sourceText,
+              exaggeration: s.localVoice.exaggeration,
+              cfgWeight: s.localVoice.cfgWeight,
+            },
+            videoDuration: placement.durationSeconds,
+            sourceDurationFrames: placement.sourceDurationFrames,
+            startFrame: placement.startFrame,
+            endFrame: placement.endFrame,
+            videoSegments: [{
+              id: layer.videoSegments?.[0]?.id ?? uid(),
+              timelineStartFrame: placement.startFrame,
+              timelineEndFrame: placement.endFrame,
+              sourceStartFrame: 0,
+              sourceEndFrame: placement.sourceDurationFrames,
+            }],
+          })
+          const updatedLayers = s.layers.map((layer) => {
+            if (layer.type !== 'audio' || layer.audioRole !== 'narration' || !layer.scriptSegmentId) return layer
+            const placement = placementBySegment.get(layer.scriptSegmentId)
+            return placement ? updateNarrationLayer(layer, placement) : layer
+          })
+          const addedLayers = placements
+            .filter((placement) => !existingSegments.has(placement.segmentId))
+            .map((placement) => updateNarrationLayer(makeLayer('audio', {
+              audioVolume: 1,
+              audioMuted: false,
+              width: 1,
+              height: 1,
+              fillType: 'none',
+              startFrame: placement.startFrame,
+              endFrame: placement.endFrame,
+            }), placement))
+          const timing = applyNarrationTiming(s.script.segments, s.scenes, placements)
+          const narrationEnd = Math.max(...placements.map((placement) => placement.endFrame))
+          const lastPlacement = placements[placements.length - 1]
+          const lastAddedLayer = addedLayers[addedLayers.length - 1]
+          return {
+            layers: [...updatedLayers, ...addedLayers],
+            script: { ...s.script, segments: timing.segments },
+            scenes: timing.scenes,
+            totalFrames: Math.max(s.totalFrames, narrationEnd),
+            selectedLayerIds: [lastAddedLayer?.id ?? updatedLayers.find((layer) => (
+              layer.type === 'audio' && layer.scriptSegmentId === lastPlacement?.segmentId
+            ))?.id].filter((id): id is string => Boolean(id)),
+          }
+        })
+      },
 
       splitScriptSegment: (id, offset) => set((s) => {
         const original = s.script.segments.find((segment) => segment.id === id)

@@ -1,8 +1,9 @@
-import { ArrowDown, ArrowUp, Captions, FileText, ListVideo, Merge, Plus, Scissors, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { ArrowDown, ArrowUp, Captions, FileText, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/model'
 import { parseStructuredScript } from '../domains/scenes/structuredScript'
+import { generateAndStoreLocalSpeech, getLocalTtsHealth, type LocalTtsHealth } from '../localTts'
 import { useStore } from '../store'
 
 type PanelMode = 'script' | 'scenes'
@@ -16,14 +17,93 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const [scriptInputMode, setScriptInputMode] = useState<'text' | 'json'>('text')
   const [structuredInput, setStructuredInput] = useState('')
   const [structuredError, setStructuredError] = useState<string | null>(null)
+  const [ttsHealth, setTtsHealth] = useState<LocalTtsHealth | null>(null)
+  const [ttsError, setTtsError] = useState<string | null>(null)
+  const [ttsLoading, setTtsLoading] = useState(false)
+  const [ttsProgress, setTtsProgress] = useState<{ current: number; total: number } | null>(null)
   const {
-    script, scenes, captions, currentFrame, fps, totalFrames,
+    script, scenes, captions, localVoice, layers, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
     splitScene, mergeSceneWithNext, moveScene, setCurrentFrame,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
     importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
+    setLocalVoice, applyGeneratedNarration,
   } = useStore()
   const activeScene = useMemo(() => sceneAtFrame(scenes, currentFrame), [scenes, currentFrame])
+  const generatedNarrationCount = useMemo(() => layers.filter((layer) => (
+    layer.type === 'audio' && layer.audioRole === 'narration' && layer.scriptSegmentId
+  )).length, [layers])
+  const staleNarrationCount = useMemo(() => layers.filter((layer) => {
+    if (layer.type !== 'audio' || !layer.scriptSegmentId || !layer.narrationGeneration) return false
+    const segment = script.segments.find((item) => item.id === layer.scriptSegmentId)
+    return Boolean(segment && segment.text.trim() !== layer.narrationGeneration.sourceText)
+  }).length, [layers, script.segments])
+
+  async function refreshLocalVoice() {
+    setTtsLoading(true)
+    setTtsError(null)
+    try {
+      const health = await getLocalTtsHealth()
+      setTtsHealth(health)
+      if (!health.voices.some((voice) => voice.id === localVoice.baseVoiceId) && health.voices[0]) {
+        setLocalVoice({ baseVoiceId: health.voices[0].id })
+      }
+    } catch (error) {
+      setTtsHealth(null)
+      setTtsError(error instanceof Error ? error.message : 'Local voice service is unavailable.')
+    } finally {
+      setTtsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (mode === 'script') void refreshLocalVoice()
+    // Voice health is refreshed when the Script panel opens; the refresh button
+    // handles service changes while the panel remains open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode])
+
+  async function generateFullNarration() {
+    if (!localVoice.baseVoiceId) return
+    setTtsError(null)
+    setTtsLoading(true)
+    try {
+      let segments = useStore.getState().script.segments
+      if (!segments.length && useStore.getState().script.rawText.trim()) {
+        generateScenesFromScript()
+        segments = useStore.getState().script.segments
+      }
+      const targets = segments.filter((segment) => segment.text.trim())
+      if (!targets.length) throw new Error('Add a script before generating narration.')
+      const clips = []
+      for (let index = 0; index < targets.length; index += 1) {
+        const segment = targets[index]
+        setTtsProgress({ current: index + 1, total: targets.length })
+        const asset = await generateAndStoreLocalSpeech({
+          text: segment.text.trim(),
+          voice: localVoice.baseVoiceId,
+          exaggeration: localVoice.exaggeration,
+          cfgWeight: localVoice.cfgWeight,
+        }, `Narration ${index + 1}`)
+        if (!asset.duration || !Number.isFinite(asset.duration)) {
+          throw new Error(`Could not read the duration of narration segment ${index + 1}.`)
+        }
+        clips.push({
+          segmentId: segment.id,
+          src: asset.url,
+          name: asset.name,
+          durationSeconds: asset.duration,
+          sourceText: segment.text.trim(),
+        })
+      }
+      applyGeneratedNarration(clips)
+    } catch (error) {
+      setTtsError(error instanceof Error ? error.message : 'Could not generate narration.')
+    } finally {
+      setTtsProgress(null)
+      setTtsLoading(false)
+    }
+  }
 
   if (mode === 'script') {
     return (
@@ -78,6 +158,66 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
           </button>
           <div className="text-[10px]" style={{ color: 'var(--text3)' }}>
             {t('scenes.segmentCount', { count: script.segments.length })}
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 7, background: 'var(--input)' }}>
+            <div className="flex items-center gap-2" style={{ color: 'var(--text2)', fontSize: 11 }}>
+              <Mic2 size={13} style={{ color: ttsHealth?.ok ? '#a78bfa' : 'var(--text3)' }} />
+              <strong>Local base voice</strong>
+              <span style={{ marginLeft: 'auto', color: ttsHealth?.ok ? '#22c55e' : 'var(--text3)', fontSize: 9 }}>
+                {ttsLoading && !ttsProgress ? 'Checking…' : ttsHealth?.ok ? `${ttsHealth.device} ready` : 'Offline'}
+              </span>
+              <button type="button" className="icon-btn" onClick={() => void refreshLocalVoice()} disabled={ttsLoading} title="Refresh local voice service">
+                <RefreshCw size={11} className={ttsLoading && !ttsProgress ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            {ttsHealth?.voices.length ? (
+              <>
+                <select
+                  aria-label="Base voice"
+                  className="input-base"
+                  value={localVoice.baseVoiceId}
+                  onChange={(event) => setLocalVoice({ baseVoiceId: event.target.value })}
+                  style={{ width: '100%', height: 27, marginTop: 7 }}
+                >
+                  {ttsHealth.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.id}</option>)}
+                </select>
+                <div className="grid grid-cols-2 gap-2" style={{ marginTop: 7 }}>
+                  <label style={{ color: 'var(--text3)', fontSize: 9 }}>
+                    Expression {localVoice.exaggeration.toFixed(1)}
+                    <input type="range" min={0} max={2} step={0.1} value={localVoice.exaggeration} onChange={(event) => setLocalVoice({ exaggeration: Number(event.target.value) })} style={{ width: '100%' }} />
+                  </label>
+                  <label style={{ color: 'var(--text3)', fontSize: 9 }}>
+                    Guidance {localVoice.cfgWeight.toFixed(1)}
+                    <input type="range" min={0} max={1} step={0.1} value={localVoice.cfgWeight} onChange={(event) => setLocalVoice({ cfgWeight: Number(event.target.value) })} style={{ width: '100%' }} />
+                  </label>
+                </div>
+                <label className="flex items-center gap-2" style={{ color: 'var(--text3)', fontSize: 9, marginTop: 5 }}>
+                  Pause between segments
+                  <input className="input-base text-[10px] text-right" type="number" min={0} max={Math.max(0, fps * 3)} value={localVoice.pauseFrames} onChange={(event) => setLocalVoice({ pauseFrames: Math.max(0, Number(event.target.value)) })} style={{ width: 48, height: 22 }} />
+                  frames
+                </label>
+                <button
+                  type="button"
+                  className="pill-btn active justify-center"
+                  onClick={() => void generateFullNarration()}
+                  disabled={ttsLoading || !script.rawText.trim()}
+                  style={{ width: '100%', marginTop: 7 }}
+                >
+                  {ttsProgress ? <LoaderCircle size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  {ttsProgress ? `Generating ${ttsProgress.current} of ${ttsProgress.total}…` : generatedNarrationCount ? 'Regenerate Full Narration' : 'Generate Full Narration'}
+                </button>
+                {staleNarrationCount > 0 && (
+                  <p style={{ color: '#f59e0b', fontSize: 9, lineHeight: '13px', marginTop: 5 }}>
+                    {staleNarrationCount} narration {staleNarrationCount === 1 ? 'clip is' : 'clips are'} out of date with the script.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p style={{ color: 'var(--text3)', fontSize: 9, lineHeight: '13px', marginTop: 5 }}>
+                Add baseVoice.wav to tools/local-tts/voices and start the local voice service.
+              </p>
+            )}
+            {ttsError && <p style={{ color: 'var(--red, #ef4444)', fontSize: 9, lineHeight: '13px', marginTop: 5 }}>{ttsError}</p>}
           </div>
           <div style={{ border: '1px solid var(--border)', borderRadius: 6, padding: 7, background: 'var(--input)' }}>
             <label className="flex items-center gap-2" style={{ fontSize: 11, color: 'var(--text2)' }}>

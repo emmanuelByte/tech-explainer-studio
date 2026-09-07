@@ -55,6 +55,21 @@ export interface CaptionSettings {
   enabled: boolean
   style: CaptionStyle
 }
+
+export interface LocalVoiceSettings {
+  baseVoiceId: string
+  exaggeration: number
+  cfgWeight: number
+  pauseFrames: number
+}
+
+export interface NarrationGeneration {
+  provider: 'local-chatterbox'
+  voiceId: string
+  sourceText: string
+  exaggeration: number
+  cfgWeight: number
+}
 export type LayoutMode = 'none' | 'flex' | 'grid'
 export type LayoutDirection = 'row' | 'column'
 export type LayoutAlign = 'start' | 'center' | 'end' | 'stretch'
@@ -273,6 +288,10 @@ export interface Layer {
   audioMuted?: boolean
   /** Audio-only semantic role used by narration and timeline workflows. */
   audioRole?: AudioRole
+  /** Script segment represented by this narration clip. */
+  scriptSegmentId?: string
+  /** Reproducible settings for locally generated narration. */
+  narrationGeneration?: NarrationGeneration
   svgStrokeColor?: string
   svgFillColor?: string
   svgFillEnabled?: boolean
@@ -343,6 +362,7 @@ export interface MotionProject {
   connectors?: Connector[]
   camera?: CameraTrack
   captions?: CaptionSettings
+  localVoice?: LocalVoiceSettings
 }
 
 export interface ScriptDocument {
@@ -448,6 +468,7 @@ export interface EditorState {
   connectors: Connector[]
   camera: CameraTrack
   captions: CaptionSettings
+  localVoice: LocalVoiceSettings
   cameraPreviewEnabled: boolean
   selectedCameraFrame: number | null
   selectedLayerIds: string[]

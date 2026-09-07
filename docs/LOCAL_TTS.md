@@ -210,10 +210,12 @@ Before the Phase 7 acceptance lesson is called complete, validate at least one s
 
 ### Current readiness
 
-The branch provides the local generation boundary, but it is not yet a complete
-creator workflow. The Vite proxy, browser client and asset persistence path are
-in place. The editor still needs controls for selecting a voice, generating a
-segment and attaching the resulting asset to the timeline.
+The local generation boundary and creator workflow are implemented. The Script
+panel discovers reference voices, persists one base-voice choice, exposes voice
+controls and generates the full script from one action. It calls the model per
+segment for long-script reliability, then stores and sequences the resulting WAV
+clips as one continuous narration. Real model validation remains pending until a
+`baseVoice` recording is added to the local voices directory.
 
 Keep local TTS optional. Opening, editing, previewing and exporting a project
 must continue to work when the Python environment, model or reference voices
@@ -221,16 +223,15 @@ are unavailable.
 
 ### Recommended creator flow
 
-Add a **Local voice** section to the Script panel:
+The **Local base voice** section in the Script panel:
 
 1. Show service status, active device and available reference voices.
 2. Let the creator choose one voice and adjust exaggeration and guidance.
-3. Add **Generate voice** to each timed script segment.
-4. Add **Generate missing** for a serial batch across all timed segments.
-5. Let the creator preview generated speech before or after placing it.
-6. Store the WAV through the existing asset service, then create a normal audio
+3. Provides **Generate Full Narration** for a serial batch across every script
+   segment.
+4. Stores each WAV through the existing asset service, then creates a normal audio
    layer with `audioRole: 'narration'` at the segment start frame.
-7. On regeneration, replace the linked layer source while preserving its
+5. On regeneration, replaces the linked layer source while preserving its
    timeline position, volume and mute state.
 
 Service errors should appear in the Local voice section without blocking other
@@ -246,8 +247,8 @@ interface NarrationGeneration {
   provider: 'local-chatterbox'
   voiceId: string
   sourceText: string
-  exaggeration?: number
-  cfgWeight?: number
+  exaggeration: number
+  cfgWeight: number
 }
 
 interface Layer {
@@ -263,13 +264,10 @@ warnings.
 
 ### Timing policy
 
-Use the generated WAV duration for the narration layer. Start it at the linked
-segment's `startFrame` and never change playback speed automatically.
-
-If the clip ends after its scene, show an overflow warning with a **Fit scene to
-narration** action. That action should extend the segment and scene, shift later
-scene ranges, and extend the project duration when required. Keep this timing
-operation explicit so the creator retains control over pacing.
+Use each generated WAV duration for its narration layer and never change playback
+speed automatically. Clips are placed sequentially with the configured pause.
+Their measured ranges update linked segments and scenes, and the project duration
+extends when the complete narration is longer than the current timeline.
 
 If the script text changes after generation, compare it with
 `narrationGeneration.sourceText` and mark the clip as stale. Do not regenerate
@@ -277,16 +275,10 @@ or discard audio automatically.
 
 ### Implementation slices
 
-1. Add unit tests for the browser client and Vite proxy, including offline,
-   validation, upstream error and valid WAV responses.
-2. Add the version 12 project fields, migration and persistence tests.
-3. Extract a narration-layer factory in the narration domain so imported and
-   generated speech share the same timeline normalization.
-4. Build the Local voice status/settings control and per-segment generation UI.
-5. Add serial batch generation, progress, retry and stale-text states.
-6. Add pure scene-fitting helpers and tests for overflow and project extension.
-7. Verify one real Chatterbox generation on the target machine, then test
+1. Verify one real Chatterbox generation on the target machine, then test
    reload, preview, caption timing and MP4 export with the generated asset.
+2. Add explicit cancellation for a long multi-segment generation run.
+3. Add deterministic generation caching after the real workflow is proven.
 
 ### Runtime guardrails
 
