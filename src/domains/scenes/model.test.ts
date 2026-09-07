@@ -56,6 +56,20 @@ describe('scene timing', () => {
     expect(result[1]).toMatchObject({ startFrame: 12, endFrame: 30, scriptSegmentIds: [] })
   })
 
+  it('splits at the midpoint instead of a 1-frame sliver when the playhead sits on an existing scene start', () => {
+    const result = addScene(scenes, 60, 0)
+    expect(result).toHaveLength(3)
+    expect(result[0]).toMatchObject({ startFrame: 0, endFrame: 15, scriptSegmentIds: [] })
+    expect(result[1]).toMatchObject({ id: 'one', startFrame: 15, endFrame: 30 })
+    expect(result[2]).toMatchObject({ id: 'two', startFrame: 30, endFrame: 60 })
+    result.forEach((scene) => expect(scene.endFrame - scene.startFrame).toBeGreaterThan(1))
+  })
+
+  it('creates a full-length scene when the timeline is empty', () => {
+    const result = addScene([], 60, 0)
+    expect(result).toEqual([expect.objectContaining({ startFrame: 0, endFrame: 60 })])
+  })
+
   it('reorders scene content while preserving valid timeline ranges', () => {
     const result = moveScene(scenes, 'two', -1, 60)
     expect(result.map((scene) => scene.id)).toEqual(['two', 'one'])

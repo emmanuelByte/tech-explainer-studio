@@ -254,6 +254,15 @@ Implemented behavior:
 - Pure scene focus helpers cover half-open boundary behavior, spanning layers,
   parent-group retention and adjacent-scene navigation.
 
+**Manual verification follow-up:** manually adding scenes at repeated playhead
+positions surfaced a bug: adding a scene exactly at an existing scene's start
+frame (frame 0 is the common case) produced a degenerate 1-frame scene shown
+as "0.0s–0.0s" and rendered as a near-invisible 2px sliver on the timeline.
+`addScene` in `src/domains/scenes/model.ts` now detects this boundary case and
+splits the existing scene at its midpoint instead, so both resulting scenes
+keep a real, visible duration. Covered by two new `model.test.ts` cases; the
+mid-scene split path (playhead strictly inside a scene) was verified unchanged.
+
 ### Phase 7.2 — Compact timelines
 
 Goal: make both workspaces readable at scale.

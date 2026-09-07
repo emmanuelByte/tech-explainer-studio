@@ -61,7 +61,28 @@ export function addScene(scenes: Scene[], totalFrames: number, startFrame?: numb
     )
     return next
   }
-  const next = normalized.find((scene) => scene.startFrame >= start)
+  // The playhead sits exactly on an existing scene's start (frame 0 is the
+  // common case). Splitting at `start` here would produce a degenerate
+  // zero/one-frame sliver instead of a real new scene, so split the active
+  // scene at its midpoint and insert the new scene before it.
+  if (activeScene && start === activeScene.startFrame && activeScene.endFrame - activeScene.startFrame > 1) {
+    const index = normalized.findIndex((scene) => scene.id === activeScene.id)
+    const half = Math.max(1, Math.floor((activeScene.endFrame - activeScene.startFrame) / 2))
+    const mid = Math.min(activeScene.endFrame - 1, activeScene.startFrame + half)
+    const next = [...normalized]
+    next.splice(index, 1,
+      {
+        id: createSceneId(),
+        title: `Scene ${normalized.length + 1}`,
+        startFrame: activeScene.startFrame,
+        endFrame: mid,
+        scriptSegmentIds: [],
+      },
+      { ...activeScene, startFrame: mid },
+    )
+    return next
+  }
+  const next = normalized.find((scene) => scene.startFrame >= start && scene.id !== activeScene?.id)
   const end = Math.max(start + 1, next?.startFrame ?? maxFrame)
   return normalizeScenes([
     ...normalized,
