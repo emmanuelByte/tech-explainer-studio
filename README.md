@@ -4,6 +4,11 @@ Tech Explainer Studio is a local-first visual editor for creating editable techn
 
 The goal is to keep authoring direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved components and animation snippets, and export a video without setting up a hosted backend. The product is manual-first and AI-assisted; it is not a prompt-to-video black box or a general-purpose social-video editor.
 
+The next editor-scaling milestone introduces a compact Story workspace and a
+focused one-scene-at-a-time editor. See
+[the scene-first editor architecture](docs/SCENE_FIRST_EDITOR.md) for the UX,
+data migration, performance budgets and implementation phases.
+
 ## Preview
 
 ![MotionEditor map animation timeline](docs/images/motioneditor-map-timeline.png)

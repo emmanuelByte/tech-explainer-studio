@@ -25,13 +25,20 @@ Current delivery status:
 | 4 — Explainer Motion + Sketch Style | Complete |
 | 5 — Video Camera | Complete |
 | 6 — Narration + Captions | Complete |
-| 7 — Acceptance Lesson + Local Release | Planned |
-| 8 — Hosted-product Readiness | Deferred |
+| 7 — Scene-first Editor Scaling | Planned |
+| 8 — Acceptance Lesson + Local Release | Planned |
+| 9 — Hosted-product Readiness | Deferred |
 
 The prior combined technical specification for components/connectors is retained
 below for reference. The delivery roadmap intentionally splits it into phases 2
 and 3 so component authoring is proven before semantic connection behavior is
 introduced.
+
+The next editor architecture is defined in
+`docs/SCENE_FIRST_EDITOR.md`: a compact Story timeline for project assembly and
+a focused Scene workspace that mounts one scene's layers and local timeline at a
+time. Its Phase 7.1 Scene Focus MVP intentionally precedes the persisted
+scene-local timing migration.
 
 ---
 

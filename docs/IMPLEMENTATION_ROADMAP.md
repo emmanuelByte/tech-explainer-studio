@@ -46,8 +46,9 @@ Out of scope until after V1:
 | 4. Explainer motion and sketch style | Complete | Clear progressive draw/reveal behavior | 3 |
 | 5. Video camera | Complete | Editable pan/zoom with preview/export parity | 4 |
 | 6. Narration and captions | Complete | Timed script, narration and captions share one source of truth | 5 |
-| 7. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 6 |
-| 8. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 7 |
+| 7. Scene-first editor scaling | Planned | Story assembly plus focused editing of one scene at a time | 6 |
+| 8. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 7 |
+| 9. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 8 |
 
 Phases 2 and 3 may share visual-design preparation, but their persisted data and
 interactive behavior should land in the stated order. Do not start a phase by
@@ -341,7 +342,31 @@ speech synthesis or alignment a prerequisite.
 - Imported narration, timed segments, and captions survive reload and export.
 - Editing a script segment updates its caption source without manual copying.
 
-## Phase 7 — Acceptance lesson and local release
+## Phase 7 — Scene-first editor scaling
+
+**Goal:** keep the editor usable with 100 scenes or 100 layers by separating
+project assembly from focused scene editing.
+
+The authoritative architecture, timing migration, performance budgets and five
+delivery phases are defined in [SCENE_FIRST_EDITOR.md](SCENE_FIRST_EDITOR.md).
+
+Deliver in this order:
+
+1. Scene Focus MVP without a persisted timing migration.
+2. Compact, expandable and virtualized timelines.
+3. Scene-owned layers and scene-local timing through a tested migration.
+4. Story assembly with scene clips, transitions and global audio.
+5. Measured playback and large-project performance work.
+
+### Exit criteria
+
+- Story mode represents every scene as one compact clip.
+- Scene mode mounts and edits only the active scene's layers and local timeline.
+- Reordering or resizing scenes preserves their internal animation timing.
+- A 100-scene fixture and a 100-layer scene remain navigable and responsive.
+- Preview/export parity survives migration from the current global model.
+
+## Phase 8 — Acceptance lesson and local release
 
 **Goal:** prove the complete creator workflow with the canonical lesson.
 
@@ -373,7 +398,7 @@ speech synthesis or alignment a prerequisite.
 - Both output formats render correctly with preview/export parity.
 - The local-first V1 limitations are documented and backups are recoverable.
 
-## Phase 8 — Hosted-product readiness (deferred)
+## Phase 9 — Hosted-product readiness (deferred)
 
 Only start this phase after V1 has real users or a confirmed deployment need.
 It is intentionally separate from the editor roadmap.
@@ -408,6 +433,7 @@ work:
 
 ## Next implementation target
 
-Begin **Phase 1, Work Package 1**: define script/scene types, pure scene-timing
-utilities, schema v2 migration, and tests. Do not begin the scene UI until
-those project-data invariants are tested.
+Begin **Phase 7.1 — Scene Focus MVP** from `SCENE_FIRST_EDITOR.md`. Add Story and
+Scene workspace switching, active-scene navigation and filtered layer/timeline
+views without changing persisted timing. Prove the interaction before the
+scene-local schema migration.
