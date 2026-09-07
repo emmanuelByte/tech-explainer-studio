@@ -650,10 +650,12 @@ durations update segment and scene ranges for caption timing. Editing generated
 text marks its narration as stale until the creator regenerates the full voiceover.
 The target machine now has the Python 3.11 environment and a local 27.7-second
 `baseVoice.wav`; direct and Studio-proxied health checks both discover it on
-Apple MPS. The remaining acceptance step is the first real synthesis, which
-downloads roughly 2.1 GB of cached model weights. The exact long-running command
-and verification steps live in `docs/LOCAL_TTS.md` so the creator can run them
-in a visible terminal.
+Apple MPS. Real synthesis and MP4 export are validated with expression `0.5`,
+guidance `0.5`, a six-frame segment pause, 100% narration volume and readable
+captions. The test generated 4.37 seconds of speech in a 5.06-second H.264/AAC
+export. The exact run commands, verified settings and optional `+4 dB` finishing
+gain are recorded in `docs/LOCAL_TTS.md`. Offline reopen/export validation is
+the remaining acceptance check.
 
 ---
 

@@ -155,6 +155,32 @@ segment at a time and can take several minutes.
 Stop the local worker with `Ctrl+C` in its terminal. Generated narration already
 stored by the studio remains usable while the worker is stopped.
 
+## Validated baseline settings
+
+Use this preset as the starting point for Tech Explainer Studio narration:
+
+| Setting | Value |
+| --- | --- |
+| Voice | `baseVoice` |
+| Device | Apple MPS |
+| Expression / exaggeration | `0.5` |
+| Guidance / CFG weight | `0.5` |
+| Pause between segments | `6` frames |
+| Generated audio | mono WAV, 24 kHz |
+| Narration layer volume | `100%` |
+| Captions | enabled, Readable bottom |
+| Video export | MP4 H.264, Standard 1×, 1920×1080, 30 fps |
+
+This preset was validated with the sentence “A load balancer spreads traffic
+across servers, keeping apps fast and reliable.” Chatterbox produced a
+4.37-second narration clip. The finished test export is 5.06 seconds and
+contains H.264 video plus AAC audio.
+
+The original export measured about `-21.4 dB` mean volume and `-5.2 dB` peak.
+For a louder delivery, a `+4 dB` post-export gain produced about `-17.4 dB`
+mean and `-1.2 dB` peak without clipping. Treat this as an optional finishing
+step until output gain or loudness normalization is available in the editor.
+
 ## Studio API
 
 Vite exposes a narrow proxy rather than allowing the browser to call arbitrary local URLs.
@@ -251,11 +277,11 @@ Phase 6 (Narration + Captions) is already complete. Local TTS is a **Phase 6 fol
 
 Before the Phase 7 acceptance lesson is called complete, validate at least one scene using locally generated narration and confirm:
 
-1. generated WAV is stored as a normal audio asset;
-2. the layer can be marked as narration;
-3. timing/captions still use the existing script source of truth;
-4. preview and Remotion export play the generated audio correctly;
-5. restarting without the Python TTS service does not break the saved project.
+1. [x] generated WAV is stored as a normal audio asset;
+2. [x] the layer is marked as narration;
+3. [x] timing/captions use the existing script source of truth;
+4. [x] preview and Remotion export contain the generated audio;
+5. [ ] restart without the Python TTS service and confirm the saved project still works.
 
 ## Editor integration plan
 
@@ -267,8 +293,10 @@ controls and generates the full script from one action. It calls the model per
 segment for long-script reliability, then stores and sequences the resulting WAV
 clips as one continuous narration. A 27.7-second `baseVoice.wav` reference is now
 installed locally, the Python environment is installed, and both direct and
-Studio-proxied health checks recognize `baseVoice` on Apple MPS. The first model
-download and real synthesis remain to be completed with the commands above.
+Studio-proxied health checks recognize `baseVoice` on Apple MPS. Model download,
+real synthesis, asset storage, caption timing, preview and MP4 export have been
+validated with the baseline settings above. Offline reopen/export validation is
+the remaining acceptance check.
 
 Keep local TTS optional. Opening, editing, previewing and exporting a project
 must continue to work when the Python environment, model or reference voices
@@ -328,8 +356,8 @@ or discard audio automatically.
 
 ### Implementation slices
 
-1. Verify one real Chatterbox generation on the target machine, then test
-   reload, preview, caption timing and MP4 export with the generated asset.
+1. Stop the TTS worker, reload the saved test project and verify preview/export
+   still use the stored narration asset.
 2. Add explicit cancellation for a long multi-segment generation run.
 3. Add deterministic generation caching after the real workflow is proven.
 
