@@ -19,6 +19,7 @@ SUPPORTED_VOICE_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac", ".ogg"}
 app = FastAPI(title="Tech Explainer Studio Local TTS")
 _model: ChatterboxTTS | None = None
 _model_lock = Lock()
+_generate_lock = Lock()
 
 
 class GenerateRequest(BaseModel):
@@ -34,7 +35,8 @@ def detect_device() -> str:
         return requested
     if torch.cuda.is_available():
         return "cuda"
-    if torch.backends.mps.is_available():
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
         return "mps"
     return "cpu"
 
@@ -98,9 +100,10 @@ def generate(request: GenerateRequest):
         kwargs["cfg_weight"] = request.cfg_weight
 
     try:
-        wav = model.generate(request.text, **kwargs)
+        with _generate_lock:
+            wav = model.generate(request.text, **kwargs)
         buffer = io.BytesIO()
-        ta.save(buffer, wav, model.sr, format="wav")
+        ta.save(buffer, wav.detach().cpu(), model.sr, format="wav")
         audio = buffer.getvalue()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Speech generation failed: {exc}") from exc
