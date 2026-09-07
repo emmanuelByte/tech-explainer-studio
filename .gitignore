@@ -19,6 +19,10 @@ data/assets/*
 .playwright-cli/
 public/assets/files/
 
+# Local TTS voice references stay on the creator's machine.
+tools/local-tts/voices/*
+!tools/local-tts/voices/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
