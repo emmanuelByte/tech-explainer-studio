@@ -20,6 +20,9 @@ data/assets/*
 public/assets/files/
 
 # Local TTS voice references stay on the creator's machine.
+tools/local-tts/.venv/
+tools/local-tts/.cache/
+tools/local-tts/__pycache__/
 tools/local-tts/voices/*
 !tools/local-tts/voices/.gitkeep
 

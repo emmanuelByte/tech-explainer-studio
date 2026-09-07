@@ -648,6 +648,12 @@ generates every script segment serially from that voice, stores each WAV as a
 normal asset, and arranges the clips as one continuous narration. Measured audio
 durations update segment and scene ranges for caption timing. Editing generated
 text marks its narration as stale until the creator regenerates the full voiceover.
+The target machine now has the Python 3.11 environment and a local 27.7-second
+`baseVoice.wav`; direct and Studio-proxied health checks both discover it on
+Apple MPS. The remaining acceptance step is the first real synthesis, which
+downloads roughly 2.1 GB of cached model weights. The exact long-running command
+and verification steps live in `docs/LOCAL_TTS.md` so the creator can run them
+in a visible terminal.
 
 ---
 

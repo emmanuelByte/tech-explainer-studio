@@ -94,6 +94,23 @@ data/projects
 
 Each project is a JSON file, and version history is stored next to it as a history JSON file. The whole `data/` folder is ignored by Git.
 
+## Run Local Voice Generation
+
+Local narration uses an optional Chatterbox worker on port `8123`. The project
+currently has a local `baseVoice.wav` reference and an installed Python 3.11
+environment. Start the worker from a second terminal:
+
+```bash
+cd tools/local-tts
+HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123
+```
+
+The first narration request downloads roughly 2.1 GB of model weights and may
+take 5–20 minutes. An interrupted download resumes from the ignored local cache,
+and later runs reuse the completed files. See
+[docs/LOCAL_TTS.md](docs/LOCAL_TTS.md) for the one-time install command, health
+checks, first-generation command, expected output and stop/restart steps.
+
 ## Build
 
 Create a production build:

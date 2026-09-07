@@ -57,34 +57,41 @@ The current implementation uses Resemble AI's open-source Chatterbox package. Ch
 ### 1. Create a Python environment
 
 Python 3.11 is the safest baseline for the current Chatterbox package.
+Run this one-time setup from the repository root. It can take 5–15 minutes
+because it installs PyTorch and the Chatterbox audio stack.
 
 ```bash
-cd tools/local-tts
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+/opt/homebrew/bin/python3.11 -m venv tools/local-tts/.venv
+tools/local-tts/.venv/bin/pip install -r tools/local-tts/requirements.txt
 ```
+
+The virtual environment is local-only and ignored by Git.
 
 ### 2. Add a reference voice
 
 Put a clean reference clip in:
 
 ```text
-tools/local-tts/voices/narrator.wav
+tools/local-tts/voices/baseVoice.wav
 ```
 
-Voice files are deliberately gitignored. Their file stem becomes the voice id, so `narrator.wav` is requested as `narrator`.
+Voice files are deliberately gitignored. Their file stem becomes the voice id,
+so `baseVoice.wav` is requested as `baseVoice`.
 
 A short clean clip is preferable to a noisy long recording. Avoid music, multiple speakers, reverb and background noise.
 
 ### 3. Start the service
 
-From `tools/local-tts`:
+Run the service from the repository root and leave this terminal open:
 
 ```bash
-source .venv/bin/activate
-python -m uvicorn server:app --host 127.0.0.1 --port 8123
+cd tools/local-tts
+HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123
 ```
+
+The service normally becomes healthy in under a minute. `HF_HOME` keeps the
+downloaded model in the ignored `tools/local-tts/.cache/` directory, so later
+starts reuse it.
 
 Device selection is automatic:
 
@@ -95,14 +102,58 @@ Device selection is automatic:
 Override it with:
 
 ```bash
-LOCAL_TTS_DEVICE=cpu python -m uvicorn server:app --host 127.0.0.1 --port 8123
+LOCAL_TTS_DEVICE=cpu HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123
 ```
 
 You can also move the voice directory:
 
 ```bash
-LOCAL_TTS_VOICE_DIR=/absolute/path/to/voices python -m uvicorn server:app --host 127.0.0.1 --port 8123
+LOCAL_TTS_VOICE_DIR=/absolute/path/to/voices HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123
 ```
+
+### 4. Verify the service
+
+In another terminal, run:
+
+```bash
+curl --fail --silent --show-error http://127.0.0.1:8123/health
+curl --fail --silent --show-error http://127.0.0.1:3005/api/tts/health
+```
+
+Both responses should list `baseVoice`. `"modelLoaded": false` is expected
+until the first generation.
+
+### 5. Run the first generation
+
+The first request downloads roughly 2.1 GB of model weights and can take
+5–20 minutes depending on the connection. An interrupted download resumes from
+the ignored local cache. Run it yourself so the progress is visible in the TTS
+service terminal:
+
+```bash
+curl --fail --show-error --max-time 1800 \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Welcome to Tech Explainer Studio. Let us make complex technology simple.","voice":"baseVoice","exaggeration":0.5,"cfg_weight":0.5}' \
+  -o /tmp/tech-explainer-chatterbox-sample.wav \
+  http://127.0.0.1:3005/api/tts/generate
+```
+
+Validate the result:
+
+```bash
+ffprobe -v error \
+  -show_entries format=duration,size \
+  -show_entries stream=codec_name,sample_rate,channels \
+  -of default=noprint_wrappers=1 \
+  /tmp/tech-explainer-chatterbox-sample.wav
+```
+
+After this succeeds, refresh the editor, choose `baseVoice` in **Local base
+voice**, and use **Generate Full Narration**. Full-script generation runs one
+segment at a time and can take several minutes.
+
+Stop the local worker with `Ctrl+C` in its terminal. Generated narration already
+stored by the studio remains usable while the worker is stopped.
 
 ## Studio API
 
@@ -122,7 +173,7 @@ Example response:
   "device": "mps",
   "modelLoaded": false,
   "voices": [
-    { "id": "narrator", "fileName": "narrator.wav" }
+    { "id": "baseVoice", "fileName": "baseVoice.wav" }
   ]
 }
 ```
@@ -137,7 +188,7 @@ Content-Type: application/json
 ```json
 {
   "text": "A dead letter queue stores messages that could not be processed successfully.",
-  "voice": "narrator",
+  "voice": "baseVoice",
   "exaggeration": 0.5,
   "cfg_weight": 0.5
 }
@@ -163,7 +214,7 @@ import { generateAndStoreLocalSpeech } from './localTts'
 const asset = await generateAndStoreLocalSpeech(
   {
     text: 'Have you ever wondered what happens when a message keeps failing?',
-    voice: 'narrator',
+    voice: 'baseVoice',
   },
   'DLQ intro',
 )
@@ -214,8 +265,10 @@ The local generation boundary and creator workflow are implemented. The Script
 panel discovers reference voices, persists one base-voice choice, exposes voice
 controls and generates the full script from one action. It calls the model per
 segment for long-script reliability, then stores and sequences the resulting WAV
-clips as one continuous narration. Real model validation remains pending until a
-`baseVoice` recording is added to the local voices directory.
+clips as one continuous narration. A 27.7-second `baseVoice.wav` reference is now
+installed locally, the Python environment is installed, and both direct and
+Studio-proxied health checks recognize `baseVoice` on Apple MPS. The first model
+download and real synthesis remain to be completed with the commands above.
 
 Keep local TTS optional. Opening, editing, previewing and exporting a project
 must continue to work when the Python environment, model or reference voices
