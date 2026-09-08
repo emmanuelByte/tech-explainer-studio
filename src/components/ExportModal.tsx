@@ -150,7 +150,7 @@ function FormatCard({
 
 export function ExportModal({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
-  const { projectId, projectName, canvasPreset, customWidth, customHeight, totalFrames, fps } = useStore()
+  const { projectId, projectName, canvasPreset, customWidth, customHeight, totalFrames, fps, scenes, activeSceneId } = useStore()
   const isCustom = canvasPreset.name === 'Custom'
   const w = isCustom ? customWidth : canvasPreset.width
   const h = isCustom ? customHeight : canvasPreset.height
@@ -159,8 +159,26 @@ export function ExportModal({ onClose }: { onClose: () => void }) {
   const [fileName, setFileName] = useState(defaultName)
   const [format, setFormat] = useState<ExportFormat>('mp4')
   const [quality, setQuality] = useState<ExportQuality>('high')
-  const [startFrame, setStartFrame] = useState(0)
-  const [endFrame, setEndFrame] = useState(Math.max(0, totalFrames - 1))
+  // Defaults to whatever scene is currently open in the editor (if any) —
+  // "export what I'm looking at" — but the numeric fields below stay
+  // editable afterward so a scene pick is a starting point, not a lock.
+  const initialScene = activeSceneId ? scenes.find((s) => s.id === activeSceneId) : undefined
+  const [startFrame, setStartFrame] = useState(initialScene?.startFrame ?? 0)
+  const [endFrame, setEndFrame] = useState(initialScene ? Math.max(initialScene.startFrame, initialScene.endFrame - 1) : Math.max(0, totalFrames - 1))
+  const [sceneSelection, setSceneSelection] = useState<string>(initialScene?.id ?? 'all')
+
+  function selectScene(value: string) {
+    setSceneSelection(value)
+    if (value === 'all') {
+      setStartFrame(0)
+      setEndFrame(Math.max(0, totalFrames - 1))
+      return
+    }
+    const scene = scenes.find((s) => s.id === value)
+    if (!scene) return
+    setStartFrame(scene.startFrame)
+    setEndFrame(Math.max(scene.startFrame, scene.endFrame - 1))
+  }
   const [job, setJob] = useState<ExportJob | null>(null)
   const [error, setError] = useState('')
   const [opening, setOpening] = useState(false)
@@ -395,6 +413,25 @@ export function ExportModal({ onClose }: { onClose: () => void }) {
             {t('exportModal.qualityHelp')}
           </p>
         </div>
+
+        {/* Scene-range shortcut — fills the frame-range fields below, which
+            stay editable afterward for fine-tuning. */}
+        {scenes.length > 0 && (
+          <Field label={t('exportModal.range')}>
+            <select
+              className="input-base"
+              style={{ height: 28, padding: '0 8px', fontSize: 12 }}
+              value={sceneSelection}
+              disabled={isRunning}
+              onChange={(event) => selectScene(event.target.value)}
+            >
+              <option value="all">{t('exportModal.fullProject')}</option>
+              {scenes.map((scene, index) => (
+                <option key={scene.id} value={scene.id}>{index + 1}. {scene.title}</option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         {/* Frame range */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>

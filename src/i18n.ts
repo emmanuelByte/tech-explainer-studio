@@ -682,6 +682,8 @@ export const resources = {
         qualityHigh: 'High',
         qualityUltra: 'Ultra',
         qualityHelp: 'Higher quality exports at a larger scale and lower compression. Use it when transformed edges look jagged.',
+        range: 'Range',
+        fullProject: 'Full project',
         startFrame: 'Start frame',
         endFrame: 'End frame',
         framesRange: 'Frames {{start}}-{{end}}',
