@@ -433,8 +433,13 @@ work:
 
 ## Next implementation target
 
-Begin **Phase 7.3 — Scene-owned data and local time** from
-`SCENE_FIRST_EDITOR.md`. Phase 7.2 (compact top-level tracks, on-demand
-property rows, track controls/filters, and row/clip virtualization) is
-complete — the large-scene interaction model is proven; now migrate to
-scene-local layer timing via a versioned schema migration.
+Phase 7.3 — Scene-owned data and local time (`SCENE_FIRST_EDITOR.md`) is
+complete for its approved reduced scope: layer scene-ownership + scene-local
+timing via a versioned schema migration, the resolve-once-reuse-everywhere
+render/display pattern, the create/resize write boundary, and scene
+delete/duplicate ripple behavior. Deferred from this pass, and the natural
+next target: move camera keyframes and narration into per-scene ownership,
+and revisit whether the `Scene` shape itself (`durationFrames`/`layerIds`/
+`cameraKeyframes`) should change now that layers reference scenes — both
+were explicitly scoped out of 7.3 rather than discovered as gaps. Otherwise,
+proceed to **Phase 7.4 — Story assembly**.

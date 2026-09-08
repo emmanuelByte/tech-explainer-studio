@@ -25,7 +25,7 @@ Current delivery status:
 | 4 — Explainer Motion + Sketch Style | Complete |
 | 5 — Video Camera | Complete |
 | 6 — Narration + Captions | Complete |
-| 7 — Scene-first Editor Scaling | In progress (7.1–7.2 complete) |
+| 7 — Scene-first Editor Scaling | In progress (7.1–7.3 complete, reduced-scope 7.3) |
 | 8 — Acceptance Lesson + Local Release | Planned |
 | 9 — Hosted-product Readiness | Deferred |
 
@@ -37,8 +37,11 @@ introduced.
 The next editor architecture is defined in
 `docs/SCENE_FIRST_EDITOR.md`: a compact Story timeline for project assembly and
 a focused Scene workspace that mounts one scene's layers and local timeline at a
-time. Its Phase 7.1 Scene Focus MVP and Phase 7.2 Compact timelines
-intentionally precede the persisted scene-local timing migration (Phase 7.3).
+time. Phases 7.1–7.3 are complete: Scene Focus MVP, Compact timelines, and a
+reduced-scope Scene-owned data and local time pass (layer scene-ownership +
+ripple + scene duplicate/delete only — camera/narration scene-ownership and
+the `Scene` shape rename are deferred to a future pass, see
+`docs/SCENE_FIRST_EDITOR.md`'s Phase 7.3 entry for exactly what's covered).
 
 ---
 

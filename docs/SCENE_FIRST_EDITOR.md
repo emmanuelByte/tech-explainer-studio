@@ -316,6 +316,8 @@ project rather than a full-scale fixture.
 
 ### Phase 7.3 — Scene-owned data and local time
 
+Status: **Complete (layer scene-ownership + ripple pass, 2026-09-08)**
+
 Goal: make scenes independent editable compositions.
 
 - Add `sceneId`/scope ownership and scene-local layer timing through a versioned
@@ -329,6 +331,76 @@ Exit criteria:
 
 - Reordering or resizing a scene does not rewrite its internal keyframes.
 - Migrated projects preserve preview and export output.
+
+**Delivered (reduced scope, approved up front — see below for what's
+deferred):** `Layer` gains `scope?: 'scene' | 'global'` and `sceneId?: string`.
+A `scope: 'scene'` layer's `startFrame`/`endFrame` and every other
+frame-bearing field (`keyframes[].frame`, `propertyKeyframes[...][].frame`,
+`videoSegments[].timelineStartFrame/timelineEndFrame`,
+`speedKeyframes[].frame`) are stored **scene-local** — frame 0 is the owning
+scene's own start, not the project's global timeline; `scope: 'global'`/
+`undefined` layers are unchanged from before this phase. The migration
+(`schemaVersion` 12 → 13, `src/domains/project/migrations.ts`) assigns each
+existing layer to the scene containing its global `startFrame` and converts
+its timing to local via the new `src/domains/scenes/layerTiming.ts`
+(`shiftLayerFrames`, `sceneLocalFrame`); a layer that doesn't fit inside any
+scene is left `scope: 'global'`, untouched. `Scene`'s existing shape
+(`startFrame`/`endFrame` already derived from cumulative prior durations by
+`normalizeScenes`) needed no rename to satisfy "derive story offsets from
+ordered scene durations" — confirmed during planning and a deliberate
+scope-reduction.
+
+The whole phase turns on one architectural move — **resolve once, reuse
+everywhere** — so the 40+ existing call sites that read `Layer.startFrame`/
+`endFrame` as global frames needed no change: `layerTiming.ts`'s
+`resolveLayersToGlobalFrames(layers, scenes)` converts scene-scoped layers
+back to global frames, and every render/display call site (the editor's
+`Timeline.tsx`, `LayersPanel.tsx`, `CanvasOverlay.tsx`, and the shared
+`EditorComposition` in `Composition.tsx` that both the Player preview and
+MP4/WebM export use) calls it once and uses the *returned* array exactly as
+before. The only place that needed real logic was the **write boundary**:
+`store.ts`'s layer-creation actions (`addLayer`, `addImage`, `addVideo`,
+`addAudio`, `addGeneratedLayer`, `addTechnicalComponent`,
+`addLoadBalancerTopology`, `insertLibraryLayers`) now stamp `scope`/`sceneId`
+and store scene-local frames when a scene is open (via a shared
+`sceneAwareTimingForNewLayer` helper), and the actions that receive an
+already-resolved global frame back from the UI (`updateLayerTimeRange`,
+`setLayerRange`, `addKeyframe`, `addPropertyKeyframe`) convert it back to
+local for scene-scoped layers before persisting. `layerOverlapsScene` (in
+`src/domains/scenes/focus.ts`) got the other required change: a `scope:
+'scene'` layer belongs to exactly its `sceneId`, not whatever scene its
+frame range happens to overlap.
+
+The ripple this phase exists to deliver falls out of that model for free:
+resizing, reordering or duplicating a scene never touches its owned layers'
+local frames — only `Scene.startFrame` changes (via the pre-existing
+`normalizeScenes`/`reorderScene`), and every owned layer's global position
+and keyframe spacing shift with it automatically through the resolver.
+Verified live by duplicating a 14-layer scene (`duplicateScene`, a new store
+action building on a new pure `duplicateScene` in
+`src/domains/scenes/model.ts`) and confirming an independent, non-overlapping
+copy with the following scene pushed forward by exactly the duplicated
+scene's duration; `deleteScene` now also removes the layers it owns.
+`ScriptScenesPanel.tsx` gained a "Duplicate scene" button alongside the
+existing split/merge/delete actions.
+
+**Deferred to a future pass** (all explicitly approved up front, not
+oversights): camera keyframes moving into per-scene ownership, narration
+becoming per-scene, and the `Scene` shape rename (`durationFrames`/
+`layerIds`/`cameraKeyframes`) that a fuller Phase 7.4-style pass would want.
+Two smaller gaps, also intentional given the reduced scope: whole-project
+`trimTimelineAtFrame`/`trimTimelineStartAtFrame` leave `scope: 'scene'`
+layers untouched rather than trimming them (no per-scene trim operation
+exists yet), and several less-common keyframe actions
+(`updateKeyframeEasing`, `updatePropertyKeyframeEasing`, `removeKeyframe`,
+`removePropertyKeyframe`, `duplicateKeyframe`, `moveSelectedKeyframes`) still
+assume global frames and weren't converted — not exercised by this phase's
+verification, since it only required `addKeyframe`/`addPropertyKeyframe` for
+the ripple check above. `scenes`/`activeSceneId` also still aren't part of
+the undo/redo `DiagramSnapshot` (a pre-existing gap, confirmed during
+planning, not introduced or fixed by this phase) — `deleteScene`/
+`duplicateScene` on a project with scene-scoped layers are consequently not
+undoable today.
 
 ### Phase 7.4 — Story assembly
 
