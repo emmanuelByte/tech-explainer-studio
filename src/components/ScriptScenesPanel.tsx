@@ -1,15 +1,95 @@
-import { ArrowDown, ArrowUp, Captions, FileText, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Captions, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/model'
 import { parseStructuredScript } from '../domains/scenes/structuredScript'
 import { generateAndStoreLocalSpeech, getLocalTtsHealth, type LocalTtsHealth } from '../localTts'
 import { useStore } from '../store'
+import type { Scene } from '../types'
 
 type PanelMode = 'script' | 'scenes'
 
 function seconds(frame: number, fps: number) {
   return (frame / fps).toFixed(1)
+}
+
+function SortableSceneCard({
+  scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength,
+  openScene, updateScene, moveScene, splitScene, mergeSceneWithNext, deleteScene,
+}: {
+  scene: Scene; index: number; isActive: boolean; canMerge: boolean
+  currentFrame: number; fps: number; totalFrames: number; scenesLength: number
+  openScene: (id: string) => void
+  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame'>>) => void
+  moveScene: (id: string, direction: -1 | 1) => void
+  splitScene: (id: string) => void
+  mergeSceneWithNext: (id: string) => void
+  deleteScene: (id: string) => void
+}) {
+  const { t } = useTranslation()
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: scene.id })
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
+        background: isActive ? 'var(--accent-bg)' : 'var(--input)', borderRadius: 6, padding: 7,
+        transform: CSS.Transform.toString(transform), transition: transition ?? undefined,
+        opacity: isDragging ? 0.6 : 1, zIndex: isDragging ? 10 : undefined, position: 'relative',
+      }}
+    >
+      <div className="flex items-start gap-1.5">
+        <span
+          {...attributes} {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          title={t('scenes.dragToReorder')}
+          style={{ cursor: 'grab', color: 'var(--text3)', marginTop: 3, flexShrink: 0, touchAction: 'none' }}
+        ><GripVertical size={12} /></span>
+        <button className="flex-1 min-w-0 text-left" onClick={() => openScene(scene.id)} title={t('scenes.openScene')}>
+          <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>
+            {t('scenes.timeRange', { start: seconds(scene.startFrame, fps), end: seconds(scene.endFrame, fps) })}
+          </div>
+          <div className="text-[10px] mb-1" style={{ color: 'var(--accent)' }}>{t('scenes.openScene')}</div>
+        </button>
+      </div>
+      <input
+        className="input-base text-xs w-full"
+        value={scene.title}
+        onChange={(event) => updateScene(scene.id, { title: event.target.value })}
+        aria-label={t('scenes.sceneTitle')}
+      />
+      <div className="flex items-center gap-1 mt-1.5">
+        <input
+          className="input-base text-[10px] w-12 text-right"
+          type="number"
+          min={0}
+          max={Math.max(0, totalFrames - 1)}
+          value={scene.startFrame}
+          onChange={(event) => updateScene(scene.id, { startFrame: Number(event.target.value) })}
+          title={t('scenes.startFrame')}
+        />
+        <span className="text-[10px]" style={{ color: 'var(--text3)' }}>→</span>
+        <input
+          className="input-base text-[10px] w-12 text-right"
+          type="number"
+          min={1}
+          max={totalFrames}
+          value={scene.endFrame}
+          onChange={(event) => updateScene(scene.id, { endFrame: Number(event.target.value) })}
+          title={t('scenes.endFrame')}
+        />
+        <span className="flex-1" />
+        <button className="icon-btn" title={t('scenes.moveUp')} disabled={index === 0} onClick={() => moveScene(scene.id, -1)}><ArrowUp size={12} /></button>
+        <button className="icon-btn" title={t('scenes.moveDown')} disabled={index === scenesLength - 1} onClick={() => moveScene(scene.id, 1)}><ArrowDown size={12} /></button>
+        <button className="icon-btn" title={t('scenes.splitAtPlayhead')} disabled={currentFrame <= scene.startFrame || currentFrame >= scene.endFrame} onClick={() => splitScene(scene.id)}><Scissors size={12} /></button>
+        <button className="icon-btn" title={t('scenes.mergeNext')} disabled={!canMerge} onClick={() => mergeSceneWithNext(scene.id)}><Merge size={12} /></button>
+        <button className="icon-btn hover:!text-red-400" title={t('common.delete')} onClick={() => deleteScene(scene.id)}><Trash2 size={12} /></button>
+      </div>
+    </div>
+  )
 }
 
 export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
@@ -24,12 +104,20 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const {
     script, scenes, captions, localVoice, layers, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
-    splitScene, mergeSceneWithNext, moveScene, setCurrentFrame, openScene,
+    splitScene, mergeSceneWithNext, moveScene, reorderScene, setCurrentFrame, openScene,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
     importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
     setLocalVoice, applyGeneratedNarration,
   } = useStore()
   const activeScene = useMemo(() => sceneAtFrame(scenes, currentFrame), [scenes, currentFrame])
+  const sceneDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+  function handleSceneDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const toIndex = scenes.findIndex((scene) => scene.id === over.id)
+    if (toIndex < 0) return
+    reorderScene(String(active.id), toIndex)
+  }
   const generatedNarrationCount = useMemo(() => layers.filter((layer) => (
     layer.type === 'audio' && layer.audioRole === 'narration' && layer.scriptSegmentId
   )).length, [layers])
@@ -312,53 +400,29 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
       </div>
       <div className="p-2 overflow-y-auto flex-1 flex flex-col gap-2">
         {!scenes.length && <p className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>{t('scenes.empty')}</p>}
-        {scenes.map((scene, index) => {
-          const isActive = scene.id === activeScene?.id
-          const canMerge = index < scenes.length - 1
-          return (
-            <div key={scene.id} style={{ border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`, background: isActive ? 'var(--accent-bg)' : 'var(--input)', borderRadius: 6, padding: 7 }}>
-              <button className="w-full text-left" onClick={() => openScene(scene.id)} title={t('scenes.openScene')}>
-                <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>
-                  {t('scenes.timeRange', { start: seconds(scene.startFrame, fps), end: seconds(scene.endFrame, fps) })}
-                </div>
-                <div className="text-[10px] mb-1" style={{ color: 'var(--accent)' }}>{t('scenes.openScene')}</div>
-              </button>
-              <input
-                className="input-base text-xs w-full"
-                value={scene.title}
-                onChange={(event) => updateScene(scene.id, { title: event.target.value })}
-                aria-label={t('scenes.sceneTitle')}
+        <DndContext sensors={sceneDragSensors} collisionDetection={closestCenter} onDragEnd={handleSceneDragEnd}>
+          <SortableContext items={scenes.map((scene) => scene.id)} strategy={verticalListSortingStrategy}>
+            {scenes.map((scene, index) => (
+              <SortableSceneCard
+                key={scene.id}
+                scene={scene}
+                index={index}
+                isActive={scene.id === activeScene?.id}
+                canMerge={index < scenes.length - 1}
+                currentFrame={currentFrame}
+                fps={fps}
+                totalFrames={totalFrames}
+                scenesLength={scenes.length}
+                openScene={openScene}
+                updateScene={updateScene}
+                moveScene={moveScene}
+                splitScene={splitScene}
+                mergeSceneWithNext={mergeSceneWithNext}
+                deleteScene={deleteScene}
               />
-              <div className="flex items-center gap-1 mt-1.5">
-                <input
-                  className="input-base text-[10px] w-12 text-right"
-                  type="number"
-                  min={0}
-                  max={Math.max(0, totalFrames - 1)}
-                  value={scene.startFrame}
-                  onChange={(event) => updateScene(scene.id, { startFrame: Number(event.target.value) })}
-                  title={t('scenes.startFrame')}
-                />
-                <span className="text-[10px]" style={{ color: 'var(--text3)' }}>→</span>
-                <input
-                  className="input-base text-[10px] w-12 text-right"
-                  type="number"
-                  min={1}
-                  max={totalFrames}
-                  value={scene.endFrame}
-                  onChange={(event) => updateScene(scene.id, { endFrame: Number(event.target.value) })}
-                  title={t('scenes.endFrame')}
-                />
-                <span className="flex-1" />
-                <button className="icon-btn" title={t('scenes.moveUp')} disabled={index === 0} onClick={() => moveScene(scene.id, -1)}><ArrowUp size={12} /></button>
-                <button className="icon-btn" title={t('scenes.moveDown')} disabled={index === scenes.length - 1} onClick={() => moveScene(scene.id, 1)}><ArrowDown size={12} /></button>
-                <button className="icon-btn" title={t('scenes.splitAtPlayhead')} disabled={currentFrame <= scene.startFrame || currentFrame >= scene.endFrame} onClick={() => splitScene(scene.id)}><Scissors size={12} /></button>
-                <button className="icon-btn" title={t('scenes.mergeNext')} disabled={!canMerge} onClick={() => mergeSceneWithNext(scene.id)}><Merge size={12} /></button>
-                <button className="icon-btn hover:!text-red-400" title={t('common.delete')} onClick={() => deleteScene(scene.id)}><Trash2 size={12} /></button>
-              </div>
-            </div>
-          )
-        })}
+            ))}
+          </SortableContext>
+        </DndContext>
       </div>
     </div>
   )

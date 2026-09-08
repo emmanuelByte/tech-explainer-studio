@@ -170,6 +170,21 @@ export function moveScene(scenes: Scene[], id: string, direction: -1 | 1, totalF
   return normalizeScenes(next, totalFrames)
 }
 
+/** Reorders scene content to an arbitrary position (e.g. via drag-and-drop) while
+ * each timeline slot's frame range stays fixed, matching `moveScene`'s semantics. */
+export function reorderScene(scenes: Scene[], id: string, toIndex: number, totalFrames: number): Scene[] {
+  const normalized = normalizeScenes(scenes, totalFrames)
+  const fromIndex = normalized.findIndex((scene) => scene.id === id)
+  const clampedTo = Math.max(0, Math.min(normalized.length - 1, toIndex))
+  if (fromIndex < 0 || clampedTo === fromIndex) return normalized
+  const slots = normalized.map((scene) => ({ startFrame: scene.startFrame, endFrame: scene.endFrame }))
+  const order = normalized.map((scene) => scene.id)
+  const [movedId] = order.splice(fromIndex, 1)
+  order.splice(clampedTo, 0, movedId)
+  const byId = new Map(normalized.map((scene) => [scene.id, scene]))
+  return order.map((sceneId, index) => ({ ...byId.get(sceneId)!, ...slots[index] }))
+}
+
 export function segmentsFromScript(rawText: string): ScriptSegment[] {
   return rawText
     .split(/\n\s*\n+/)

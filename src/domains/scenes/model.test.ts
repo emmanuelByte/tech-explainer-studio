@@ -5,6 +5,7 @@ import {
   addScene,
   mergeSceneWithNext,
   moveScene,
+  reorderScene,
   normalizeScenes,
   sceneAtFrame,
   splitScene,
@@ -74,6 +75,17 @@ describe('scene timing', () => {
     const result = moveScene(scenes, 'two', -1, 60)
     expect(result.map((scene) => scene.id)).toEqual(['two', 'one'])
     expect(result.map((scene) => [scene.startFrame, scene.endFrame])).toEqual([[0, 30], [30, 60]])
+  })
+
+  it('drags scene content to an arbitrary index while keeping each slot\'s frame range fixed', () => {
+    const three: Scene = { id: 'three', title: 'Three', startFrame: 60, endFrame: 90, scriptSegmentIds: [] }
+    const result = reorderScene([...scenes, three], 'one', 2, 90)
+    expect(result.map((scene) => scene.id)).toEqual(['two', 'three', 'one'])
+    expect(result.map((scene) => [scene.startFrame, scene.endFrame])).toEqual([[0, 30], [30, 60], [60, 90]])
+  })
+
+  it('leaves scenes untouched when dragged onto their own slot', () => {
+    expect(reorderScene(scenes, 'one', 0, 60)).toEqual(normalizeScenes(scenes, 60))
   })
 })
 

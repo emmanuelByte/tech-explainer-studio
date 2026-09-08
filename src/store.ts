@@ -25,6 +25,7 @@ import {
   deleteScene as deleteSceneFromTimeline,
   mergeSceneWithNext,
   moveScene as moveSceneOnTimeline,
+  reorderScene as reorderSceneOnTimeline,
   mergeScriptSegmentWithNext as mergeScriptSegment,
   normalizeScenes,
   splitScene as splitSceneAtFrame,
@@ -1296,6 +1297,7 @@ interface Actions {
   splitScene: (id: string, frame?: number) => void
   mergeSceneWithNext: (id: string) => void
   moveScene: (id: string, direction: -1 | 1) => void
+  reorderScene: (id: string, toIndex: number) => void
   setEditorWorkspace: (workspace: EditorWorkspace) => void
   openScene: (id: string) => void
   goToAdjacentScene: (direction: -1 | 1) => void
@@ -1977,6 +1979,7 @@ export const useStore = create<Store>()(
       }),
 
       moveScene: (id, direction) => set((s) => ({ scenes: moveSceneOnTimeline(s.scenes, id, direction, s.totalFrames) })),
+      reorderScene: (id, toIndex) => set((s) => ({ scenes: reorderSceneOnTimeline(s.scenes, id, toIndex, s.totalFrames) })),
 
       renameProject: (name) => set({ projectName: name, projectUpdatedAt: new Date().toISOString() }),
 

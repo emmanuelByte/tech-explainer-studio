@@ -286,6 +286,7 @@ export const resources = {
         mergeNext: 'Merge with next scene',
         moveUp: 'Move scene earlier',
         moveDown: 'Move scene later',
+        dragToReorder: 'Drag to reorder',
       },
       workspace: {
         story: 'Story',
