@@ -204,7 +204,7 @@ export function PreviewModal({ onClose }: { onClose: () => void }) {
           <Player
             ref={playerRef}
             component={EditorComposition}
-            inputProps={{ layers, connectors, camera, script, captions, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+            inputProps={{ layers, scenes, connectors, camera, script, captions, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
             durationInFrames={duration}
             fps={fps}
             compositionWidth={canvasW}

@@ -1,12 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { Composition, continueRender, delayRender, registerRoot, staticFile } from 'remotion'
 import { EditorComposition } from './Composition'
-import { GOOGLE_FONTS, Layer, MotionProject } from '../types'
+import { GOOGLE_FONTS, Layer, MotionProject, Scene } from '../types'
 import { migrateProject } from '../domains/project/migrations'
 import assetIndex from '../../data/assets/index.json'
 
 type RenderProps = Partial<MotionProject> & {
   layers?: Layer[]
+  scenes?: Scene[]
   canvasWidth?: number
   canvasHeight?: number
   backgroundColor?: string
@@ -15,6 +16,7 @@ type RenderProps = Partial<MotionProject> & {
 
 const fallbackProps: RenderProps = {
   layers: [],
+  scenes: [],
   canvas: {
     width: 1080,
     height: 1080,
@@ -133,6 +135,7 @@ function projectValues(props: RenderProps) {
   const canvas = projectProps.canvas ?? fallbackProps.canvas!
   return {
     layers: resolveLayerAssets(projectProps.layers ?? []),
+    scenes: projectProps.scenes ?? [],
     connectors: projectProps.connectors ?? [],
     camera: projectProps.camera,
     script: projectProps.script,
@@ -153,6 +156,7 @@ function ProjectComposition(props: RenderProps) {
       <FontPreloader />
       <EditorComposition
         layers={project.layers}
+        scenes={project.scenes}
         connectors={project.connectors}
         camera={project.camera}
         script={project.script}

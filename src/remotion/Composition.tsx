@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Audio, OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
-import { CameraTrack, CaptionSettings, Connector, ConnectorPort, Layer, GradientStop, FillType, ScriptDocument, VideoSegment } from '../types'
+import { CameraTrack, CaptionSettings, Connector, ConnectorPort, Layer, GradientStop, FillType, Scene, ScriptDocument, VideoSegment } from '../types'
+import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
@@ -1044,6 +1045,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
 
 interface CompositionProps {
   layers: Layer[]
+  scenes?: Scene[]
   connectors?: Connector[]
   camera?: CameraTrack
   applyCamera?: boolean
@@ -1150,9 +1152,14 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
   )
 }
 
-export function EditorComposition({ layers, connectors = [], camera, applyCamera = true, script, captions, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
+export function EditorComposition({ layers: rawLayers, scenes = [], connectors = [], camera, applyCamera = true, script, captions, canvasWidth, canvasHeight, backgroundColor = '#1a1a2e', showOutsideCanvas = false }: CompositionProps) {
   const frame = useCurrentFrame()
   const { selectedLayerIds, selectedConnectorId, selectLayer, selectConnector } = useStore()
+  // Phase 7.3: resolve scene-owned layers' scene-local frames to global once,
+  // here, so every existing render call below (isLayerActive, keyframe
+  // interpolation, connector resolution, Sequence timing) keeps operating on
+  // global frames exactly as before — no other change needed in this tree.
+  const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
   const layerIds = new Set(layers.map((layer) => layer.id))
   const childrenByParent = new Map<string | null, Layer[]>()
   layers.forEach((layer) => {

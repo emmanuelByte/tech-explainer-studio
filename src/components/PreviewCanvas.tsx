@@ -506,7 +506,7 @@ export function PreviewCanvas() {
             <Player
               ref={playerRef}
               component={EditorComposition}
-              inputProps={{ layers: canvasLayers, connectors: canvasConnectors, camera, script, captions, applyCamera: cameraPreviewEnabled, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
+              inputProps={{ layers: canvasLayers, scenes, connectors: canvasConnectors, camera, script, captions, applyCamera: cameraPreviewEnabled, canvasWidth: canvasW, canvasHeight: canvasH, backgroundColor: canvasBackgroundColor, showOutsideCanvas }}
               durationInFrames={Math.max(totalFrames, 1)}
               fps={fps}
               compositionWidth={canvasW}
