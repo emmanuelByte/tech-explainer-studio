@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Audio, OffthreadVideo, Sequence, getRemotionEnvironment, useCurrentFrame, useVideoConfig } from 'remotion'
 import { CameraTrack, CaptionSettings, Connector, ConnectorPort, Layer, GradientStop, FillType, Scene, ScriptDocument, VideoSegment } from '../types'
 import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
+import { sceneOpacityFactors } from '../domains/scenes/transitions'
 import { buildTransform, buildFilter, buildBoxShadow } from './interpolateProps'
 import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
@@ -531,7 +532,7 @@ function SketchOutline({ layer, width, height, drawProgress }: { layer: Layer; w
   )
 }
 
-function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex, layers }: {
+function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex, layers, sceneOpacity }: {
   layer: Layer
   frame: number
   canvasWidth: number
@@ -540,6 +541,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   onSelect: (multi: boolean) => void
   stackIndex: number
   layers: Layer[]
+  sceneOpacity: Map<string, number>
 }) {
   if (isGroupLayer(layer)) {
     return null
@@ -551,6 +553,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   const p = resolved.transform
   const bg = getBackground(animatedLayer.fillType, animatedLayer.fillColor, animatedLayer.gradientStops, animatedLayer.gradientAngle)
   const { width: layerWidth, height: layerHeight } = layerSize(animatedLayer, canvasWidth, canvasHeight)
+  const crossfade = layer.scope === 'scene' && layer.sceneId ? sceneOpacity.get(layer.sceneId) ?? 1 : 1
 
   const wrapperStyle: React.CSSProperties = {
     position: 'absolute',
@@ -560,7 +563,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     height: layerHeight,
     marginLeft: -layerWidth / 2,
     marginTop: -layerHeight / 2,
-    opacity: p.opacity,
+    opacity: p.opacity * crossfade,
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
     filter: buildFilter(p),
@@ -865,7 +868,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   )
 }
 
-function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors, stackIndex, layers }: {
+function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors, stackIndex, layers, sceneOpacity }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -876,6 +879,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   ancestors: Set<string>
   stackIndex: number
   layers: Layer[]
+  sceneOpacity: Map<string, number>
 }) {
   if (!isLayerActive(layer, frame)) return null
 
@@ -888,6 +892,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   const nextAncestors = children.length ? new Set([...ancestors, layer.id]) : ancestors
   const isSelected = selectedLayerIds.includes(layer.id)
   const shapeStyle = layerShapeClipStyle(animatedLayer)
+  const crossfade = layer.scope === 'scene' && layer.sceneId ? sceneOpacity.get(layer.sceneId) ?? 1 : 1
   const outerStyle: React.CSSProperties = {
     position: 'absolute',
     left: '50%',
@@ -896,7 +901,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
     height: layerHeight,
     marginLeft: -layerWidth / 2,
     marginTop: -layerHeight / 2,
-    opacity: p.opacity,
+    opacity: p.opacity * crossfade,
     transform: buildTransform(p),
     transformOrigin: `${p.originX}% ${p.originY}%`,
     filter: buildFilter(p),
@@ -990,6 +995,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
               ancestors={nextAncestors}
               stackIndex={0}
               layers={layers}
+              sceneOpacity={sceneOpacity}
             />
           </div>
         ))}
@@ -998,7 +1004,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   )
 }
 
-function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>(), stackIndex = 0, layers }: {
+function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>(), stackIndex = 0, layers, sceneOpacity }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -1009,6 +1015,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
   ancestors?: Set<string>
   stackIndex?: number
   layers: Layer[]
+  sceneOpacity: Map<string, number>
 }) {
   const isGroup = isGroupLayer(layer)
 
@@ -1025,6 +1032,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
         ancestors={ancestors}
         stackIndex={stackIndex}
         layers={layers}
+        sceneOpacity={sceneOpacity}
       />
     )
   }
@@ -1039,6 +1047,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
       onSelect={(multi) => selectLayer(layer.id, multi)}
       stackIndex={stackIndex}
       layers={layers}
+      sceneOpacity={sceneOpacity}
     />
   )
 }
@@ -1160,6 +1169,11 @@ export function EditorComposition({ layers: rawLayers, scenes = [], connectors =
   // interpolation, connector resolution, Sequence timing) keeps operating on
   // global frames exactly as before — no other change needed in this tree.
   const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
+  // Phase 7.4: scene boundary crossfades. A per-scene opacity factor at the
+  // current frame, looked up by `layer.sceneId` and multiplied into that
+  // layer's own opacity below — reuses the existing per-layer opacity
+  // pipeline rather than adding a second wrapper/render pass per scene.
+  const sceneOpacity = sceneOpacityFactors(scenes, frame)
   const layerIds = new Set(layers.map((layer) => layer.id))
   const childrenByParent = new Map<string | null, Layer[]>()
   layers.forEach((layer) => {
@@ -1189,6 +1203,7 @@ export function EditorComposition({ layers: rawLayers, scenes = [], connectors =
             selectLayer={selectLayer}
             stackIndex={rootLayers.length - index}
             layers={layers}
+            sceneOpacity={sceneOpacity}
           />
         ))}
       </div>

@@ -96,7 +96,7 @@ export function addScene(scenes: Scene[], totalFrames: number, startFrame?: numb
   ], totalFrames)
 }
 
-export function updateScene(scenes: Scene[], id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds'>>, totalFrames: number): Scene[] {
+export function updateScene(scenes: Scene[], id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds' | 'transitionIn' | 'transitionOut'>>, totalFrames: number): Scene[] {
   const normalized = normalizeScenes(scenes, totalFrames)
   const index = normalized.findIndex((scene) => scene.id === id)
   if (index < 0) return normalized

@@ -395,6 +395,15 @@ export interface Scene {
   scriptSegmentIds: string[]
   /** An optional creator-facing visual direction, used by future diagram tooling. */
   visual?: string
+  /**
+   * Crossfade duration (frames) for this scene's boundary transitions
+   * (Phase 7.4). `transitionIn` ramps the scene's own layers' opacity from 0
+   * over its first N frames; `transitionOut` ramps to 0 over its last N
+   * frames. Only affects `scope: 'scene'` layers — see
+   * `src/domains/scenes/transitions.ts` and `EditorComposition`.
+   */
+  transitionIn?: number
+  transitionOut?: number
 }
 
 export interface ProjectHistorySnapshot {

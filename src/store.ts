@@ -1320,7 +1320,7 @@ interface Actions {
   splitScriptSegment: (id: string, offset?: number) => void
   mergeScriptSegmentWithNext: (id: string) => void
   addScene: (startFrame?: number) => void
-  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds'>>) => void
+  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds' | 'transitionIn' | 'transitionOut'>>) => void
   deleteScene: (id: string) => void
   duplicateScene: (id: string) => void
   splitScene: (id: string, frame?: number) => void

@@ -26,7 +26,7 @@ function SortableSceneCard({
   layers: Layer[]; scriptSegments: ScriptSegment[]
   openScene: (id: string) => void
   setCurrentFrame: (frame: number) => void
-  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame'>>) => void
+  updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'transitionIn' | 'transitionOut'>>) => void
   moveScene: (id: string, direction: -1 | 1) => void
   splitScene: (id: string) => void
   mergeSceneWithNext: (id: string) => void
@@ -99,6 +99,29 @@ function SortableSceneCard({
         <span className="flex-1" />
         <button className="icon-btn" title={t('scenes.moveUp')} disabled={index === 0} onClick={() => moveScene(scene.id, -1)}><ArrowUp size={12} /></button>
         <button className="icon-btn" title={t('scenes.moveDown')} disabled={index === scenesLength - 1} onClick={() => moveScene(scene.id, 1)}><ArrowDown size={12} /></button>
+      </div>
+      <div className="flex items-center gap-1 mt-1.5">
+        <span className="text-[10px]" style={{ color: 'var(--text3)' }}>{t('scenes.transitionIn')}</span>
+        <input
+          className="input-base text-[10px] w-10 text-right"
+          type="number"
+          min={0}
+          max={Math.max(0, scene.endFrame - scene.startFrame - 1)}
+          value={scene.transitionIn ?? 0}
+          onChange={(event) => updateScene(scene.id, { transitionIn: Math.max(0, Number(event.target.value)) })}
+          title={t('scenes.transitionInHint')}
+        />
+        <span className="text-[10px]" style={{ color: 'var(--text3)' }}>{t('scenes.transitionOut')}</span>
+        <input
+          className="input-base text-[10px] w-10 text-right"
+          type="number"
+          min={0}
+          max={Math.max(0, scene.endFrame - scene.startFrame - 1)}
+          value={scene.transitionOut ?? 0}
+          onChange={(event) => updateScene(scene.id, { transitionOut: Math.max(0, Number(event.target.value)) })}
+          title={t('scenes.transitionOutHint')}
+        />
+        <span className="flex-1" />
         <button className="icon-btn" title={t('scenes.splitAtPlayhead')} disabled={currentFrame <= scene.startFrame || currentFrame >= scene.endFrame} onClick={() => splitScene(scene.id)}><Scissors size={12} /></button>
         <button className="icon-btn" title={t('scenes.mergeNext')} disabled={!canMerge} onClick={() => mergeSceneWithNext(scene.id)}><Merge size={12} /></button>
         <button className="icon-btn" title={t('scenes.duplicate')} onClick={() => duplicateScene(scene.id)}><Copy size={12} /></button>

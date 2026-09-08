@@ -292,6 +292,10 @@ export const resources = {
         moveDown: 'Move scene later',
         dragToReorder: 'Drag to reorder',
         staleNarrationWarning: 'This scene has narration whose text changed since the audio was generated',
+        transitionIn: 'In',
+        transitionOut: 'Out',
+        transitionInHint: 'Fade in (frames)',
+        transitionOutHint: 'Fade out (frames)',
       },
       workspace: {
         story: 'Story',
