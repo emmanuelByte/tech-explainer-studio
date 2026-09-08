@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
-  ChevronRight, Circle, Eye, EyeOff, Folder, GripVertical, Image as ImageIcon,
-  Film, Layers, Library, Lock, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
-  Type, Unlock, Server, Network,
+  ChevronRight, Circle, Folder, Image as ImageIcon,
+  Film, Layers, Library, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
+  Type, Server, Network,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { animationLayerInRange, designLayerAtFrame, frameRangeFromSelection, rootLayerIds, selectedWithDescendants } from '../libraryItems'
 import { saveLibraryItem } from '../libraryStorage'
 import { visibleLayerRows } from '../layerTree'
+import { LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
@@ -119,15 +120,13 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const { t } = useTranslation()
-  const { toggleVisibility, toggleLock, deleteLayer, renameLayer, toggleLayerCollapsed } = useStore()
+  const { deleteLayer, renameLayer, toggleLayerCollapsed } = useStore()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(layer.name)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const {
-    attributes, listeners, setNodeRef,
-    transform, transition, isDragging,
-  } = useSortable({ id: layer.id })
+  const sortable = useSortable({ id: layer.id })
+  const { setNodeRef, transform, transition, isDragging } = sortable
   const TypeIcon = TYPE_ICONS[layer.type]
   const activeDropHint = dropHint?.targetId === layer.id ? dropHint : null
 
@@ -202,19 +201,12 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
       )}
 
       {/* Drag handle */}
-      <span
-        {...attributes}
-        {...listeners}
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          cursor: 'grab', color: 'var(--text3)', fontSize: 13,
-          padding: '0 2px', flexShrink: 0, lineHeight: 1,
-          touchAction: 'none',
-        }}
+      <LayerDragHandle
+        handle={sortable}
+        size={14}
         title={t('layers.drag')}
-      >
-        <GripVertical size={14} />
-      </span>
+        style={{ fontSize: 13, padding: '0 2px' }}
+      />
 
       {/* Type icon */}
       <span style={{ width: 16, color: LAYER_TYPE_COLOR[layer.type], flexShrink: 0, display: 'flex', justifyContent: 'center' }}>
@@ -253,20 +245,7 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
 
       {/* Actions (show on hover) */}
       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}
-          style={{ color: 'var(--text3)', fontSize: 12, padding: '0 2px' }}
-          title={t('layers.visibility')}
-        >
-          {layer.visible ? <Eye size={13} /> : <EyeOff size={13} />}
-        </button>
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleLock(layer.id) }}
-          style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', fontSize: 12, padding: '0 2px' }}
-          title={t('layers.lock')}
-        >
-          {layer.locked ? <Lock size={13} /> : <Unlock size={13} />}
-        </button>
+        <LayerVisibilityLockButtons layer={layer} size={13} buttonStyle={{ fontSize: 12, padding: '0 2px' }} />
         <button
           onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id) }}
           style={{ color: 'var(--text3)', fontSize: 12, padding: '0 2px' }}

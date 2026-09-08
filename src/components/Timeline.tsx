@@ -1,8 +1,9 @@
 import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Camera, ChevronLeft, ChevronRight, Eye, EyeOff, GripVertical, LineChart, Lock, Pause, Play, Repeat2, Scissors, Unlock, ZoomIn, ZoomOut } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, LineChart, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
+import { LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
@@ -508,8 +509,9 @@ function SortableLabel({
   valueGraphH: number
 }) {
   const { t } = useTranslation()
-  const { toggleVisibility, toggleLock, toggleLayerCollapsed } = useStore()
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: layer.id })
+  const { toggleLayerCollapsed } = useStore()
+  const sortable = useSortable({ id: layer.id })
+  const { setNodeRef, transform, transition, isDragging } = sortable
 
   const outOfRange = currentFrame < (layer.startFrame ?? 0) || currentFrame > (layer.endFrame ?? Infinity)
   const hasMultipleKf = layer.keyframes.length >= 2
@@ -563,11 +565,7 @@ function SortableLabel({
         </button>
 
         {/* Drag handle */}
-        <span
-          {...attributes} {...listeners}
-          onClick={(e) => e.stopPropagation()}
-          style={{ cursor: 'grab', color: 'var(--text3)', fontSize: 12, flexShrink: 0, touchAction: 'none' }}
-        ><GripVertical size={12} /></span>
+        <LayerDragHandle handle={sortable} size={12} style={{ fontSize: 12 }} />
 
         {/* Color dot */}
         <div style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: LAYER_TYPE_COLOR[layer.type] ?? '#888' }} />
@@ -600,16 +598,7 @@ function SortableLabel({
         )}
 
         {/* Actions */}
-        <button onClick={(e) => { e.stopPropagation(); toggleVisibility(layer.id) }}
-          className="icon-btn"
-          style={{ color: layer.visible ? 'var(--text2)' : 'var(--text3)', width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }}>
-          {layer.visible ? <Eye size={12} /> : <EyeOff size={12} />}
-        </button>
-        <button onClick={(e) => { e.stopPropagation(); toggleLock(layer.id) }}
-          className="icon-btn"
-          style={{ color: layer.locked ? '#f59e0b' : 'var(--text3)', width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }}>
-          {layer.locked ? <Lock size={12} /> : <Unlock size={12} />}
-        </button>
+        <LayerVisibilityLockButtons layer={layer} size={12} buttonStyle={{ width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }} />
       </div>
 
       {/* Sub-track labels */}
