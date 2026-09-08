@@ -291,6 +291,7 @@ export const resources = {
         moveUp: 'Move scene earlier',
         moveDown: 'Move scene later',
         dragToReorder: 'Drag to reorder',
+        staleNarrationWarning: 'This scene has narration whose text changed since the audio was generated',
       },
       workspace: {
         story: 'Story',

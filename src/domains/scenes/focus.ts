@@ -1,4 +1,5 @@
-import type { Layer, Scene } from '../../types'
+import type { Layer, Scene, ScriptSegment } from '../../types'
+import { hasStaleNarration } from '../timeline/filters'
 
 export function layerOverlapsScene(layer: Layer, scene: Scene) {
   // A scene-owned layer belongs to exactly the scene it's assigned to — its
@@ -75,6 +76,18 @@ export function visibleSceneLayerIds(layers: Layer[], scene: Scene | null | unde
  * the "narration state" a Story-mode scene clip surfaces. */
 export function sceneHasNarration(layers: Layer[], scene: Scene): boolean {
   return layers.some((layer) => layer.type === 'audio' && layer.audioRole === 'narration' && layerOverlapsScene(layer, scene))
+}
+
+/**
+ * Whether this scene has anything worth flagging with a warning icon
+ * (Phase 7.4). Reuses the existing per-layer stale-narration signal
+ * (`hasStaleNarration`, `src/domains/timeline/filters.ts` — previously only
+ * surfaced as a project-wide count in `ScriptScenesPanel.tsx` and a
+ * "Warnings" track filter chip, never per scene) rather than introducing a
+ * new warning subsystem. Extend this as other per-scene issues arise.
+ */
+export function sceneHasWarning(scene: Scene, layers: Layer[], scriptSegments: ScriptSegment[]): boolean {
+  return layers.some((layer) => layerOverlapsScene(layer, scene) && hasStaleNarration(layer, scriptSegments))
 }
 
 export function adjacentScene(scenes: Scene[], activeSceneId: string | null, direction: -1 | 1) {

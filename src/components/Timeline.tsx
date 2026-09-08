@@ -1,13 +1,13 @@
 import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Camera, ChevronLeft, ChevronRight, LineChart, Mic, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
+import { AlertTriangle, Camera, ChevronLeft, ChevronRight, LineChart, Mic, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { TrackFilterBar } from './timeline/TrackFilterBar'
 import { filterLayerRows } from '../domains/timeline/filters'
 import { visibleItemIndices } from '../domains/timeline/virtualization'
-import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
+import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, ScriptSegment, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
@@ -20,7 +20,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { buildLayerRows, descendantsOf, visibleLayerRows } from '../layerTree'
-import { layersForScene, sceneHasNarration, visibleSceneLayerIds } from '../domains/scenes/focus'
+import { layersForScene, sceneHasNarration, sceneHasWarning, visibleSceneLayerIds } from '../domains/scenes/focus'
 import { sceneThumbnailSvg } from '../domains/scenes/thumbnail'
 import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
 import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
@@ -86,15 +86,16 @@ function SceneBand({ scenes, fpx, activeFrame, onSelect, onOpen }: { scenes: Sce
 
 // ── Story-mode scene clip (name, thumbnail, duration, narration state) ────
 function SceneClip({
-  scene, index, fpx, active, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen,
+  scene, index, fpx, active, fps, layers, scriptSegments, canvasWidth, canvasHeight, onSelect, onOpen,
 }: {
   scene: Scene; index: number; fpx: number; active: boolean; fps: number
-  layers: Layer[]; canvasWidth: number; canvasHeight: number
+  layers: Layer[]; scriptSegments: ScriptSegment[]; canvasWidth: number; canvasHeight: number
   onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
 }) {
   const { t } = useTranslation()
   const durationSeconds = (scene.endFrame - scene.startFrame) / fps
   const hasNarration = useMemo(() => sceneHasNarration(layers, scene), [layers, scene])
+  const hasWarning = useMemo(() => sceneHasWarning(scene, layers, scriptSegments), [scene, layers, scriptSegments])
   const thumbnail = useMemo(
     () => sceneThumbnailSvg(layers, scene, canvasWidth, canvasHeight),
     [layers, scene, canvasWidth, canvasHeight],
@@ -132,6 +133,11 @@ function SceneClip({
         <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text3)', fontSize: 9 }}>
           {durationSeconds.toFixed(1)}s
           {hasNarration && <Mic size={9} style={{ color: '#a78bfa' }} />}
+          {hasWarning && (
+            <span title={t('scenes.staleNarrationWarning')} style={{ display: 'inline-flex' }}>
+              <AlertTriangle size={9} style={{ color: '#f59e0b' }} />
+            </span>
+          )}
         </span>
       </div>
     </button>
@@ -139,7 +145,7 @@ function SceneClip({
 }
 
 function SceneClipBand({
-  scenes, sceneEntries, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen, onReorder,
+  scenes, sceneEntries, fpx, activeFrame, fps, layers, scriptSegments, canvasWidth, canvasHeight, onSelect, onOpen, onReorder,
 }: {
   // The full, in-order scene list — needed as `SortableContext`'s `items` so
   // drag math stays correct even though only `sceneEntries` (the
@@ -150,7 +156,7 @@ function SceneClipBand({
   // "N. Title" numbering stays correct even though only a subset renders.
   sceneEntries: { scene: Scene; index: number }[]
   fpx: number; activeFrame: number; fps: number
-  layers: Layer[]; canvasWidth: number; canvasHeight: number
+  layers: Layer[]; scriptSegments: ScriptSegment[]; canvasWidth: number; canvasHeight: number
   onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
   onReorder: (event: DragEndEvent) => void
 }) {
@@ -167,6 +173,7 @@ function SceneClipBand({
               fpx={fpx}
               fps={fps}
               layers={layers}
+              scriptSegments={scriptSegments}
               canvasWidth={canvasWidth}
               canvasHeight={canvasHeight}
               active={activeFrame >= scene.startFrame && activeFrame < scene.endFrame}
@@ -1999,6 +2006,7 @@ export function Timeline() {
                 activeFrame={currentFrame}
                 fps={fps}
                 layers={layers}
+                scriptSegments={script.segments}
                 canvasWidth={canvasW}
                 canvasHeight={canvasH}
                 onReorder={handleSceneDragEnd}

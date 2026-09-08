@@ -1,14 +1,15 @@
-import { ArrowDown, ArrowUp, Captions, Copy, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Captions, Copy, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/model'
+import { sceneHasWarning } from '../domains/scenes/focus'
 import { parseStructuredScript } from '../domains/scenes/structuredScript'
 import { generateAndStoreLocalSpeech, getLocalTtsHealth, type LocalTtsHealth } from '../localTts'
 import { useStore } from '../store'
-import type { Scene } from '../types'
+import type { Layer, Scene, ScriptSegment } from '../types'
 
 type PanelMode = 'script' | 'scenes'
 
@@ -17,11 +18,12 @@ function seconds(frame: number, fps: number) {
 }
 
 function SortableSceneCard({
-  scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength,
+  scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength, layers, scriptSegments,
   openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, duplicateScene, deleteScene,
 }: {
   scene: Scene; index: number; isActive: boolean; canMerge: boolean
   currentFrame: number; fps: number; totalFrames: number; scenesLength: number
+  layers: Layer[]; scriptSegments: ScriptSegment[]
   openScene: (id: string) => void
   setCurrentFrame: (frame: number) => void
   updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame'>>) => void
@@ -33,6 +35,7 @@ function SortableSceneCard({
 }) {
   const { t } = useTranslation()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: scene.id })
+  const hasWarning = useMemo(() => sceneHasWarning(scene, layers, scriptSegments), [scene, layers, scriptSegments])
   return (
     <div
       ref={setNodeRef}
@@ -56,8 +59,13 @@ function SortableSceneCard({
           onDoubleClick={() => openScene(scene.id)}
           title={t('scenes.openSceneHint')}
         >
-          <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>
+          <div className="text-[10px] mb-1 flex items-center gap-1" style={{ color: 'var(--text3)' }}>
             {t('scenes.timeRange', { start: seconds(scene.startFrame, fps), end: seconds(scene.endFrame, fps) })}
+            {hasWarning && (
+              <span title={t('scenes.staleNarrationWarning')} style={{ display: 'inline-flex' }}>
+                <AlertTriangle size={10} style={{ color: '#f59e0b' }} />
+              </span>
+            )}
           </div>
           <div className="text-[10px] mb-1" style={{ color: 'var(--accent)' }}>{t('scenes.openScene')}</div>
         </button>
@@ -421,6 +429,8 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
                 fps={fps}
                 totalFrames={totalFrames}
                 scenesLength={scenes.length}
+                layers={layers}
+                scriptSegments={script.segments}
                 openScene={openScene}
                 setCurrentFrame={setCurrentFrame}
                 updateScene={updateScene}

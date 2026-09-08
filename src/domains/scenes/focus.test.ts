@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { Layer, Scene } from '../../types'
-import { adjacentScene, layerOverlapsScene, layersForScene, sceneHasNarration, visibleSceneLayerIds } from './focus'
+import type { Layer, Scene, ScriptSegment } from '../../types'
+import { adjacentScene, layerOverlapsScene, layersForScene, sceneHasNarration, sceneHasWarning, visibleSceneLayerIds } from './focus'
 
 const scene: Scene = { id: 'scene-2', title: 'Scene 2', startFrame: 30, endFrame: 60, scriptSegmentIds: [] }
 
@@ -68,6 +68,18 @@ describe('scene focus', () => {
     expect(sceneHasNarration([narrationLayer], scene)).toBe(true)
     expect(sceneHasNarration([musicLayer], scene)).toBe(false)
     expect(sceneHasNarration([{ ...narrationLayer, startFrame: 0, endFrame: 20 }], scene)).toBe(false)
+  })
+
+  it('flags a scene as warning-worthy only when it owns a stale-narration layer', () => {
+    const segments: ScriptSegment[] = [{ id: 'seg-1', text: 'Updated line.' }]
+    const staleNarration = {
+      ...layer('voice', 30, 60), type: 'audio' as const, audioRole: 'narration' as const,
+      scriptSegmentId: 'seg-1', narrationGeneration: { provider: 'local-chatterbox' as const, voiceId: 'v1', sourceText: 'Old line.', exaggeration: 0.5, cfgWeight: 0.5 },
+    }
+    const freshNarration = { ...staleNarration, narrationGeneration: { ...staleNarration.narrationGeneration, sourceText: 'Updated line.' } }
+    expect(sceneHasWarning(scene, [staleNarration], segments)).toBe(true)
+    expect(sceneHasWarning(scene, [freshNarration], segments)).toBe(false)
+    expect(sceneHasWarning(scene, [{ ...staleNarration, startFrame: 0, endFrame: 20 }], segments)).toBe(false)
   })
 
   it('finds adjacent scenes without wrapping', () => {
