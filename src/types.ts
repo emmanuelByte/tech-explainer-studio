@@ -399,6 +399,9 @@ export interface ProjectHistorySnapshot {
 
 export type EditorWorkspace = 'story' | 'scene'
 
+/** Track filter chips for the Timeline/LayersPanel row lists (Phase 7.2). */
+export type TrackFilterKey = 'selected' | 'animated' | 'visible' | 'audio' | 'warnings'
+
 export interface KeyframeSelection {
   layerId: string
   frame: number
@@ -497,6 +500,8 @@ export interface EditorState {
   timelineVisible: boolean
   showAllSubtracks: boolean
   showValueGraph: boolean
+  trackSearchQuery: string
+  activeTrackFilters: TrackFilterKey[]
   editorZoom: number
   editorPanX: number
   editorPanY: number

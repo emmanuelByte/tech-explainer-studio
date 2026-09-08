@@ -4,6 +4,8 @@ import { Camera, ChevronLeft, ChevronRight, LineChart, Pause, Play, Repeat2, Sci
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
+import { TrackFilterBar } from './timeline/TrackFilterBar'
+import { filterLayerRows } from '../domains/timeline/filters'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
@@ -962,6 +964,7 @@ export function Timeline() {
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
     addCameraKeyframe, selectCameraKeyframe, openScene, setEditorWorkspace,
+    script, trackSearchQuery, activeTrackFilters,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1005,7 +1008,12 @@ export function Timeline() {
   const valueGraphH = scaleTimelineHeight(VALUE_GRAPH_H, VALUE_GRAPH_H_MAX, timelineZoom)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   const timelineLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : []
-  const rows = visibleLayerRows(timelineLayers, true)
+  const rows = filterLayerRows(
+    visibleLayerRows(timelineLayers, true),
+    trackSearchQuery,
+    activeTrackFilters,
+    { selectedLayerIds, scriptSegments: script.segments },
+  )
 
   useEffect(() => {
     updateTimelineScrollbar()
@@ -1732,6 +1740,7 @@ export function Timeline() {
             )}
             <span className="truncate">{t('scenes.title').toUpperCase()}</span>
           </div>
+          {editorWorkspace === 'scene' && <TrackFilterBar />}
           <div
             ref={labelScrollRef}
             className="flex-1 overflow-y-auto overflow-x-hidden"

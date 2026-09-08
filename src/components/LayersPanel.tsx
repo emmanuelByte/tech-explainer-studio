@@ -22,6 +22,8 @@ import { animationLayerInRange, designLayerAtFrame, frameRangeFromSelection, roo
 import { saveLibraryItem } from '../libraryStorage'
 import { visibleLayerRows } from '../layerTree'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
+import { TrackFilterBar } from './timeline/TrackFilterBar'
+import { filterLayerRows } from '../domains/timeline/filters'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
@@ -271,6 +273,7 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector, applySequentialReveal, applyHighlightPulse, animateSelectedConnectors,
+    script, trackSearchQuery, activeTrackFilters,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -299,7 +302,12 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   // Panel shows topmost layer first while preserving nesting.
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   const visibleLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : layers
-  const rows = visibleLayerRows(visibleLayers, true)
+  const rows = filterLayerRows(
+    visibleLayerRows(visibleLayers, true),
+    trackSearchQuery,
+    activeTrackFilters,
+    { selectedLayerIds, scriptSegments: script.segments },
+  )
   const childCount = (id: string) => visibleLayers.filter((l) => l.parentId === id).length
   const selectedComponents = selectedLayerIds
     .map((id) => layers.find((layer) => layer.id === id))
@@ -669,6 +677,8 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
         )}
         </div>
       </div>
+
+      <TrackFilterBar />
 
       {/* Sortable layer list */}
       <div className="flex-1 overflow-y-auto">

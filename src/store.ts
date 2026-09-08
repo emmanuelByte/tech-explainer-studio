@@ -6,7 +6,7 @@ import {
   EditorState, Layer, Keyframe, TransformProps,
   CANVAS_PRESETS, DEFAULT_TRANSFORM, LayerType, Tool,
   TimelineMarker, MotionProject, AnimatableProperty, PairEasingType, KeyframeSelection,
-  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings, LocalVoiceSettings, EditorWorkspace,
+  PropertyKeyframe, ImageKind, DEFAULT_COLOR_PALETTES, VideoSegment, SpeedKeyframe, SpeedEasing, Scene, TechnicalComponentKind, Connector, ConnectorPort, CameraTrack, CameraKeyframe, CaptionSettings, LocalVoiceSettings, EditorWorkspace, TrackFilterKey,
 } from './types'
 import { getAnimatedPropertyValue, getStaticPropertyValue } from './animationProperties'
 import { interpolateProps } from './remotion/interpolateProps'
@@ -1417,6 +1417,8 @@ interface Actions {
   setTimelineVisible: (visible: boolean) => void
   setShowAllSubtracks: (show: boolean) => void
   setShowValueGraph: (show: boolean) => void
+  setTrackSearchQuery: (query: string) => void
+  toggleTrackFilter: (filter: TrackFilterKey) => void
   setEditorViewport: (zoom: number, panX: number, panY: number) => void
   setShowOutsideCanvas: (show: boolean) => void
   setActiveColorPalette: (id: string) => void
@@ -1494,6 +1496,8 @@ export const useStore = create<Store>()(
       timelineVisible: true,
       showAllSubtracks: false,
       showValueGraph: false,
+      trackSearchQuery: '',
+      activeTrackFilters: [],
       editorZoom: 1,
       editorPanX: 0,
       editorPanY: 0,
@@ -3815,6 +3819,12 @@ export const useStore = create<Store>()(
       setTimelineVisible: (visible) => set({ timelineVisible: visible }),
       setShowAllSubtracks: (show) => set({ showAllSubtracks: show }),
       setShowValueGraph: (show) => set({ showValueGraph: show }),
+      setTrackSearchQuery: (query) => set({ trackSearchQuery: query }),
+      toggleTrackFilter: (filter) => set((s) => ({
+        activeTrackFilters: s.activeTrackFilters.includes(filter)
+          ? s.activeTrackFilters.filter((f) => f !== filter)
+          : [...s.activeTrackFilters, filter],
+      })),
       setEditorViewport: (zoom, panX, panY) => set({ editorZoom: zoom, editorPanX: panX, editorPanY: panY }),
       setShowOutsideCanvas: (show) => set({ showOutsideCanvas: show }),
       setActiveColorPalette: (id) => set((s) => ({
