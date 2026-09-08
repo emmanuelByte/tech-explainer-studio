@@ -433,13 +433,24 @@ work:
 
 ## Next implementation target
 
-Phase 7.3 — Scene-owned data and local time (`SCENE_FIRST_EDITOR.md`) is
-complete for its approved reduced scope: layer scene-ownership + scene-local
-timing via a versioned schema migration, the resolve-once-reuse-everywhere
-render/display pattern, the create/resize write boundary, and scene
-delete/duplicate ripple behavior. Deferred from this pass, and the natural
-next target: move camera keyframes and narration into per-scene ownership,
-and revisit whether the `Scene` shape itself (`durationFrames`/`layerIds`/
-`cameraKeyframes`) should change now that layers reference scenes — both
-were explicitly scoped out of 7.3 rather than discovered as gaps. Otherwise,
-proceed to **Phase 7.4 — Story assembly**.
+Phase 7.3 — Scene-owned data and local time, and Phase 7.4 — Story assembly
+(`SCENE_FIRST_EDITOR.md`) are both complete for their approved reduced scopes.
+7.3 delivered layer scene-ownership + scene-local timing via a versioned
+schema migration, the resolve-once-reuse-everywhere render/display pattern,
+the create/resize write boundary, and scene delete/duplicate ripple behavior.
+7.4 delivered Story-mode scene drag-reorder, per-scene warning icons, a
+scene-aware export/preview range picker, scene boundary crossfade
+transitions, and a cross-project scene/layer clipboard — after investigation
+found most of 7.4's original checklist (thumbnails, side-panel drag reorder,
+narration-per-scene, project markers, active-scene/full-project preview,
+generic frame-range export) already delivered by earlier phases.
+
+Deferred from both passes, and the natural next target: move camera
+keyframes and narration into per-scene ownership, revisit whether the
+`Scene` shape itself (`durationFrames`/`layerIds`/`cameraKeyframes`) should
+change now that layers reference scenes, and build dedicated Story-mode
+timeline tracks for global-overlay/narration/music/SFX layers (the
+underlying `Layer.scope`/`AudioRole` data model already supports this — only
+the UI is unbuilt). All three were explicitly scoped out rather than
+discovered as gaps. Otherwise, proceed to **Phase 7.5 — Playback and
+large-project performance**.

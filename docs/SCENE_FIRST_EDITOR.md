@@ -404,6 +404,8 @@ undoable today.
 
 ### Phase 7.4 — Story assembly
 
+Status: **Complete (reduced scope, 2026-09-08)**
+
 Goal: finish the project-level editing workflow.
 
 - Add scene thumbnails, drag reorder and boundary transitions.
@@ -417,6 +419,56 @@ Exit criteria:
 - A creator can assemble and revise a 100-scene lesson without opening layer
   tracks in Story mode.
 - Global audio and transitions survive reload and export.
+
+**Delivered (reduced scope, approved up front):** investigation before this
+pass found most of the checklist above already delivered by 7.1–7.3 (scene
+thumbnails, side-panel drag reorder, narration-per-scene via
+`ScriptSegment.sceneId`, the `music`/`sound-effect` `AudioRole` values,
+project markers CRUD+UI, active-scene/full-project preview, and generic
+frame-range export all already existed and worked) — so this pass covered
+exactly the five genuine gaps found, and nothing else:
+
+1. **Story-mode scene drag-reorder** — `Timeline.tsx`'s `SceneClipBand` (the
+   Story-mode scene-clip strip) gained the same `DndContext`/`SortableContext`
+   drag-reorder the Scenes side panel already had, calling the same existing
+   `reorderScene` action. A small drag-handle grip (reusing the shared
+   `LayerDragHandle`) disambiguates drag from the clip's existing
+   click-to-seek/double-click-to-open.
+2. **Per-scene warning icons** — a new `sceneHasWarning` (`src/domains/scenes/
+   focus.ts`) aggregates the existing per-layer stale-narration signal
+   (`hasStaleNarration`) per scene, surfaced as a small warning icon on both
+   the Story-mode clip and the side-panel scene card (previously only a
+   project-wide count existed).
+3. **Scene-aware export/preview picker** — `ExportModal.tsx` gained a "Range"
+   dropdown (Full project + each scene) that fills the existing generic
+   frame-range fields from the chosen scene's global range; the fields stay
+   editable afterward. `PreviewModal.tsx` needed no changes — it already
+   derived active-scene-vs-full-project purely from `editorWorkspace`/
+   `activeSceneId`.
+4. **Scene boundary transitions (crossfade)** — new `Scene.transitionIn`/
+   `transitionOut` (frames); a new pure `src/domains/scenes/transitions.ts`
+   computes a 0–1 opacity ramp per scene at the current frame, multiplied
+   into each scene-scoped layer's existing opacity in `Composition.tsx`
+   (`LayerElement`/`GroupNode`) rather than adding a new per-scene wrapper —
+   reuses the existing per-layer opacity pipeline, so preview and export
+   (which share `EditorComposition`) get the effect identically. UI: "In"/
+   "Out" frame inputs on the scene card.
+5. **Scene/layer clipboard** — new `copyScene`/`pasteScene` store actions.
+   `copyScene` serializes a scene + its owned layers (unremapped ids) to a
+   single `localStorage` key; `pasteScene` remaps ids fresh at paste time
+   (extracted into a shared, unit-tested `remapSceneOwnedLayers`, also now
+   used by `duplicateScene`) and appends the scene to the current project's
+   timeline. Verified live across two entirely different projects: copy in
+   one, paste in the other, confirmed independent ids and an untouched
+   source project.
+
+**Deliberately out of scope for this pass** (per your explicit choice, not
+an oversight): dedicated Story-mode timeline tracks for global-overlay/
+narration/music/SFX layers — the underlying data model (`Layer.scope`,
+`AudioRole`) already supports this; only the UI (separate track rows) is
+still unbuilt, and remains a candidate for a future pass alongside the
+camera/narration scene-ownership and `Scene` shape rename already deferred
+from Phase 7.3.
 
 ### Phase 7.5 — Playback and large-project performance
 
