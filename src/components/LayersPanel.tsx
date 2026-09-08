@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
-import { layersForScene } from '../domains/scenes/focus'
+import { layersForScene, visibleSceneLayerIds } from '../domains/scenes/focus'
 import { Layer, LayerType, LAYER_TYPE_COLOR } from '../types'
 import {
   DndContext, closestCenter, DragEndEvent, DragMoveEvent,
@@ -20,7 +20,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { useTranslation } from 'react-i18next'
 import { animationLayerInRange, designLayerAtFrame, frameRangeFromSelection, rootLayerIds, selectedWithDescendants } from '../libraryItems'
 import { saveLibraryItem } from '../libraryStorage'
-import { visibleLayerRows } from '../layerTree'
+import { buildLayerRows, visibleLayerRows } from '../layerTree'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { TrackFilterBar } from './timeline/TrackFilterBar'
 import { filterLayerRows } from '../domains/timeline/filters'
@@ -122,7 +122,9 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
   onContextMenu: (e: React.MouseEvent) => void
 }) {
   const { t } = useTranslation()
-  const { deleteLayer, renameLayer, toggleLayerCollapsed } = useStore()
+  const { deleteLayer, renameLayer, toggleLayerCollapsed, editorWorkspace, activeSceneExpandedGroupIds, toggleSceneGroupExpanded } = useStore()
+  const isSceneMode = editorWorkspace === 'scene'
+  const isGroupOpen = isSceneMode ? activeSceneExpandedGroupIds.includes(layer.id) : !layer.collapsed
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(layer.name)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -191,10 +193,10 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
 
       {childCount > 0 || layer.type === 'group' || layer.isGroup ? (
         <button
-          onClick={(e) => { e.stopPropagation(); toggleLayerCollapsed(layer.id) }}
+          onClick={(e) => { e.stopPropagation(); isSceneMode ? toggleSceneGroupExpanded(layer.id) : toggleLayerCollapsed(layer.id) }}
           className="icon-btn"
-          style={{ width: 18, minWidth: 18, height: 18, color: 'var(--text2)', transform: layer.collapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.12s' }}
-          title={layer.collapsed ? t('layers.expandGroup') : t('layers.collapseGroup')}
+          style={{ width: 18, minWidth: 18, height: 18, color: 'var(--text2)', transform: isGroupOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }}
+          title={isGroupOpen ? t('layers.collapseGroup') : t('layers.expandGroup')}
         >
           <ChevronRight size={13} />
         </button>
@@ -273,7 +275,7 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector, applySequentialReveal, applyHighlightPulse, animateSelectedConnectors,
-    script, trackSearchQuery, activeTrackFilters,
+    script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
   } = useStore()
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -302,8 +304,14 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   // Panel shows topmost layer first while preserving nesting.
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   const visibleLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : layers
+  // Scene workspace shows only top-level scene layers by default (Phase 7.2):
+  // expansion is driven by the ephemeral activeSceneExpandedGroupIds set
+  // instead of the persisted Layer.collapsed field Story workspace uses.
+  const baseRows = editorWorkspace === 'scene'
+    ? buildLayerRows(visibleLayers, true).filter((row) => visibleSceneLayerIds(layers, activeScene, activeSceneExpandedGroupIds).has(row.layer.id))
+    : visibleLayerRows(visibleLayers, true)
   const rows = filterLayerRows(
-    visibleLayerRows(visibleLayers, true),
+    baseRows,
     trackSearchQuery,
     activeTrackFilters,
     { selectedLayerIds, scriptSegments: script.segments },

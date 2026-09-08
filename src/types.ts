@@ -478,6 +478,9 @@ export interface EditorState {
   localVoice: LocalVoiceSettings
   editorWorkspace: EditorWorkspace
   activeSceneId: string | null
+  /** Groups expanded so far in the current scene-viewing session (Phase 7.2
+   * "top-level by default"). Ephemeral — not persisted, reset on scene change. */
+  activeSceneExpandedGroupIds: string[]
   cameraPreviewEnabled: boolean
   selectedCameraFrame: number | null
   selectedLayerIds: string[]

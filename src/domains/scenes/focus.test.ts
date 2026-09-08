@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Layer, Scene } from '../../types'
-import { adjacentScene, layerOverlapsScene, layersForScene } from './focus'
+import { adjacentScene, layerOverlapsScene, layersForScene, visibleSceneLayerIds } from './focus'
 
 const scene: Scene = { id: 'scene-2', title: 'Scene 2', startFrame: 30, endFrame: 60, scriptSegmentIds: [] }
 
@@ -23,6 +23,34 @@ describe('scene focus', () => {
       layer('other', 60, 90),
     ]
     expect(layersForScene(layers, scene).map((item) => item.id)).toEqual(['root', 'child'])
+  })
+
+  it('shows only top-level scene layers by default', () => {
+    const layers = [
+      layer('group', 30, 60),
+      layer('child', 30, 60, 'group'),
+      layer('topLevel', 30, 60),
+    ]
+    expect(visibleSceneLayerIds(layers, scene, [])).toEqual(new Set(['group', 'topLevel']))
+  })
+
+  it('reveals only a group\'s direct children once expanded', () => {
+    const layers = [
+      layer('group', 30, 60),
+      layer('child', 30, 60, 'group'),
+      layer('grandchild', 30, 60, 'child'),
+    ]
+    expect(visibleSceneLayerIds(layers, scene, ['group'])).toEqual(new Set(['group', 'child']))
+    expect(visibleSceneLayerIds(layers, scene, ['group', 'child'])).toEqual(new Set(['group', 'child', 'grandchild']))
+  })
+
+  it('treats an empty expansion set as fully collapsed for a fresh scene visit', () => {
+    const layers = [
+      layer('group', 30, 60),
+      layer('child', 30, 60, 'group'),
+    ]
+    // Simulates switching scenes: no group is expanded until the creator opens one.
+    expect(visibleSceneLayerIds(layers, scene, [])).toEqual(new Set(['group']))
   })
 
   it('finds adjacent scenes without wrapping', () => {

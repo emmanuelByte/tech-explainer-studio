@@ -1301,6 +1301,7 @@ interface Actions {
   setEditorWorkspace: (workspace: EditorWorkspace) => void
   openScene: (id: string) => void
   goToAdjacentScene: (direction: -1 | 1) => void
+  toggleSceneGroupExpanded: (id: string) => void
   // Layers
   addLayer: (type: LayerType) => void
   addGeneratedLayer: (type: LayerType, overrides?: Partial<Layer>) => string
@@ -1474,6 +1475,7 @@ export const useStore = create<Store>()(
       localVoice: { ...DEFAULT_LOCAL_VOICE_SETTINGS },
       editorWorkspace: 'story',
       activeSceneId: null,
+      activeSceneExpandedGroupIds: [],
       cameraPreviewEnabled: true,
       selectedCameraFrame: null,
       selectedLayerIds: [],
@@ -1599,6 +1601,7 @@ export const useStore = create<Store>()(
           selectedConnectorId: null,
           selectedCameraFrame: null,
           isPlaying: false,
+          activeSceneExpandedGroupIds: [],
         }
         const scene = s.scenes.find((item) => item.id === s.activeSceneId)
           ?? s.scenes.find((item) => s.currentFrame >= item.startFrame && s.currentFrame < item.endFrame)
@@ -1615,6 +1618,7 @@ export const useStore = create<Store>()(
           selectedKeyframes: [],
           selectedConnectorId: null,
           isPlaying: false,
+          activeSceneExpandedGroupIds: scene.id === s.activeSceneId ? s.activeSceneExpandedGroupIds : [],
         }
       }),
 
@@ -1630,8 +1634,15 @@ export const useStore = create<Store>()(
           selectedConnectorId: null,
           selectedCameraFrame: null,
           isPlaying: false,
+          activeSceneExpandedGroupIds: scene.id === s.activeSceneId ? s.activeSceneExpandedGroupIds : [],
         }
       }),
+
+      toggleSceneGroupExpanded: (id) => set((s) => ({
+        activeSceneExpandedGroupIds: s.activeSceneExpandedGroupIds.includes(id)
+          ? s.activeSceneExpandedGroupIds.filter((groupId) => groupId !== id)
+          : [...s.activeSceneExpandedGroupIds, id],
+      })),
 
       goToAdjacentScene: (direction) => {
         const state = get()

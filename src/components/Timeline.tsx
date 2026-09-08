@@ -18,8 +18,8 @@ import {
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { descendantsOf, visibleLayerRows } from '../layerTree'
-import { layersForScene } from '../domains/scenes/focus'
+import { buildLayerRows, descendantsOf, visibleLayerRows } from '../layerTree'
+import { layersForScene, visibleSceneLayerIds } from '../domains/scenes/focus'
 import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
 
 const BASE_FPX = 4
@@ -511,7 +511,7 @@ function SortableLabel({
   valueGraphH: number
 }) {
   const { t } = useTranslation()
-  const { toggleLayerCollapsed } = useStore()
+  const { toggleLayerCollapsed, editorWorkspace, activeSceneExpandedGroupIds, toggleSceneGroupExpanded } = useStore()
   const sortable = useSortable({ id: layer.id })
   const { setNodeRef, transform, transition, isDragging } = sortable
 
@@ -520,6 +520,11 @@ function SortableLabel({
   const canExpandValues = hasMultipleKf || animProps.length > 0
   const isGroup = childCount > 0 || layer.type === 'group' || layer.isGroup
   const isNarration = layer.type === 'audio' && layer.audioRole === 'narration'
+  // Scene workspace defaults every group to collapsed (top-level layers only)
+  // via an ephemeral, per-scene expansion set, instead of the persisted
+  // Layer.collapsed field Story workspace uses.
+  const isSceneMode = editorWorkspace === 'scene'
+  const isGroupOpen = isSceneMode ? activeSceneExpandedGroupIds.includes(layer.id) : !layer.collapsed
 
   return (
     <div
@@ -551,14 +556,14 @@ function SortableLabel({
         <button
           onClick={(e) => {
             e.stopPropagation()
-            if (isGroup) toggleLayerCollapsed(layer.id)
+            if (isGroup) { if (isSceneMode) toggleSceneGroupExpanded(layer.id); else toggleLayerCollapsed(layer.id) }
             else if (canExpandValues) onToggleExpand()
           }}
           style={{
             width: 14, height: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
             color: isGroup || canExpandValues ? 'var(--text2)' : 'var(--text3)',
             background: 'transparent', cursor: isGroup || canExpandValues ? 'pointer' : 'default',
-            transform: (isGroup ? !layer.collapsed : expanded) ? 'rotate(90deg)' : 'none',
+            transform: (isGroup ? isGroupOpen : expanded) ? 'rotate(90deg)' : 'none',
             transition: 'transform 0.15s',
           }}
           title={isGroup ? t('timeline.collapseOrExpandGroup') : canExpandValues ? t('timeline.expandSubtracks') : t('timeline.noAnimatedProps')}
@@ -964,7 +969,7 @@ export function Timeline() {
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
     addCameraKeyframe, selectCameraKeyframe, openScene, setEditorWorkspace,
-    script, trackSearchQuery, activeTrackFilters,
+    script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1008,8 +1013,14 @@ export function Timeline() {
   const valueGraphH = scaleTimelineHeight(VALUE_GRAPH_H, VALUE_GRAPH_H_MAX, timelineZoom)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   const timelineLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : []
+  // Scene workspace shows only top-level scene layers by default (Phase 7.2):
+  // expansion is driven by the ephemeral activeSceneExpandedGroupIds set
+  // instead of the persisted Layer.collapsed field Story workspace uses.
+  const baseRows = editorWorkspace === 'scene'
+    ? buildLayerRows(timelineLayers, true).filter((row) => visibleSceneLayerIds(layers, activeScene, activeSceneExpandedGroupIds).has(row.layer.id))
+    : visibleLayerRows(timelineLayers, true)
   const rows = filterLayerRows(
-    visibleLayerRows(timelineLayers, true),
+    baseRows,
     trackSearchQuery,
     activeTrackFilters,
     { selectedLayerIds, scriptSegments: script.segments },
