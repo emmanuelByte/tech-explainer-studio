@@ -433,7 +433,8 @@ work:
 
 ## Next implementation target
 
-Begin **Phase 7.2 — Compact timelines** from `SCENE_FIRST_EDITOR.md`. Build on
-the completed Story/Scene focus boundary with compact top-level tracks,
-on-demand property rows, track controls, filters and virtualization. Prove the
-large-scene interaction before the scene-local schema migration.
+Begin **Phase 7.3 — Scene-owned data and local time** from
+`SCENE_FIRST_EDITOR.md`. Phase 7.2 (compact top-level tracks, on-demand
+property rows, track controls/filters, and row/clip virtualization) is
+complete — the large-scene interaction model is proven; now migrate to
+scene-local layer timing via a versioned schema migration.

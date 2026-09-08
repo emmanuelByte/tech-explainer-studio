@@ -265,6 +265,8 @@ mid-scene split path (playhead strictly inside a scene) was verified unchanged.
 
 ### Phase 7.2 — Compact timelines
 
+Status: **Complete (2026-09-08)**
+
 Goal: make both workspaces readable at scale.
 
 - Replace the global scene band with one clip per scene in Story mode.
@@ -277,6 +279,40 @@ Exit criteria:
 
 - A 100-layer scene scrolls and selects smoothly.
 - Collapsed tracks do not create hidden DOM rows or keyframe nodes.
+
+**Delivered:** `Timeline.tsx`'s `SortableLabel` and `LayersPanel.tsx`'s
+`LayerRow` shared a drag handle and visibility/lock buttons extracted into
+`src/components/timeline/LayerRowChrome.tsx`, which now also carries new
+Mute/Solo controls for audio layers. `Layer` gains `solo?: boolean`; a new
+`src/domains/audio/mixing.ts` resolves effective mute (a solo silences every
+other audio layer, an individual mute always wins) at the single shared
+render path in `Composition.tsx`, so solo/mute affect preview and export
+identically. A shared `src/domains/timeline/filters.ts` plus a
+`TrackFilterBar` component add search and Selected/Animated/Visible/Audio/
+Warnings chips (Warnings reuses the existing stale-narration signal) to both
+panels via one store-held `trackSearchQuery`/`activeTrackFilters`. Filtering
+runs over the rows currently visible, so a match inside a collapsed group in
+Scene workspace stays hidden until that group is expanded — verified live and
+an intentional consequence of top-level-by-default rather than a bug to
+route around. Scene workspace now shows only top-level scene layers by
+default — a new
+`visibleSceneLayerIds` in `src/domains/scenes/focus.ts` plus an ephemeral,
+per-scene `activeSceneExpandedGroupIds` (reset on scene change) replace the
+persisted `Layer.collapsed` toggle while inside a scene, leaving Story
+workspace's collapse behavior unchanged. Story mode's scene band was
+replaced with real clips (`SceneClipBand`/`SceneClip`) showing a thumbnail
+(`src/domains/scenes/thumbnail.ts`, reusing `projectStorage.ts`'s existing
+per-layer SVG renderer), duration and a narration badge; scene warning-state
+is intentionally deferred to Phase 7.4. Layer rows in both panels and the
+Story scene-clip strip are virtualized — `LayersPanel.tsx` through
+`@tanstack/react-virtual`, `Timeline.tsx`'s dual synced-scroll columns
+through a hand-rolled equivalent (`src/domains/timeline/virtualization.ts`,
+unit-tested at 100-row scale) reusing the row-position data the timeline
+already computed for keyframe/marquee hit-testing. The scene-local timing
+migration (Phase 7.3) and a synthetic 100-scene/100-layer fixture remain
+future work; this phase's virtualization was verified through the pure
+windowing tests plus live drag-reorder/scroll checks on a ~13-layer/6-scene
+project rather than a full-scale fixture.
 
 ### Phase 7.3 — Scene-owned data and local time
 
