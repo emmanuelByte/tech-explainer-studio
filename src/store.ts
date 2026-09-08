@@ -34,6 +34,7 @@ import {
   updateScriptSegment as updateScriptSegmentInDocument,
 } from './domains/scenes/model'
 import { adjacentScene } from './domains/scenes/focus'
+import { sceneLocalFrame, shiftLayerFrames } from './domains/scenes/layerTiming'
 import type { StructuredScriptImport } from './domains/scenes/structuredScript'
 import clientGroupSvg from './domains/technical-components/assets/clients/client-group.svg?raw'
 import applicationServerSvg from './domains/technical-components/assets/compute/application-server.svg?raw'
@@ -1228,6 +1229,32 @@ function timingForNewLayer(layers: Layer[], totalFrames: number, currentFrame: n
   return { startFrame, endFrame }
 }
 
+/**
+ * Phase 7.3 write boundary for new layers: `timingForNewLayer` always
+ * computes global frames (it doesn't know about scenes); this wraps it so a
+ * layer created while a scene is open in Scene workspace is stamped
+ * `scope: 'scene'`/`sceneId` with its startFrame/endFrame converted to that
+ * scene's local frame space, while a layer created in Story workspace (or
+ * with no active scene resolvable) stays `scope: 'global'` exactly as
+ * before. Every layer-creation action below uses this instead of calling
+ * `timingForNewLayer` directly, so the scene-ownership decision is made in
+ * one place.
+ */
+function sceneAwareTimingForNewLayer(
+  s: Pick<EditorState, 'layers' | 'totalFrames' | 'currentFrame' | 'scenes' | 'editorWorkspace' | 'activeSceneId'>,
+  parentId?: string | null,
+): { startFrame: number; endFrame: number; scope: 'scene' | 'global'; sceneId?: string } {
+  const timing = timingForNewLayer(s.layers, s.totalFrames, s.currentFrame, parentId)
+  const activeScene = s.editorWorkspace === 'scene' ? s.scenes.find((scene) => scene.id === s.activeSceneId) : undefined
+  if (!activeScene) return { ...timing, scope: 'global' }
+  return {
+    startFrame: sceneLocalFrame(timing.startFrame, activeScene),
+    endFrame: sceneLocalFrame(timing.endFrame, activeScene),
+    scope: 'scene',
+    sceneId: activeScene.id,
+  }
+}
+
 function shiftNewLayerAnimatedFrames(overrides: Partial<Layer>, startFrame: number, shouldShift: boolean, totalFrames: number): Partial<Layer> {
   if (!shouldShift || startFrame <= 0) return overrides
 
@@ -1662,24 +1689,28 @@ export const useStore = create<Store>()(
 
       addTechnicalComponent: (kind) => {
         get()._snapshot()
-        const { layers, totalFrames, currentFrame, selectedLayerIds } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s = get()
+        const { layers, currentFrame, selectedLayerIds } = s
+        const timing = sceneAwareTimingForNewLayer(s)
         const label = kind === 'load-balancer' ? 'Load Balancer' : kind === 'client' ? 'Client' : 'Server'
         const placement = technicalComponentPlacement(layers, currentFrame, selectedLayerIds)
         const componentLayers = makeTechnicalComponentLayers(kind, label, placement.x, placement.y, timing.startFrame, timing.endFrame)
+          .map((layer) => ({ ...layer, scope: timing.scope, sceneId: timing.sceneId }))
         set({ layers: [...layers, ...componentLayers], selectedLayerIds: [componentLayers[0].id], selectedKeyframes: [] })
       },
 
       addLoadBalancerTopology: () => {
         get()._snapshot()
-        const { layers, connectors, totalFrames, currentFrame } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s = get()
+        const { layers, connectors } = s
+        const timing = sceneAwareTimingForNewLayer(s)
         const client = makeTechnicalComponentLayers('client', 'Clients', -620, 0, timing.startFrame, timing.endFrame)
         const loadBalancer = makeTechnicalComponentLayers('load-balancer', 'Load Balancer', -220, 0, timing.startFrame, timing.endFrame)
         const server1 = makeTechnicalComponentLayers('server', 'Server 1', 260, -190, timing.startFrame, timing.endFrame)
         const server2 = makeTechnicalComponentLayers('server', 'Server 2', 260, 0, timing.startFrame, timing.endFrame)
         const server3 = makeTechnicalComponentLayers('server', 'Server 3', 260, 190, timing.startFrame, timing.endFrame)
         const components = [...client, ...loadBalancer, ...server1, ...server2, ...server3]
+          .map((layer) => ({ ...layer, scope: timing.scope, sceneId: timing.sceneId }))
         const connection = (targetLayerId: string): Connector => ({
           id: `connector_${uid()}`,
           sourceLayerId: loadBalancer[0].id,
@@ -2035,20 +2066,24 @@ export const useStore = create<Store>()(
 
       addLayer: (type) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
-        const { layers, totalFrames, currentFrame } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s = get()
+        const { layers } = s
+        const timing = sceneAwareTimingForNewLayer(s)
         const layer = makeLayer(type, {
           name: `${TYPE_NAMES[type]} ${layers.filter(l => l.type === type).length + 1}`,
           startFrame: timing.startFrame,
           endFrame: timing.endFrame,
+          scope: timing.scope,
+          sceneId: timing.sceneId,
         })
         set({ layers: [...layers, layer], selectedLayerIds: [layer.id], selectedKeyframes: [] })
       },
 
       addGeneratedLayer: (type, overrides = {}) => {
         get()._snapshot()
-        const { layers, totalFrames, currentFrame, fps } = get()
-        const inheritedTiming = timingForNewLayer(layers, totalFrames, currentFrame, overrides.parentId)
+        const s = get()
+        const { layers, totalFrames, fps } = s
+        const inheritedTiming = sceneAwareTimingForNewLayer(s, overrides.parentId)
         const startFrame = overrides.startFrame ?? inheritedTiming.startFrame
         const endFrame = overrides.endFrame ?? inheritedTiming.endFrame
         const shiftedOverrides = shiftNewLayerAnimatedFrames(overrides, startFrame, overrides.startFrame === undefined, totalFrames)
@@ -2057,6 +2092,8 @@ export const useStore = create<Store>()(
           ...shiftedOverrides,
           startFrame,
           endFrame,
+          scope: overrides.scope ?? inheritedTiming.scope,
+          sceneId: overrides.sceneId ?? inheritedTiming.sceneId,
         })
         const normalizedLayer = isMediaLayer(layer) ? normalizeVideoLayer(layer, fps, totalFrames) : layer
         set((s) => ({ layers: [...s.layers, normalizedLayer], selectedLayerIds: [layer.id] }))
@@ -2066,7 +2103,9 @@ export const useStore = create<Store>()(
       insertLibraryLayers: (sourceLayers, options = {}) => {
         if (!sourceLayers.length) return []
         get()._snapshot()
-        const { totalFrames } = get()
+        const s = get()
+        const { totalFrames } = s
+        const activeScene = s.editorWorkspace === 'scene' ? s.scenes.find((scene) => scene.id === s.activeSceneId) : undefined
         const frameOffset = options.frameOffset ?? 0
         const idMap = new Map(sourceLayers.map((layer) => [layer.id, uid()]))
         const sourceIdSet = new Set(sourceLayers.map((layer) => layer.id))
@@ -2087,7 +2126,7 @@ export const useStore = create<Store>()(
             ) as Layer['propertyKeyframes']
             : undefined
           const parentId = layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : null
-          return {
+          const globalCopy: Layer = {
             ...layer,
             id: idMap.get(layer.id)!,
             name: layer.name,
@@ -2097,6 +2136,8 @@ export const useStore = create<Store>()(
             startFrame: options.fitToTimeline ? 0 : shiftFrame(layer.startFrame ?? 0),
             endFrame: options.fitToTimeline ? totalFrames : Math.max(1, shiftFrame(layer.endFrame ?? totalFrames)),
           }
+          if (!activeScene) return { ...globalCopy, scope: 'global' as const, sceneId: undefined }
+          return { ...shiftLayerFrames(globalCopy, -activeScene.startFrame), scope: 'scene' as const, sceneId: activeScene.id }
         })
 
         const roots = (options.rootLayerIds?.length ? options.rootLayerIds : sourceLayers
@@ -2126,8 +2167,8 @@ export const useStore = create<Store>()(
 
       addImage: (src, name, imageKind = 'raster', naturalWidth, naturalHeight) => {
         get()._snapshot()
-        const { layers, totalFrames, currentFrame } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s0 = get()
+        const timing = sceneAwareTimingForNewLayer(s0)
         const maxW = 360
         const maxH = 260
         const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 1.5
@@ -2148,6 +2189,8 @@ export const useStore = create<Store>()(
               height,
               startFrame: timing.startFrame,
               endFrame: timing.endFrame,
+              scope: timing.scope,
+              sceneId: timing.sceneId,
             }),
           ],
         }))
@@ -2171,8 +2214,9 @@ export const useStore = create<Store>()(
 
       addVideo: (src, name, naturalWidth, naturalHeight, duration) => {
         get()._snapshot()
-        const { layers, totalFrames, fps, currentFrame } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s0 = get()
+        const { totalFrames, fps } = s0
+        const timing = sceneAwareTimingForNewLayer(s0)
         const maxW = 420
         const maxH = 280
         const aspect = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 16 / 9
@@ -2204,6 +2248,8 @@ export const useStore = create<Store>()(
               height,
               startFrame,
               endFrame,
+              scope: timing.scope,
+              sceneId: timing.sceneId,
             }), fps, totalFrames),
           ],
         }))
@@ -2242,8 +2288,9 @@ export const useStore = create<Store>()(
 
       addAudio: (src, name, duration) => {
         get()._snapshot()
-        const { layers, totalFrames, fps, currentFrame } = get()
-        const timing = timingForNewLayer(layers, totalFrames, currentFrame)
+        const s0 = get()
+        const { totalFrames, fps } = s0
+        const timing = sceneAwareTimingForNewLayer(s0)
         const audioFrames = duration && Number.isFinite(duration) ? Math.max(1, Math.round(duration * fps)) : totalFrames
         const startFrame = timing.startFrame
         const endFrame = Math.min(timing.endFrame, startFrame + audioFrames)
@@ -2273,6 +2320,8 @@ export const useStore = create<Store>()(
               fillType: 'none',
               startFrame,
               endFrame,
+              scope: timing.scope,
+              sceneId: timing.sceneId,
             }), fps, totalFrames),
           ],
         }))
@@ -2710,11 +2759,17 @@ export const useStore = create<Store>()(
       addPropertyKeyframe: (layerId, key, frame = get().currentFrame, value) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
+          // `frame` arrives as a global frame (the UI always works in
+          // resolved-global terms — see layerTiming.ts); a scene-scoped
+          // layer's keyframes are stored scene-local, so convert here.
+          const rawTarget = s.layers.find((layer) => layer.id === layerId)
+          const scene = rawTarget?.scope === 'scene' && rawTarget.sceneId ? s.scenes.find((sc) => sc.id === rawTarget.sceneId) : undefined
+          const localFrame = scene ? sceneLocalFrame(frame, scene) : frame
           const layers = s.layers.map((layer) => {
             if (layer.id !== layerId) return layer
-            const transform = interpolateProps(frame, layer.keyframes)
-            const resolvedValue = value ?? getAnimatedPropertyValue(layer, key, frame, transform) ?? getStaticPropertyValue(layer, transform, key)
-            return upsertPropertyKeyframe(layer, key, frame, resolvedValue)
+            const transform = interpolateProps(localFrame, layer.keyframes)
+            const resolvedValue = value ?? getAnimatedPropertyValue(layer, key, localFrame, transform) ?? getStaticPropertyValue(layer, transform, key)
+            return upsertPropertyKeyframe(layer, key, localFrame, resolvedValue)
           })
           const shouldLayout = key !== 'x' && key !== 'y'
           return { layers: shouldLayout ? normalizeLayerTree(s, layers, layerId, false) : withAutoFitGroups(s, layers) }
@@ -2866,12 +2921,18 @@ export const useStore = create<Store>()(
       addKeyframe: (layerId, frame, props, easing = 'ease-out') => {
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
+          // `frame` arrives as a global frame (the UI always works in
+          // resolved-global terms — see layerTiming.ts); a scene-scoped
+          // layer's keyframes are stored scene-local, so convert here.
+          const rawTarget = s.layers.find((layer) => layer.id === layerId)
+          const scene = rawTarget?.scope === 'scene' && rawTarget.sceneId ? s.scenes.find((sc) => sc.id === rawTarget.sceneId) : undefined
+          const localFrame = scene ? sceneLocalFrame(frame, scene) : frame
           const layers = s.layers.map((l) => {
             if (l.id !== layerId) return l
-            const existing = l.keyframes.find((k) => k.frame === frame)
-            const kf: Keyframe = { frame, easing: (easing as Keyframe['easing']), props: { ...props } as TransformProps }
+            const existing = l.keyframes.find((k) => k.frame === localFrame)
+            const kf: Keyframe = { frame: localFrame, easing: (easing as Keyframe['easing']), props: { ...props } as TransformProps }
             const keyframes = [
-              ...l.keyframes.filter((k) => k.frame !== frame),
+              ...l.keyframes.filter((k) => k.frame !== localFrame),
               { ...kf, bezier: existing?.bezier },
             ].sort((a, b) => a.frame - b.frame)
             return { ...l, keyframes }
@@ -2941,26 +3002,45 @@ export const useStore = create<Store>()(
       updateLayerTimeRange: (layerId, startFrame, endFrame) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
+          // `startFrame`/`endFrame` arrive as global frames (the UI always
+          // works in resolved-global terms — see layerTiming.ts). A
+          // scene-scoped layer stores local frames, so convert back to local
+          // at this write boundary before persisting.
+          const target = s.layers.find((l) => l.id === layerId)
+          const scene = target?.scope === 'scene' && target.sceneId ? s.scenes.find((sc) => sc.id === target.sceneId) : undefined
+          const localStart = scene ? sceneLocalFrame(startFrame, scene) : startFrame
+          const localEnd = scene ? sceneLocalFrame(endFrame, scene) : endFrame
           const layers = s.layers.map((l) => {
             if (l.id !== layerId) return l
-            if (!isMediaLayer(l) || !l.videoSegments?.length) return { ...l, startFrame, endFrame }
+            if (!isMediaLayer(l) || !l.videoSegments?.length) return { ...l, startFrame: localStart, endFrame: localEnd }
             const oldStart = l.startFrame ?? 0
             const oldEnd = l.endFrame ?? s.totalFrames
-            const scale = Math.max(1, endFrame - startFrame) / Math.max(1, oldEnd - oldStart)
+            const scale = Math.max(1, localEnd - localStart) / Math.max(1, oldEnd - oldStart)
             return normalizeVideoLayer({
               ...l,
-              videoSegments: retimeVideoSegments(l, oldStart, startFrame, scale),
+              videoSegments: retimeVideoSegments(l, oldStart, localStart, scale),
             }, s.fps, s.totalFrames)
           })
           return { layers: withGroupTimeEnvelopes(layers, s.totalFrames) }
         })
       },
 
-      setLayerRange: (layerId, startFrame, endFrame, keyframeFrames) => {
+      setLayerRange: (layerId, startFrame: number, endFrame: number, keyframeFrames) => {
         if (get().activeInteractionCount === 0) get()._snapshot()
         set((s) => {
-          const target = s.layers.find((l) => l.id === layerId)
-          if (!target) return {}
+          const rawTarget = s.layers.find((l) => l.id === layerId)
+          if (!rawTarget) return {}
+          // `startFrame`/`endFrame`/`keyframeFrames` arrive as global frames
+          // (the UI always works in resolved-global terms — see
+          // layerTiming.ts). Convert back to local for a scene-scoped layer
+          // before this write boundary persists them.
+          const scene = rawTarget.scope === 'scene' && rawTarget.sceneId ? s.scenes.find((sc) => sc.id === rawTarget.sceneId) : undefined
+          const target = rawTarget
+          if (scene) {
+            startFrame = sceneLocalFrame(startFrame, scene)
+            endFrame = sceneLocalFrame(endFrame, scene)
+            keyframeFrames = keyframeFrames?.map((frame) => sceneLocalFrame(frame, scene))
+          }
           if (isGroupLayer(target)) {
             const targetIds = new Set([target.id, ...collectDescendants(s.layers, target.id).map((l) => l.id)])
             const timingLayers = s.layers.filter((l) => targetIds.has(l.id))
@@ -3665,8 +3745,13 @@ export const useStore = create<Store>()(
         if (nextTotalFrames >= state.totalFrames) return
         state._snapshot()
         set((s) => {
+          // Scene-scoped layers store scene-local frames, not global ones —
+          // this project-wide (Story workspace) trim operates on the global
+          // timeline, so scene-owned layers are left untouched here; their
+          // owning scene's own range is what would need trimming, which is
+          // a separate, not-yet-built operation (Phase 7.3 reduced scope).
           const trimmed = s.layers
-            .map((layer) => trimLayerToTimelineEnd(layer, cutFrame, nextTotalFrames, s.fps))
+            .map((layer) => layer.scope === 'scene' ? layer : trimLayerToTimelineEnd(layer, cutFrame, nextTotalFrames, s.fps))
             .filter((layer): layer is Layer => Boolean(layer))
           const keptIds = new Set(trimmed.map((layer) => layer.id))
           const layers = withGroupTimeEnvelopes(
@@ -3697,8 +3782,10 @@ export const useStore = create<Store>()(
         const nextTotalFrames = Math.max(1, state.totalFrames - cutFrame)
         state._snapshot()
         set((s) => {
+          // See trimTimelineAtFrame above: scene-scoped layers are left
+          // untouched by this global-timeline trim (Phase 7.3 reduced scope).
           const trimmed = s.layers
-            .map((layer) => trimLayerFromTimelineStart(layer, cutFrame, nextTotalFrames, s.fps))
+            .map((layer) => layer.scope === 'scene' ? layer : trimLayerFromTimelineStart(layer, cutFrame, nextTotalFrames, s.fps))
             .filter((layer): layer is Layer => Boolean(layer))
           const keptIds = new Set(trimmed.map((layer) => layer.id))
           const layers = withGroupTimeEnvelopes(
