@@ -22,6 +22,7 @@ import { CSS } from '@dnd-kit/utilities'
 import { buildLayerRows, descendantsOf, visibleLayerRows } from '../layerTree'
 import { layersForScene, sceneHasNarration, visibleSceneLayerIds } from '../domains/scenes/focus'
 import { sceneThumbnailSvg } from '../domains/scenes/thumbnail'
+import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
 import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
 
 const BASE_FPX = 4
@@ -409,7 +410,8 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
 }) {
   const { t } = useTranslation()
   const {
-    layers,
+    layers: rawLayers,
+    scenes,
     updateKeyframeEasing,
     updatePropertyKeyframeEasing,
     fps,
@@ -424,6 +426,7 @@ function EasingPicker({ x, y, layerId, frame, propKey, onClose }: {
     setCurrentFrame,
     setPlaying,
   } = useStore()
+  const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
   const layer = layers.find((item) => item.id === layerId)
   const propertyFrames = propKey ? layer?.propertyKeyframes?.[propKey] ?? [] : []
   const usesPropertyFrames = Boolean(propKey && propertyFrames.length)
@@ -1038,7 +1041,7 @@ function TimingModal({ state, fps, onClose, onApply }: {
 export function Timeline() {
   const { t } = useTranslation()
   const {
-    layers, scenes, camera, selectedCameraFrame, currentFrame, totalFrames, fps, isPlaying, playbackRate, editorWorkspace, activeSceneId,
+    layers: rawLayers, scenes, camera, selectedCameraFrame, currentFrame, totalFrames, fps, isPlaying, playbackRate, editorWorkspace, activeSceneId,
     selectedLayerIds, timelineZoom, markers, showAllSubtracks, showValueGraph,
     timelineScrollX,
     setCurrentFrame, setPlaying, setTotalFrames, trimTimelineAtFrame, trimTimelineStartAtFrame, setPlaybackRate,
@@ -1053,6 +1056,11 @@ export function Timeline() {
     script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
     canvasPreset, customWidth, customHeight,
   } = useStore()
+  // Phase 7.3: resolve scene-owned layers' scene-local frames to global once,
+  // so every existing read below (row positions, keyframe hit-testing,
+  // in/out-point edits, connector labels) keeps comparing against the
+  // global `currentFrame`/`totalFrames` exactly as before.
+  const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
   const [kfContextMenu, setKfContextMenu] = useState<KfContextMenu | null>(null)

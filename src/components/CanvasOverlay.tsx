@@ -9,6 +9,7 @@ import { connectorDrawProgress } from '../domains/connectors/draw'
 import { LayerOrderMenu } from './LayerOrderMenu'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 import { cameraToWorld, cameraTransform, resolveCamera } from '../domains/camera/model'
+import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
 
 interface Props {
   containerRef: React.RefObject<HTMLDivElement | null>
@@ -914,11 +915,15 @@ function textRuns(layer: Layer) {
 
 export function CanvasOverlay({ containerRef, canvasW, canvasH, camera }: Props) {
   const {
-    layers, connectors, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
+    layers: rawLayers, scenes, connectors, selectedLayerIds, currentFrame, autoKeyframe, addKeyframe, addKeyframes, setLayerAnimatedProperty,
     editingTextLayerId, setEditingTextLayerId, updateLayerProp, beginInteraction, endInteraction, setTextSelection,
     selectLayer, selectLayers, selectConnector, clearSelectedKeyframes, currentTool, setTool, addGeneratedLayer, resizeLayerBox,
     reorderLayersById, addConnector, updateConnector,
   } = useStore()
+  // Phase 7.3: resolve scene-owned layers' scene-local frames to global once,
+  // so every keyframe-interpolation/hit-testing read below (which already
+  // compares against the global `currentFrame`) keeps working unchanged.
+  const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
   const cameraView = resolveCamera(camera, currentFrame, canvasW, canvasH)
   const cameraWorldTransform = cameraTransform(cameraView, canvasW, canvasH)
   // Tools that should drag-to-create a new layer on the canvas (vs.

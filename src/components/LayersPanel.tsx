@@ -8,6 +8,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
 import { layersForScene, visibleSceneLayerIds } from '../domains/scenes/focus'
+import { resolveLayersToGlobalFrames } from '../domains/scenes/layerTiming'
 import { Layer, LayerType, LAYER_TYPE_COLOR } from '../types'
 import {
   DndContext, closestCenter, DragEndEvent, DragMoveEvent,
@@ -273,13 +274,17 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const { t } = useTranslation()
   const toast = useToast()
   const {
-    layers, scenes, editorWorkspace, activeSceneId, selectedLayerIds, currentFrame, fps,
+    layers: rawLayers, scenes, editorWorkspace, activeSceneId, selectedLayerIds, currentFrame, fps,
     selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo, addTechnicalComponent, addLoadBalancerTopology,
     replaceImageSource, replaceVideoSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector, applySequentialReveal, applyHighlightPulse, animateSelectedConnectors,
     script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
   } = useStore()
+  // Phase 7.3: resolve scene-owned layers' scene-local frames to global once,
+  // so every existing read below (row filtering/display, out-of-range
+  // dimming) keeps comparing against the global `currentFrame` unchanged.
+  const layers = resolveLayersToGlobalFrames(rawLayers, scenes)
   const addMenuRef = useRef<HTMLDivElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number; layer: Layer } | null>(null)
