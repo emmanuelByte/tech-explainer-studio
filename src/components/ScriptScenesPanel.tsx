@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Captions, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, Captions, Copy, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -18,7 +18,7 @@ function seconds(frame: number, fps: number) {
 
 function SortableSceneCard({
   scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength,
-  openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, deleteScene,
+  openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, duplicateScene, deleteScene,
 }: {
   scene: Scene; index: number; isActive: boolean; canMerge: boolean
   currentFrame: number; fps: number; totalFrames: number; scenesLength: number
@@ -28,6 +28,7 @@ function SortableSceneCard({
   moveScene: (id: string, direction: -1 | 1) => void
   splitScene: (id: string) => void
   mergeSceneWithNext: (id: string) => void
+  duplicateScene: (id: string) => void
   deleteScene: (id: string) => void
 }) {
   const { t } = useTranslation()
@@ -92,6 +93,7 @@ function SortableSceneCard({
         <button className="icon-btn" title={t('scenes.moveDown')} disabled={index === scenesLength - 1} onClick={() => moveScene(scene.id, 1)}><ArrowDown size={12} /></button>
         <button className="icon-btn" title={t('scenes.splitAtPlayhead')} disabled={currentFrame <= scene.startFrame || currentFrame >= scene.endFrame} onClick={() => splitScene(scene.id)}><Scissors size={12} /></button>
         <button className="icon-btn" title={t('scenes.mergeNext')} disabled={!canMerge} onClick={() => mergeSceneWithNext(scene.id)}><Merge size={12} /></button>
+        <button className="icon-btn" title={t('scenes.duplicate')} onClick={() => duplicateScene(scene.id)}><Copy size={12} /></button>
         <button className="icon-btn hover:!text-red-400" title={t('common.delete')} onClick={() => deleteScene(scene.id)}><Trash2 size={12} /></button>
       </div>
     </div>
@@ -110,7 +112,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const {
     script, scenes, captions, localVoice, layers, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
-    splitScene, mergeSceneWithNext, moveScene, reorderScene, setCurrentFrame, openScene,
+    splitScene, mergeSceneWithNext, duplicateScene, moveScene, reorderScene, setCurrentFrame, openScene,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
     importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
     setLocalVoice, applyGeneratedNarration,
@@ -425,6 +427,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
                 moveScene={moveScene}
                 splitScene={splitScene}
                 mergeSceneWithNext={mergeSceneWithNext}
+                duplicateScene={duplicateScene}
                 deleteScene={deleteScene}
               />
             ))}

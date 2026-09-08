@@ -121,6 +121,44 @@ export function deleteScene(scenes: Scene[], id: string, totalFrames: number): S
   return normalizeScenes(scenes.filter((scene) => scene.id !== id), totalFrames)
 }
 
+/**
+ * Insert a copy of scene `id` immediately after it, same duration, title
+ * suffixed " Copy". The project's `totalFrames` grows by that duration so
+ * every later scene ripples forward instead of being compressed to fit
+ * (mirrors what "duplicate" means for a video timeline). Layers aren't
+ * touched here — the caller (store.ts's `duplicateScene`) duplicates owned
+ * layers separately, since their local frames need no shift (a scene-local
+ * frame is already relative to the new scene's own start).
+ */
+export function duplicateScene(scenes: Scene[], id: string, totalFrames: number): { scenes: Scene[]; newSceneId: string; totalFrames: number } | null {
+  const normalized = normalizeScenes(scenes, totalFrames)
+  const source = normalized.find((scene) => scene.id === id)
+  if (!source) return null
+  const newSceneId = createSceneId()
+  const duration = source.endFrame - source.startFrame
+  const nextTotalFrames = totalFrames + duration
+  // Shift every scene after the source forward by `duration` first — left
+  // to `normalizeScenes`' overlap clamp alone, a same-`duration` gap isn't
+  // guaranteed (it only pushes an overlapping scene's start forward, not
+  // its end, which would squash that scene's own duration).
+  const shifted = normalized.map((scene) => (
+    scene.startFrame >= source.endFrame
+      ? { ...scene, startFrame: scene.startFrame + duration, endFrame: scene.endFrame + duration }
+      : scene
+  ))
+  const next = normalizeScenes([
+    ...shifted,
+    {
+      id: newSceneId,
+      title: `${source.title} Copy`,
+      startFrame: source.endFrame,
+      endFrame: source.endFrame + duration,
+      scriptSegmentIds: [],
+    },
+  ], nextTotalFrames)
+  return { scenes: next, newSceneId, totalFrames: nextTotalFrames }
+}
+
 export function splitScene(scenes: Scene[], id: string, frame: number, totalFrames: number): Scene[] {
   const normalized = normalizeScenes(scenes, totalFrames)
   const index = normalized.findIndex((scene) => scene.id === id)

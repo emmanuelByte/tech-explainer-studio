@@ -287,6 +287,7 @@ export const resources = {
         endFrame: 'End frame',
         splitAtPlayhead: 'Split at playhead',
         mergeNext: 'Merge with next scene',
+        duplicate: 'Duplicate scene',
         moveUp: 'Move scene earlier',
         moveDown: 'Move scene later',
         dragToReorder: 'Drag to reorder',

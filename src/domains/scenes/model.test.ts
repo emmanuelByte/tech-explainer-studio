@@ -3,6 +3,7 @@ import type { Scene } from '../../types'
 import {
   createScenesForScript,
   addScene,
+  duplicateScene,
   mergeSceneWithNext,
   moveScene,
   reorderScene,
@@ -86,6 +87,22 @@ describe('scene timing', () => {
 
   it('leaves scenes untouched when dragged onto their own slot', () => {
     expect(reorderScene(scenes, 'one', 0, 60)).toEqual(normalizeScenes(scenes, 60))
+  })
+
+  it('duplicates a scene immediately after itself and grows totalFrames by its duration (Phase 7.3)', () => {
+    const result = duplicateScene(scenes, 'one', 60)
+    expect(result).not.toBeNull()
+    expect(result!.totalFrames).toBe(90)
+    expect(result!.scenes.map((scene) => [scene.id === result!.newSceneId ? 'copy' : scene.id, scene.startFrame, scene.endFrame])).toEqual([
+      ['one', 0, 30],
+      ['copy', 30, 60],
+      ['two', 60, 90],
+    ])
+    expect(result!.scenes.find((scene) => scene.id === result!.newSceneId)).toMatchObject({ title: 'One Copy', scriptSegmentIds: [] })
+  })
+
+  it('returns null when duplicating a scene id that does not exist', () => {
+    expect(duplicateScene(scenes, 'missing', 60)).toBeNull()
   })
 })
 

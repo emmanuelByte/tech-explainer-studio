@@ -23,6 +23,7 @@ import {
   addScene as addSceneToTimeline,
   createScenesForScript,
   deleteScene as deleteSceneFromTimeline,
+  duplicateScene as duplicateSceneOnTimeline,
   mergeSceneWithNext,
   moveScene as moveSceneOnTimeline,
   reorderScene as reorderSceneOnTimeline,
@@ -1321,6 +1322,7 @@ interface Actions {
   addScene: (startFrame?: number) => void
   updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds'>>) => void
   deleteScene: (id: string) => void
+  duplicateScene: (id: string) => void
   splitScene: (id: string, frame?: number) => void
   mergeSceneWithNext: (id: string) => void
   moveScene: (id: string, direction: -1 | 1) => void
@@ -2003,13 +2005,47 @@ export const useStore = create<Store>()(
       deleteScene: (id) => set((s) => {
         const scenes = deleteSceneFromTimeline(s.scenes, id, s.totalFrames)
         const removedActiveScene = s.activeSceneId === id
+        // Deleting a scene removes its owned layers (Phase 7.3) — a
+        // scene-scoped layer has no meaning once its owning scene is gone.
+        const removedLayerIds = new Set(s.layers.filter((layer) => layer.scope === 'scene' && layer.sceneId === id).map((layer) => layer.id))
+        const layers = removedLayerIds.size ? s.layers.filter((layer) => !removedLayerIds.has(layer.id)) : s.layers
         return {
           scenes,
+          layers,
           script: { ...s.script, segments: s.script.segments.map((segment) => segment.sceneId === id ? { ...segment, sceneId: undefined } : segment) },
           activeSceneId: removedActiveScene ? scenes[0]?.id ?? null : s.activeSceneId,
           editorWorkspace: removedActiveScene && !scenes.length ? 'story' : s.editorWorkspace,
+          selectedLayerIds: removedLayerIds.size ? s.selectedLayerIds.filter((layerId) => !removedLayerIds.has(layerId)) : s.selectedLayerIds,
+          selectedKeyframes: removedLayerIds.size ? s.selectedKeyframes.filter((kf) => !removedLayerIds.has(kf.layerId)) : s.selectedKeyframes,
         }
       }),
+
+      duplicateScene: (id) => {
+        get()._snapshot()
+        set((s) => {
+          const result = duplicateSceneOnTimeline(s.scenes, id, s.totalFrames)
+          if (!result) return {}
+          // Duplicate every layer owned by the source scene, remapping ids
+          // (and parentId within the duplicated set, mirroring
+          // duplicateLayer) and pointing the copies at the new scene. Their
+          // scene-local frames carry over verbatim — no shift needed, since
+          // a scene-local frame is already relative to the new scene's own
+          // start (Phase 7.3).
+          const owned = s.layers.filter((layer) => layer.scope === 'scene' && layer.sceneId === id)
+          const idMap = new Map(owned.map((layer) => [layer.id, uid()]))
+          const copies = owned.map((layer) => ({
+            ...layer,
+            id: idMap.get(layer.id)!,
+            parentId: layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : layer.parentId,
+            sceneId: result.newSceneId,
+          }))
+          return {
+            scenes: result.scenes,
+            totalFrames: result.totalFrames,
+            layers: [...s.layers, ...copies],
+          }
+        })
+      },
 
       splitScene: (id, frame) => set((s) => ({ scenes: splitSceneAtFrame(s.scenes, id, frame ?? s.currentFrame, s.totalFrames) })),
 
