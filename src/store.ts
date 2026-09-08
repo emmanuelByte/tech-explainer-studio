@@ -1315,6 +1315,8 @@ interface Actions {
   duplicateLayer: (id: string) => void
   toggleVisibility: (id: string) => void
   toggleLock: (id: string) => void
+  toggleAudioMuted: (id: string) => void
+  toggleSolo: (id: string) => void
   selectLayer: (id: string | null, multi?: boolean) => void
   selectLayers: (ids: string[]) => void
   selectConnector: (id: string | null) => void
@@ -2339,6 +2341,12 @@ export const useStore = create<Store>()(
 
       toggleLock: (id) =>
         set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, locked: !l.locked } : l) })),
+
+      toggleAudioMuted: (id) =>
+        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, audioMuted: !l.audioMuted } : l) })),
+
+      toggleSolo: (id) =>
+        set((s) => ({ layers: s.layers.map((l) => l.id === id ? { ...l, solo: !l.solo } : l) })),
 
       selectLayer: (id, multi = false) => {
         if (!id) { set({ selectedLayerIds: [], selectedConnectorId: null, selectedKeyframes: [], editingTextLayerId: null, textSelection: null }); return }

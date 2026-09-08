@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Camera, ChevronLeft, ChevronRight, LineChart, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
-import { LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
+import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
@@ -598,6 +598,9 @@ function SortableLabel({
         )}
 
         {/* Actions */}
+        {layer.type === 'audio' && (
+          <LayerAudioMuteSoloButtons layer={layer} size={12} buttonStyle={{ width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }} />
+        )}
         <LayerVisibilityLockButtons layer={layer} size={12} buttonStyle={{ width: 18, minWidth: 18, height: 18, lineHeight: 1, flexShrink: 0 }} />
       </div>
 

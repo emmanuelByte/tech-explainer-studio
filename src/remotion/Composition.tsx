@@ -11,6 +11,7 @@ import { sketchPathVariants, sketchPolylineVariants, sketchPrimitiveVariants, ty
 import { normalizedDrawStroke } from '../domains/sketch/draw'
 import { cameraTransform, resolveCamera } from '../domains/camera/model'
 import { segmentAtFrame } from '../domains/narration/model'
+import { isEffectivelyMuted } from '../domains/audio/mixing'
 import { speedAtFrame } from './videoSegments'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
@@ -529,7 +530,7 @@ function SketchOutline({ layer, width, height, drawProgress }: { layer: Layer; w
   )
 }
 
-function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex }: {
+function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onSelect, stackIndex, layers }: {
   layer: Layer
   frame: number
   canvasWidth: number
@@ -537,6 +538,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   isSelected: boolean
   onSelect: (multi: boolean) => void
   stackIndex: number
+  layers: Layer[]
 }) {
   if (isGroupLayer(layer)) {
     return null
@@ -606,6 +608,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
     const durationInFrames = Math.max(1, (animatedLayer.endFrame ?? frame + 1) - (animatedLayer.startFrame ?? 0) + 1)
     const isRendering = getRemotionEnvironment().isRendering
     const activeSegmentDuration = Math.max(1, activeSegment.timelineEndFrame - activeSegment.timelineStartFrame)
+    const muted = isEffectivelyMuted(animatedLayer, layers)
     return (
       // Audio has no visible footprint, but we still need the wrapper so
       // selection / clicks work. Use absolute 0×0 box positioned off-canvas
@@ -619,7 +622,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
               endAt={Math.max(1, Math.round(activeSegment.sourceEndFrame))}
               playbackRate={Math.max(0.01, speedAtFrame(activeSegment, frame))}
               volume={Math.max(0, Math.min(1, animatedLayer.audioVolume ?? 1))}
-              muted={!!animatedLayer.audioMuted}
+              muted={muted}
             />
           </Sequence>
         ) : (
@@ -630,7 +633,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
               frame={frame}
               segment={activeSegment}
               volume={animatedLayer.audioVolume ?? 1}
-              muted={!!animatedLayer.audioMuted}
+              muted={muted}
             />
           </Sequence>
         )}
@@ -861,7 +864,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
   )
 }
 
-function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors, stackIndex }: {
+function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors, stackIndex, layers }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -871,6 +874,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   selectLayer: (id: string | null, multi?: boolean) => void
   ancestors: Set<string>
   stackIndex: number
+  layers: Layer[]
 }) {
   if (!isLayerActive(layer, frame)) return null
 
@@ -984,6 +988,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
               selectLayer={selectLayer}
               ancestors={nextAncestors}
               stackIndex={0}
+              layers={layers}
             />
           </div>
         ))}
@@ -992,7 +997,7 @@ function GroupNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, 
   )
 }
 
-function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>(), stackIndex = 0 }: {
+function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHeight, selectedLayerIds, selectLayer, ancestors = new Set<string>(), stackIndex = 0, layers }: {
   layer: Layer
   childrenByParent: Map<string | null, Layer[]>
   frame: number
@@ -1002,6 +1007,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
   selectLayer: (id: string | null, multi?: boolean) => void
   ancestors?: Set<string>
   stackIndex?: number
+  layers: Layer[]
 }) {
   const isGroup = isGroupLayer(layer)
 
@@ -1017,6 +1023,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
         selectLayer={selectLayer}
         ancestors={ancestors}
         stackIndex={stackIndex}
+        layers={layers}
       />
     )
   }
@@ -1030,6 +1037,7 @@ function RenderLayerNode({ layer, childrenByParent, frame, canvasWidth, canvasHe
       isSelected={selectedLayerIds.includes(layer.id)}
       onSelect={(multi) => selectLayer(layer.id, multi)}
       stackIndex={stackIndex}
+      layers={layers}
     />
   )
 }
@@ -1173,6 +1181,7 @@ export function EditorComposition({ layers, connectors = [], camera, applyCamera
             selectedLayerIds={selectedLayerIds}
             selectLayer={selectLayer}
             stackIndex={rootLayers.length - index}
+            layers={layers}
           />
         ))}
       </div>

@@ -21,7 +21,7 @@ import { useTranslation } from 'react-i18next'
 import { animationLayerInRange, designLayerAtFrame, frameRangeFromSelection, rootLayerIds, selectedWithDescendants } from '../libraryItems'
 import { saveLibraryItem } from '../libraryStorage'
 import { visibleLayerRows } from '../layerTree'
-import { LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
+import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
@@ -245,6 +245,9 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
 
       {/* Actions (show on hover) */}
       <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {layer.type === 'audio' && (
+          <LayerAudioMuteSoloButtons layer={layer} size={13} buttonStyle={{ fontSize: 12, padding: '0 2px' }} />
+        )}
         <LayerVisibilityLockButtons layer={layer} size={13} buttonStyle={{ fontSize: 12, padding: '0 2px' }} />
         <button
           onClick={(e) => { e.stopPropagation(); deleteLayer(layer.id) }}

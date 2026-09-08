@@ -205,6 +205,8 @@ export const resources = {
         drag: 'Drag to reorder or parent',
         visibility: 'Toggle visibility',
         lock: 'Toggle lock',
+        mute: 'Mute audio',
+        solo: 'Solo audio (silences other tracks)',
         deleteLayer: 'Delete layer',
         groupSelected: 'Group selected',
         ungroup: 'Ungroup',

@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react'
-import { Eye, EyeOff, GripVertical, Lock, Unlock } from 'lucide-react'
+import { Eye, EyeOff, GripVertical, Headphones, Lock, Unlock, Volume2, VolumeX } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import type { useSortable } from '@dnd-kit/sortable'
 import { useStore } from '../../store'
@@ -65,6 +65,42 @@ export function LayerVisibilityLockButtons({
         title={t('layers.lock')}
       >
         {layer.locked ? <Lock size={size} /> : <Unlock size={size} />}
+      </button>
+    </>
+  )
+}
+
+/** Mute/Solo controls for `type === 'audio'` layers. Callers render this only
+ * when `layer.type === 'audio'` — it does not check the type itself so it can
+ * stay a plain, reusable presentational pair like the buttons above. */
+export function LayerAudioMuteSoloButtons({
+  layer, size = 12, buttonStyle,
+}: {
+  layer: Layer
+  size?: number
+  buttonStyle?: CSSProperties
+}) {
+  const { t } = useTranslation()
+  const { toggleAudioMuted, toggleSolo } = useStore()
+  return (
+    <>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); toggleAudioMuted(layer.id) }}
+        className="icon-btn"
+        style={{ color: layer.audioMuted ? '#f87171' : 'var(--text3)', ...buttonStyle }}
+        title={t('layers.mute')}
+      >
+        {layer.audioMuted ? <VolumeX size={size} /> : <Volume2 size={size} />}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); toggleSolo(layer.id) }}
+        className="icon-btn"
+        style={{ color: layer.solo ? '#facc15' : 'var(--text3)', ...buttonStyle }}
+        title={t('layers.solo')}
+      >
+        <Headphones size={size} />
       </button>
     </>
   )

@@ -286,6 +286,8 @@ export interface Layer {
   audioVolume?: number
   /** Audio-only: mute the layer's playback (transport silent, layer still visible/scheduled). */
   audioMuted?: boolean
+  /** Audio-only: when any audio layer is soloed, every non-soloed audio layer plays silently regardless of its own `audioMuted`. */
+  solo?: boolean
   /** Audio-only semantic role used by narration and timeline workflows. */
   audioRole?: AudioRole
   /** Script segment represented by this narration clip. */
