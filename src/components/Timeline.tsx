@@ -6,6 +6,7 @@ import { useStore } from '../store'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
 import { TrackFilterBar } from './timeline/TrackFilterBar'
 import { filterLayerRows } from '../domains/timeline/filters'
+import { visibleItemIndices } from '../domains/timeline/virtualization'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
 import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
@@ -130,14 +131,18 @@ function SceneClip({
   )
 }
 
-function SceneClipBand({ scenes, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen }: {
-  scenes: Scene[]; fpx: number; activeFrame: number; fps: number
+function SceneClipBand({ sceneEntries, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen }: {
+  // Pre-filtered to the horizontally-visible range by the caller (Phase 7.2
+  // virtualization) — each entry keeps its original scene-order `index` so
+  // "N. Title" numbering stays correct even though only a subset renders.
+  sceneEntries: { scene: Scene; index: number }[]
+  fpx: number; activeFrame: number; fps: number
   layers: Layer[]; canvasWidth: number; canvasHeight: number
   onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
 }) {
   return (
     <div style={{ height: STORY_SCENE_CLIP_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
-      {scenes.map((scene, index) => (
+      {sceneEntries.map(({ scene, index }) => (
         <SceneClip
           key={scene.id}
           scene={scene}
@@ -1057,6 +1062,17 @@ export function Timeline() {
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set())
   const [timelineScrollbar, setTimelineScrollbar] = useState({ left: 0, width: 0, visible: false })
   const [marquee, setMarquee] = useState<TimelineMarqueeState | null>(null)
+  // Phase 7.2: virtualize layer rows so a 100-layer scene stays responsive.
+  // The label and track columns are two independently-scrollable elements
+  // kept numerically in sync (see syncVerticalScroll) rather than one
+  // scrollable region, so they don't fit @tanstack/react-virtual's
+  // single-scroll-element model cleanly. Both columns already position
+  // every row at `rowLayouts[i].top - scrollTop` (verified: the label
+  // column's static header height exactly offsets its scrollable content
+  // starting without that header's leading space), so tracking that one
+  // shared scrollTop and slicing `rows`/`rowLayouts` to the visible range
+  // is a lower-risk equivalent for this specific dual-column layout.
+  const [rowScrollTop, setRowScrollTop] = useState(0)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const labelScrollRef = useRef<HTMLDivElement>(null)
@@ -1146,6 +1162,29 @@ export function Timeline() {
       return layout
     })
   }, [rows, rowH, sceneBandH, groupHeaderH, subtrackH, valueGraphH, expandedLayers, showAllSubtracks, showValueGraph])
+
+  // Row prefix (ruler + scene band + camera lane) that the track column's
+  // absolute row positions include but the label column's own scrollable
+  // content (which starts fresh right after its own Camera row) does not.
+  const labelRowOffset = RULER_H + sceneBandH + rowH
+  const rowsTotalHeight = rowLayouts.length
+    ? rowLayouts[rowLayouts.length - 1].top + rowLayouts[rowLayouts.length - 1].height - labelRowOffset
+    : 0
+  const visibleRowIndices = useMemo(
+    () => visibleItemIndices(rowLayouts, rowScrollTop, scrollRef.current?.clientHeight ?? 600, 300),
+    [rowLayouts, rowScrollTop],
+  )
+
+  // Story mode's scene clips are already absolutely positioned by frame, so
+  // virtualizing them only means skipping ones outside the horizontally
+  // visible range — no spacer needed, unlike the vertical layer rows above.
+  const visibleSceneEntries = useMemo(() => {
+    if (editorWorkspace !== 'story') return []
+    const sceneSpans = scenes.map((scene) => ({ top: TIMELINE_LEFT_OFFSET + scene.startFrame * fpx, height: (scene.endFrame - scene.startFrame) * fpx }))
+    const viewportW = scrollRef.current?.clientWidth ?? 1200
+    const visible = visibleItemIndices(sceneSpans, timelineScrollX, viewportW, 400)
+    return visible.map((index) => ({ scene: scenes[index], index }))
+  }, [scenes, editorWorkspace, timelineScrollX, fpx])
 
   const keyframeTargets = useMemo<TimelineKeyframeTarget[]>(() => {
     const targets: TimelineKeyframeTarget[] = []
@@ -1837,7 +1876,7 @@ export function Timeline() {
             ref={labelScrollRef}
             className="flex-1 overflow-y-auto overflow-x-hidden"
             style={{ overflowY: 'auto' }}
-            onScroll={(e) => syncVerticalScroll('labels', e.currentTarget.scrollTop)}
+            onScroll={(e) => { syncVerticalScroll('labels', e.currentTarget.scrollTop); setRowScrollTop(e.currentTarget.scrollTop) }}
           >
             <div className="flex items-center gap-2 px-3" style={{ height: rowH, minHeight: rowH, borderBottom: '1px solid var(--border2)', color: '#38bdf8', fontSize: 11, fontWeight: 600 }}>
               <Camera size={13} />Camera
@@ -1845,26 +1884,32 @@ export function Timeline() {
             </div>
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={rows.map((r) => r.layer.id)} strategy={verticalListSortingStrategy}>
-                {rows.map(({ layer, depth }) => (
-                  <SortableLabel
-                    key={layer.id}
-                    layer={layer}
-                    depth={depth}
-                    childCount={childCount(layer.id)}
-                    showValueGraph={showValueGraph}
-                    selected={selectedLayerIds.includes(layer.id)}
-                    currentFrame={currentFrame}
-                    onSelect={(e) => selectLayer(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)}
-                    rowH={rowH}
-                    expanded={expandedLayers.has(layer.id)}
-                    onToggleExpand={() => toggleExpand(layer.id)}
-                    animProps={getVisibleAnimProps(layer, showAllSubtracks)}
-                    onAddSubKf={onAddSubKf}
-                    groupHeaderH={groupHeaderH}
-                    subtrackH={subtrackH}
-                    valueGraphH={valueGraphH}
-                  />
-                ))}
+                <div style={{ position: 'relative', height: rowsTotalHeight }}>
+                  {visibleRowIndices.map((index) => {
+                    const { layer, depth } = rows[index]
+                    return (
+                      <div key={layer.id} style={{ position: 'absolute', top: rowLayouts[index].top - labelRowOffset, left: 0, right: 0 }}>
+                        <SortableLabel
+                          layer={layer}
+                          depth={depth}
+                          childCount={childCount(layer.id)}
+                          showValueGraph={showValueGraph}
+                          selected={selectedLayerIds.includes(layer.id)}
+                          currentFrame={currentFrame}
+                          onSelect={(e) => selectLayer(layer.id, e.shiftKey || e.metaKey || e.ctrlKey)}
+                          rowH={rowH}
+                          expanded={expandedLayers.has(layer.id)}
+                          onToggleExpand={() => toggleExpand(layer.id)}
+                          animProps={getVisibleAnimProps(layer, showAllSubtracks)}
+                          onAddSubKf={onAddSubKf}
+                          groupHeaderH={groupHeaderH}
+                          subtrackH={subtrackH}
+                          valueGraphH={valueGraphH}
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
               </SortableContext>
             </DndContext>
           </div>
@@ -1885,6 +1930,7 @@ export function Timeline() {
                 updateTimelineScrollbar()
               }
               syncVerticalScroll('tracks', e.currentTarget.scrollTop)
+              setRowScrollTop(e.currentTarget.scrollTop)
             }}
           >
             <div style={{ width: contentWidth, position: 'relative' }}>
@@ -1910,7 +1956,7 @@ export function Timeline() {
             </div>
             {editorWorkspace === 'story' ? (
               <SceneClipBand
-                scenes={scenes}
+                sceneEntries={visibleSceneEntries}
                 fpx={fpx}
                 activeFrame={currentFrame}
                 fps={fps}
@@ -1952,32 +1998,38 @@ export function Timeline() {
               ))}
             </div>
 
-            {/* Track rows — same order as label column */}
-            {rows.map(({ layer }) => (
-              <TrackRow
-                key={layer.id}
-                layer={layer} fpx={fpx} totalWidth={totalWidth} contentWidth={contentWidth} timelineOffset={TIMELINE_LEFT_OFFSET}
-                selected={selectedLayerIds.includes(layer.id)}
-                currentFrame={currentFrame} rowH={rowH}
-                expanded={expandedLayers.has(layer.id)}
-                animProps={getVisibleAnimProps(layer, showAllSubtracks)}
-                showValueGraph={showValueGraph}
-                groupRange={getGroupRange(layer.id)}
-                selectedKeyframes={selectedKeyframes}
-                groupHeaderH={groupHeaderH}
-                subtrackH={subtrackH}
-                valueGraphH={valueGraphH}
-                onKfMouseDown={onKfMouseDown}
-                onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => {
-                  e.preventDefault(); e.stopPropagation()
-                  selectKeyframe({ layerId, frame, propKey })
-                  setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing, propKey })
-                }}
-                onClick={() => { if (!suppressRowClick.current) selectLayer(layer.id) }}
-                onBarMouseDown={onBarMouseDown}
-                onBarContextMenu={(e, layerId) => setBarContextMenu({ x: e.clientX, y: e.clientY, layerId })}
-              />
-            ))}
+            {/* Track rows — same order as label column, virtualized to the visible scroll range */}
+            <div style={{ height: rowsTotalHeight, position: 'relative' }}>
+              {visibleRowIndices.map((index) => {
+                const { layer } = rows[index]
+                return (
+                  <div key={layer.id} style={{ position: 'absolute', top: rowLayouts[index].top - labelRowOffset, left: 0, right: 0 }}>
+                    <TrackRow
+                      layer={layer} fpx={fpx} totalWidth={totalWidth} contentWidth={contentWidth} timelineOffset={TIMELINE_LEFT_OFFSET}
+                      selected={selectedLayerIds.includes(layer.id)}
+                      currentFrame={currentFrame} rowH={rowH}
+                      expanded={expandedLayers.has(layer.id)}
+                      animProps={getVisibleAnimProps(layer, showAllSubtracks)}
+                      showValueGraph={showValueGraph}
+                      groupRange={getGroupRange(layer.id)}
+                      selectedKeyframes={selectedKeyframes}
+                      groupHeaderH={groupHeaderH}
+                      subtrackH={subtrackH}
+                      valueGraphH={valueGraphH}
+                      onKfMouseDown={onKfMouseDown}
+                      onKfContextMenu={(e: React.MouseEvent, layerId: string, frame: number, showEasing?: boolean, propKey?: AnimatableProperty) => {
+                        e.preventDefault(); e.stopPropagation()
+                        selectKeyframe({ layerId, frame, propKey })
+                        setKfContextMenu({ x: e.clientX, y: e.clientY, layerId, frame, showEasing, propKey })
+                      }}
+                      onClick={() => { if (!suppressRowClick.current) selectLayer(layer.id) }}
+                      onBarMouseDown={onBarMouseDown}
+                      onBarContextMenu={(e, layerId) => setBarContextMenu({ x: e.clientX, y: e.clientY, layerId })}
+                    />
+                  </div>
+                )
+              })}
+            </div>
 
             {selectedKeyframeBounds && selectedKeyframes.length > 1 && (
               <div

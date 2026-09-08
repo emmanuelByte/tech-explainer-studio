@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   ChevronRight, Circle, Folder, Image as ImageIcon,
   Film, Layers, Library, Music, PenLine, Plus, Settings2, Slash, Sparkles, Square, Trash2, Triangle,
@@ -82,6 +83,8 @@ function CompositionAccordion() {
   )
 }
 
+const LAYER_ROW_H = 32
+
 const TYPE_ICONS: Record<LayerType, LucideIcon> = {
   rectangle: Square, ellipse: Circle, line: Slash,
   triangle: Triangle, path: PenLine, text: Type, image: ImageIcon,
@@ -148,7 +151,7 @@ function LayerRow({ layer, depth, selected, childCount, dropHint, onSelect, onCo
       style={{
         position: 'relative',
         display: 'flex', alignItems: 'center', gap: 4, padding: '0 6px 0 2px',
-        height: 32, cursor: 'pointer', userSelect: 'none',
+        height: LAYER_ROW_H, cursor: 'pointer', userSelect: 'none',
         borderBottom: activeDropHint?.mode === 'below' ? '2px solid var(--accent)' : '1px solid transparent',
         borderTop: activeDropHint?.mode === 'above' ? '2px solid var(--accent)' : undefined,
         background: isDragging
@@ -320,6 +323,20 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const selectedComponents = selectedLayerIds
     .map((id) => layers.find((layer) => layer.id === id))
     .filter((layer): layer is Layer => Boolean(layer?.technicalComponent))
+
+  // Phase 7.2: virtualize the layer row list so a 100-layer scene stays
+  // responsive — only rows within (plus a small overscan) the visible
+  // scroll range are mounted. dnd-kit's sortable strategy can only measure
+  // mounted rows, so a row currently scrolled out of view isn't a valid
+  // drop target until it scrolls back in; the drag still completes fine
+  // for any pair of rows that ARE visible at drop time.
+  const layerListScrollRef = useRef<HTMLDivElement>(null)
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => layerListScrollRef.current,
+    estimateSize: () => LAYER_ROW_H,
+    overscan: 8,
+  })
 
   useEffect(() => {
     if (!addMenuOpen) return
@@ -689,7 +706,7 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
       <TrackFilterBar />
 
       {/* Sortable layer list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-shrink-0">
         {selectedComponents.length === 2 && (
           <div className="mx-2 mt-2 rounded p-2" style={{ border: '1px solid var(--border)', background: 'var(--input)' }}>
             <div className="mb-1 text-[10px]" style={{ color: 'var(--text3)' }}>Connect selected components</div>
@@ -755,6 +772,8 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             {editorWorkspace === 'scene' ? t('workspace.emptyScene') : t('layers.empty')}
           </div>
         )}
+      </div>
+      <div ref={layerListScrollRef} className="flex-1 overflow-y-auto">
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -762,24 +781,33 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
           onDragCancel={() => { setDropHint(null); hoverRef.current = null }}
           onDragEnd={handleDragEnd}
         >
-              <SortableContext items={rows.map((r) => r.layer.id)} strategy={verticalListSortingStrategy}>
-            {rows.map(({ layer, depth }) => (
-              <LayerRow
-                key={layer.id}
-                layer={layer}
-                depth={depth}
-                childCount={childCount(layer.id)}
-                selected={selectedLayerIds.includes(layer.id)}
-                dropHint={dropHint}
-                onSelect={(e) => handleLayerSelect(layer.id, e)}
-                onContextMenu={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  setMenu({ x: e.clientX, y: e.clientY, layer })
-                  if (!selectedLayerIds.includes(layer.id)) selectLayer(layer.id)
-                }}
-              />
-            ))}
+          <SortableContext items={rows.map((r) => r.layer.id)} strategy={verticalListSortingStrategy}>
+            <div style={{ height: rowVirtualizer.getTotalSize(), position: 'relative' }}>
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const { layer, depth } = rows[virtualRow.index]
+                return (
+                  <div
+                    key={layer.id}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <LayerRow
+                      layer={layer}
+                      depth={depth}
+                      childCount={childCount(layer.id)}
+                      selected={selectedLayerIds.includes(layer.id)}
+                      dropHint={dropHint}
+                      onSelect={(e) => handleLayerSelect(layer.id, e)}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        setMenu({ x: e.clientX, y: e.clientY, layer })
+                        if (!selectedLayerIds.includes(layer.id)) selectLayer(layer.id)
+                      }}
+                    />
+                  </div>
+                )
+              })}
+            </div>
           </SortableContext>
         </DndContext>
       </div>
