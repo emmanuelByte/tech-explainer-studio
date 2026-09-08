@@ -291,7 +291,7 @@ function layerCount(layers: Layer[]) {
   return layers.filter((l) => l.type !== 'group').length
 }
 
-function escapeXml(value: string) {
+export function escapeXml(value: string) {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -305,7 +305,7 @@ function fillForLayer(layer: Layer, fallback = 'transparent') {
   return layer.gradientStops[0]?.color || layer.fillColor || fallback
 }
 
-function thumbnailLayerSvg(
+export function thumbnailLayerSvg(
   layer: Layer,
   frame: number,
   parentWidth: number,

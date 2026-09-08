@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, useMemo, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { Camera, ChevronLeft, ChevronRight, LineChart, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
+import { Camera, ChevronLeft, ChevronRight, LineChart, Mic, Pause, Play, Repeat2, Scissors, ZoomIn, ZoomOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useStore } from '../store'
 import { LayerAudioMuteSoloButtons, LayerDragHandle, LayerVisibilityLockButtons } from './timeline/LayerRowChrome'
@@ -19,12 +19,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { buildLayerRows, descendantsOf, visibleLayerRows } from '../layerTree'
-import { layersForScene, visibleSceneLayerIds } from '../domains/scenes/focus'
+import { layersForScene, sceneHasNarration, visibleSceneLayerIds } from '../domains/scenes/focus'
+import { sceneThumbnailSvg } from '../domains/scenes/thumbnail'
 import { ANIMATION_GROUPS, getAnimatedPropertyValue, getPropertyKeyframes, NUMERIC_PROPERTIES, PROPERTY_LABELS } from '../animationProperties'
 
 const BASE_FPX = 4
 const RULER_H = 24
 const SCENE_BAND_H = 24
+const STORY_SCENE_CLIP_H = 56
 const LABEL_W = 150
 const ROW_H = 28
 const ROW_H_MAX = 40
@@ -76,6 +78,80 @@ function SceneBand({ scenes, fpx, activeFrame, onSelect, onOpen }: { scenes: Sce
           </button>
         )
       })}
+    </div>
+  )
+}
+
+// ── Story-mode scene clip (name, thumbnail, duration, narration state) ────
+function SceneClip({
+  scene, index, fpx, active, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen,
+}: {
+  scene: Scene; index: number; fpx: number; active: boolean; fps: number
+  layers: Layer[]; canvasWidth: number; canvasHeight: number
+  onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
+}) {
+  const { t } = useTranslation()
+  const durationSeconds = (scene.endFrame - scene.startFrame) / fps
+  const hasNarration = useMemo(() => sceneHasNarration(layers, scene), [layers, scene])
+  const thumbnail = useMemo(
+    () => sceneThumbnailSvg(layers, scene, canvasWidth, canvasHeight),
+    [layers, scene, canvasWidth, canvasHeight],
+  )
+  return (
+    <button
+      type="button"
+      onClick={(event) => { event.stopPropagation(); onSelect(scene) }}
+      onDoubleClick={(event) => { event.stopPropagation(); onOpen(scene) }}
+      title={`${scene.title} · ${t('timeline.frameLabel', { frame: scene.startFrame })}`}
+      style={{
+        position: 'absolute', left: TIMELINE_LEFT_OFFSET + scene.startFrame * fpx,
+        width: Math.max(2, (scene.endFrame - scene.startFrame) * fpx), top: 3, bottom: 3,
+        borderRadius: 4, border: `1px solid ${active ? '#0d99ff' : 'rgba(99,102,241,0.7)'}`,
+        background: active ? 'rgba(13,153,255,0.24)' : 'rgba(99,102,241,0.15)',
+        display: 'flex', alignItems: 'stretch', gap: 6, padding: 3,
+        overflow: 'hidden', cursor: 'pointer', textAlign: 'left',
+      }}
+    >
+      <img
+        src={thumbnail}
+        alt=""
+        style={{ height: '100%', aspectRatio: `${canvasWidth} / ${canvasHeight}`, borderRadius: 2, flexShrink: 0, objectFit: 'cover', background: '#000' }}
+      />
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
+        <span style={{ color: active ? '#b9e5ff' : 'var(--text)', fontSize: 10, fontWeight: 600, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>
+          {index + 1}. {scene.title}
+        </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--text3)', fontSize: 9 }}>
+          {durationSeconds.toFixed(1)}s
+          {hasNarration && <Mic size={9} style={{ color: '#a78bfa' }} />}
+        </span>
+      </div>
+    </button>
+  )
+}
+
+function SceneClipBand({ scenes, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen }: {
+  scenes: Scene[]; fpx: number; activeFrame: number; fps: number
+  layers: Layer[]; canvasWidth: number; canvasHeight: number
+  onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
+}) {
+  return (
+    <div style={{ height: STORY_SCENE_CLIP_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
+      {scenes.map((scene, index) => (
+        <SceneClip
+          key={scene.id}
+          scene={scene}
+          index={index}
+          fpx={fpx}
+          fps={fps}
+          layers={layers}
+          canvasWidth={canvasWidth}
+          canvasHeight={canvasHeight}
+          active={activeFrame >= scene.startFrame && activeFrame < scene.endFrame}
+          onSelect={onSelect}
+          onOpen={onOpen}
+        />
+      ))}
     </div>
   )
 }
@@ -970,6 +1046,7 @@ export function Timeline() {
     beginInteraction, endInteraction,
     addCameraKeyframe, selectCameraKeyframe, openScene, setEditorWorkspace,
     script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
+    canvasPreset, customWidth, customHeight,
   } = useStore()
 
   const [timelineH, setTimelineH] = useState(savedTimelineH)
@@ -1012,6 +1089,10 @@ export function Timeline() {
   const subtrackH = scaleTimelineHeight(SUBTRACK_H, SUBTRACK_H_MAX, timelineZoom)
   const valueGraphH = scaleTimelineHeight(VALUE_GRAPH_H, VALUE_GRAPH_H_MAX, timelineZoom)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const isCustomCanvas = canvasPreset.name === 'Custom'
+  const canvasW = isCustomCanvas ? customWidth : canvasPreset.width
+  const canvasH = isCustomCanvas ? customHeight : canvasPreset.height
+  const sceneBandH = editorWorkspace === 'story' ? STORY_SCENE_CLIP_H : SCENE_BAND_H
   const timelineLayers = editorWorkspace === 'scene' ? layersForScene(layers, activeScene) : []
   // Scene workspace shows only top-level scene layers by default (Phase 7.2):
   // expansion is driven by the ephemeral activeSceneExpandedGroupIds set
@@ -1045,7 +1126,7 @@ export function Timeline() {
   }
 
   const rowLayouts = useMemo(() => {
-    let top = RULER_H + SCENE_BAND_H + rowH
+    let top = RULER_H + sceneBandH + rowH
     return rows.map(({ layer }) => {
       const animProps = getVisibleAnimProps(layer, showAllSubtracks)
       const hasMultipleKf = layer.keyframes.length >= 2
@@ -1064,7 +1145,7 @@ export function Timeline() {
       top += height
       return layout
     })
-  }, [rows, rowH, groupHeaderH, subtrackH, valueGraphH, expandedLayers, showAllSubtracks, showValueGraph])
+  }, [rows, rowH, sceneBandH, groupHeaderH, subtrackH, valueGraphH, expandedLayers, showAllSubtracks, showValueGraph])
 
   const keyframeTargets = useMemo<TimelineKeyframeTarget[]>(() => {
     const targets: TimelineKeyframeTarget[] = []
@@ -1336,7 +1417,7 @@ export function Timeline() {
     const target = e.target as HTMLElement
     if (target.closest('[data-timeline-interactive]')) return
     const point = timelinePointFromMouse(e.clientX, e.clientY)
-    if (!point || point.y < RULER_H + SCENE_BAND_H) return
+    if (!point || point.y < RULER_H + sceneBandH) return
     marqueeRef.current = {
       startX: point.x,
       startY: point.y,
@@ -1737,7 +1818,7 @@ export function Timeline() {
       <div className="flex flex-1 overflow-hidden">
         {/* Label column */}
         <div className="flex flex-col flex-shrink-0" style={{ width: LABEL_W, borderRight: '1px solid var(--border)', overflow: 'hidden' }}>
-          <div className="flex items-center gap-1.5 px-3" style={{ height: RULER_H + SCENE_BAND_H, flexShrink: 0, borderBottom: '1px solid var(--border2)', color: 'var(--text3)', fontSize: 10, letterSpacing: '0.06em' }}>
+          <div className="flex items-center gap-1.5 px-3" style={{ height: RULER_H + sceneBandH, flexShrink: 0, borderBottom: '1px solid var(--border2)', color: 'var(--text3)', fontSize: 10, letterSpacing: '0.06em' }}>
             {editorWorkspace === 'scene' && (
               <button
                 type="button"
@@ -1827,13 +1908,27 @@ export function Timeline() {
                 </div>
               ))}
             </div>
-            <SceneBand
-              scenes={editorWorkspace === 'scene' && activeScene ? [activeScene] : scenes}
-              fpx={fpx}
-              activeFrame={currentFrame}
-              onSelect={(scene) => setCurrentFrame(scene.startFrame)}
-              onOpen={(scene) => { if (editorWorkspace === 'story') openScene(scene.id) }}
-            />
+            {editorWorkspace === 'story' ? (
+              <SceneClipBand
+                scenes={scenes}
+                fpx={fpx}
+                activeFrame={currentFrame}
+                fps={fps}
+                layers={layers}
+                canvasWidth={canvasW}
+                canvasHeight={canvasH}
+                onSelect={(scene) => setCurrentFrame(scene.startFrame)}
+                onOpen={(scene) => openScene(scene.id)}
+              />
+            ) : (
+              <SceneBand
+                scenes={activeScene ? [activeScene] : []}
+                fpx={fpx}
+                activeFrame={currentFrame}
+                onSelect={(scene) => setCurrentFrame(scene.startFrame)}
+                onOpen={() => {}}
+              />
+            )}
 
             <div
               data-camera-lane

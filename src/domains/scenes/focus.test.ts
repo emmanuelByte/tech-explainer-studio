@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Layer, Scene } from '../../types'
-import { adjacentScene, layerOverlapsScene, layersForScene, visibleSceneLayerIds } from './focus'
+import { adjacentScene, layerOverlapsScene, layersForScene, sceneHasNarration, visibleSceneLayerIds } from './focus'
 
 const scene: Scene = { id: 'scene-2', title: 'Scene 2', startFrame: 30, endFrame: 60, scriptSegmentIds: [] }
 
@@ -51,6 +51,14 @@ describe('scene focus', () => {
     ]
     // Simulates switching scenes: no group is expanded until the creator opens one.
     expect(visibleSceneLayerIds(layers, scene, [])).toEqual(new Set(['group']))
+  })
+
+  it('detects narration audio overlapping a scene', () => {
+    const narrationLayer = { ...layer('voice', 30, 60), type: 'audio' as const, audioRole: 'narration' as const }
+    const musicLayer = { ...layer('music', 30, 60), type: 'audio' as const, audioRole: 'music' as const }
+    expect(sceneHasNarration([narrationLayer], scene)).toBe(true)
+    expect(sceneHasNarration([musicLayer], scene)).toBe(false)
+    expect(sceneHasNarration([{ ...narrationLayer, startFrame: 0, endFrame: 20 }], scene)).toBe(false)
   })
 
   it('finds adjacent scenes without wrapping', () => {

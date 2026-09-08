@@ -66,6 +66,12 @@ export function visibleSceneLayerIds(layers: Layer[], scene: Scene | null | unde
   return visible
 }
 
+/** Whether any narration audio layer overlaps this scene's frame range —
+ * the "narration state" a Story-mode scene clip surfaces. */
+export function sceneHasNarration(layers: Layer[], scene: Scene): boolean {
+  return layers.some((layer) => layer.type === 'audio' && layer.audioRole === 'narration' && layerOverlapsScene(layer, scene))
+}
+
 export function adjacentScene(scenes: Scene[], activeSceneId: string | null, direction: -1 | 1) {
   const index = scenes.findIndex((scene) => scene.id === activeSceneId)
   if (index < 0) return null
