@@ -15,7 +15,7 @@ import {
   PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
 import {
-  SortableContext, verticalListSortingStrategy,
+  SortableContext, verticalListSortingStrategy, horizontalListSortingStrategy,
   useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -99,8 +99,11 @@ function SceneClip({
     () => sceneThumbnailSvg(layers, scene, canvasWidth, canvasHeight),
     [layers, scene, canvasWidth, canvasHeight],
   )
+  const sortable = useSortable({ id: scene.id })
+  const { setNodeRef, transform, transition, isDragging } = sortable
   return (
     <button
+      ref={setNodeRef}
       type="button"
       onClick={(event) => { event.stopPropagation(); onSelect(scene) }}
       onDoubleClick={(event) => { event.stopPropagation(); onOpen(scene) }}
@@ -112,8 +115,11 @@ function SceneClip({
         background: active ? 'rgba(13,153,255,0.24)' : 'rgba(99,102,241,0.15)',
         display: 'flex', alignItems: 'stretch', gap: 6, padding: 3,
         overflow: 'hidden', cursor: 'pointer', textAlign: 'left',
+        transform: CSS.Translate.toString(transform), transition,
+        zIndex: isDragging ? 5 : undefined, opacity: isDragging ? 0.6 : 1,
       }}
     >
+      <LayerDragHandle handle={sortable} size={10} title={t('scenes.dragToReorder')} style={{ alignSelf: 'center' }} />
       <img
         src={thumbnail}
         alt=""
@@ -132,7 +138,13 @@ function SceneClip({
   )
 }
 
-function SceneClipBand({ sceneEntries, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen }: {
+function SceneClipBand({
+  scenes, sceneEntries, fpx, activeFrame, fps, layers, canvasWidth, canvasHeight, onSelect, onOpen, onReorder,
+}: {
+  // The full, in-order scene list — needed as `SortableContext`'s `items` so
+  // drag math stays correct even though only `sceneEntries` (the
+  // horizontally-visible subset, Phase 7.2 virtualization) actually renders.
+  scenes: Scene[]
   // Pre-filtered to the horizontally-visible range by the caller (Phase 7.2
   // virtualization) — each entry keeps its original scene-order `index` so
   // "N. Title" numbering stays correct even though only a subset renders.
@@ -140,24 +152,30 @@ function SceneClipBand({ sceneEntries, fpx, activeFrame, fps, layers, canvasWidt
   fpx: number; activeFrame: number; fps: number
   layers: Layer[]; canvasWidth: number; canvasHeight: number
   onSelect: (scene: Scene) => void; onOpen: (scene: Scene) => void
+  onReorder: (event: DragEndEvent) => void
 }) {
+  const sceneDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
   return (
     <div style={{ height: STORY_SCENE_CLIP_H, position: 'relative', borderBottom: '1px solid var(--border2)', background: 'var(--toolbar)' }}>
-      {sceneEntries.map(({ scene, index }) => (
-        <SceneClip
-          key={scene.id}
-          scene={scene}
-          index={index}
-          fpx={fpx}
-          fps={fps}
-          layers={layers}
-          canvasWidth={canvasWidth}
-          canvasHeight={canvasHeight}
-          active={activeFrame >= scene.startFrame && activeFrame < scene.endFrame}
-          onSelect={onSelect}
-          onOpen={onOpen}
-        />
-      ))}
+      <DndContext sensors={sceneDragSensors} collisionDetection={closestCenter} onDragEnd={onReorder}>
+        <SortableContext items={scenes.map((scene) => scene.id)} strategy={horizontalListSortingStrategy}>
+          {sceneEntries.map(({ scene, index }) => (
+            <SceneClip
+              key={scene.id}
+              scene={scene}
+              index={index}
+              fpx={fpx}
+              fps={fps}
+              layers={layers}
+              canvasWidth={canvasWidth}
+              canvasHeight={canvasHeight}
+              active={activeFrame >= scene.startFrame && activeFrame < scene.endFrame}
+              onSelect={onSelect}
+              onOpen={onOpen}
+            />
+          ))}
+        </SortableContext>
+      </DndContext>
     </div>
   )
 }
@@ -1048,7 +1066,7 @@ export function Timeline() {
     selectLayer, removeKeyframe, clearLayerKeyframes, clearLayerAndDescendantKeyframes, addKeyframe, addPropertyKeyframe, removePropertyKeyframe, duplicateKeyframe,
     addMarker, removeMarker,
     setTimelineZoom, loopEnabled, loopIn, loopOut, setLoop, clearLoop, setLoopEnabled,
-    updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById,
+    updateLayerTimeRange, setLayerRange, duplicateLayer, deleteLayer, reorderLayersById, reorderScene,
     setTimelineScrollX, setTimelinePanelHeight, setShowAllSubtracks, setShowValueGraph,
     selectedKeyframes, selectKeyframe, setSelectedKeyframes, moveSelectedKeyframes,
     beginInteraction, endInteraction,
@@ -1694,6 +1712,17 @@ export function Timeline() {
     reorderLayersById([...arrayMove(rows, oldIdx, newIdx)].reverse().map((r) => r.layer.id))
   }
 
+  // Story mode's scene-clip strip — mirrors ScriptScenesPanel.tsx's
+  // handleSceneDragEnd exactly, so dragging a clip here and dragging a card
+  // in the Scenes side panel produce identical results.
+  function handleSceneDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const toIndex = scenes.findIndex((scene) => scene.id === over.id)
+    if (toIndex < 0) return
+    reorderScene(String(active.id), toIndex)
+  }
+
   // ── Ruler marks ───────────────────────────────────────────────────────
   const rulerMarks: React.ReactNode[] = []
   const minPxPerLabel = 40
@@ -1964,6 +1993,7 @@ export function Timeline() {
             </div>
             {editorWorkspace === 'story' ? (
               <SceneClipBand
+                scenes={scenes}
                 sceneEntries={visibleSceneEntries}
                 fpx={fpx}
                 activeFrame={currentFrame}
@@ -1971,6 +2001,7 @@ export function Timeline() {
                 layers={layers}
                 canvasWidth={canvasW}
                 canvasHeight={canvasH}
+                onReorder={handleSceneDragEnd}
                 onSelect={(scene) => setCurrentFrame(scene.startFrame)}
                 onOpen={(scene) => openScene(scene.id)}
               />
