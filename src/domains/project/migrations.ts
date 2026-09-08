@@ -1,11 +1,12 @@
-import type { MotionProject } from '../../types'
+import type { Layer, MotionProject } from '../../types'
+import { shiftLayerFrames } from '../scenes/layerTiming'
 
 /**
  * Bump this value whenever the persisted MotionProject shape changes.
  * Projects are migrated one version at a time so an old file never relies on
  * incidental UI sanitisation to remain usable.
  */
-export const CURRENT_PROJECT_SCHEMA_VERSION = 12
+export const CURRENT_PROJECT_SCHEMA_VERSION = 13
 
 type ProjectRecord = Record<string, unknown>
 
@@ -203,6 +204,36 @@ const PROJECT_MIGRATIONS: ProjectMigration[] = [
         pauseFrames: 6,
       },
     }),
+  },
+  {
+    // Phase 7.3: layers gain scene ownership. Each existing layer is assigned
+    // to the scene containing its (global) start frame and its timing is
+    // converted to scene-local frames (0 = that scene's own start); a layer
+    // whose start frame falls outside every scene becomes `scope: 'global'`
+    // and keeps its global frames untouched — same as the doc's migration
+    // steps 1-4. Camera/narration scene-ownership and the `Scene` shape
+    // itself are unchanged (deferred to a future phase).
+    from: 12,
+    to: 13,
+    migrate: (project) => {
+      const scenes = Array.isArray(project.scenes) ? project.scenes.filter(isProjectRecord) : []
+      const layers = Array.isArray(project.layers) ? project.layers : []
+      return {
+        ...project,
+        schemaVersion: 13,
+        layers: layers.map((layer) => {
+          if (!isProjectRecord(layer) || typeof layer.startFrame !== 'number') return layer
+          const owningScene = scenes.find((scene) => (
+            typeof scene.startFrame === 'number' && typeof scene.endFrame === 'number'
+            && typeof scene.id === 'string'
+            && (layer.startFrame as number) >= scene.startFrame && (layer.startFrame as number) < scene.endFrame
+          ))
+          if (!owningScene) return { ...layer, scope: 'global' }
+          const localLayer = shiftLayerFrames(layer as unknown as Layer, -(owningScene.startFrame as number))
+          return { ...localLayer, scope: 'scene', sceneId: owningScene.id }
+        }),
+      }
+    },
   },
 ]
 

@@ -16,6 +16,15 @@ describe('scene focus', () => {
     expect(layerOverlapsScene(layer('spanning', 0, 90), scene)).toBe(true)
   })
 
+  it('matches a scope: scene layer purely by sceneId, ignoring its (scene-local) frame range', () => {
+    // Local frames 0-1000 would "overlap" almost anything by raw range, but
+    // a scene-owned layer belongs to exactly the scene it's assigned to.
+    const owned = { ...layer('owned', 0, 1000), scope: 'scene' as const, sceneId: 'scene-2' }
+    const ownedByOther = { ...layer('other', 0, 1000), scope: 'scene' as const, sceneId: 'scene-3' }
+    expect(layerOverlapsScene(owned, scene)).toBe(true)
+    expect(layerOverlapsScene(ownedByOther, scene)).toBe(false)
+  })
+
   it('keeps parent groups needed by matching children', () => {
     const layers = [
       layer('root', 0, 20),

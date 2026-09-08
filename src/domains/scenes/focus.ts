@@ -1,6 +1,11 @@
 import type { Layer, Scene } from '../../types'
 
 export function layerOverlapsScene(layer: Layer, scene: Scene) {
+  // A scene-owned layer belongs to exactly the scene it's assigned to — its
+  // startFrame/endFrame are scene-local (Phase 7.3), not comparable against
+  // the scene's global range. Global (or legacy, scope-less) layers keep
+  // the original global-frame-range overlap check.
+  if (layer.scope === 'scene') return layer.sceneId === scene.id
   const startFrame = layer.startFrame ?? 0
   const endFrame = layer.endFrame ?? Number.POSITIVE_INFINITY
   return startFrame < scene.endFrame && endFrame > scene.startFrame

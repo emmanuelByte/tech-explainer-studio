@@ -133,6 +133,28 @@ describe('migrateProject', () => {
     })
   })
 
+  it('assigns scene-owned layers to scene-local frames and leaves the rest global in version 13', () => {
+    const migrated = migrateProject({
+      ...legacyProject,
+      schemaVersion: 12,
+      scenes: [
+        { id: 'scene-a', startFrame: 0, endFrame: 60, scriptSegmentIds: [] },
+        { id: 'scene-b', startFrame: 60, endFrame: 120, scriptSegmentIds: [] },
+      ],
+      layers: [
+        // Starts inside scene-b (global frame 70) -> scene-local frames relative to 60.
+        { id: 'owned', startFrame: 70, endFrame: 90, keyframes: [{ frame: 75, easing: 'linear', props: {} }] },
+        // Starts before every scene -> stays global, untouched.
+        { id: 'orphan', startFrame: 200, endFrame: 220, keyframes: [] },
+      ],
+    })
+    expect(migrated.layers[0]).toMatchObject({
+      scope: 'scene', sceneId: 'scene-b', startFrame: 10, endFrame: 30,
+      keyframes: [{ frame: 15 }],
+    })
+    expect(migrated.layers[1]).toMatchObject({ scope: 'global', startFrame: 200, endFrame: 220 })
+  })
+
   it('rejects malformed and future project versions without downgrading them', () => {
     expect(() => migrateProject([])).toThrow(ProjectMigrationError)
     expect(() => migrateProject({ ...legacyProject, schemaVersion: -1 })).toThrow(ProjectMigrationError)

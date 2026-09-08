@@ -298,6 +298,13 @@ export interface Layer {
   svgFillColor?: string
   svgFillEnabled?: boolean
   svgStrokeWidth?: number
+  // Scene ownership (Phase 7.3). `scope` is optional/undefined for legacy
+  // layers and is treated identically to 'global'. A 'scene' layer's
+  // startFrame/endFrame and every frame-bearing field below are stored
+  // relative to its owning scene's own start (frame 0 = the scene's start),
+  // not the project's global timeline — see src/domains/scenes/layerTiming.ts.
+  scope?: 'scene' | 'global'
+  sceneId?: string
   // Time range
   startFrame: number
   endFrame: number
