@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDown, ArrowUp, Captions, Copy, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
+import { AlertTriangle, ArrowDown, ArrowUp, Captions, Clipboard, ClipboardPaste, Copy, FileText, GripVertical, ListVideo, LoaderCircle, Merge, Mic2, Plus, RefreshCw, Scissors, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
@@ -8,7 +8,7 @@ import { sceneAtFrame, suggestedScriptSplitOffset } from '../domains/scenes/mode
 import { sceneHasWarning } from '../domains/scenes/focus'
 import { parseStructuredScript } from '../domains/scenes/structuredScript'
 import { generateAndStoreLocalSpeech, getLocalTtsHealth, type LocalTtsHealth } from '../localTts'
-import { useStore } from '../store'
+import { SCENE_CLIPBOARD_KEY, useStore } from '../store'
 import type { Layer, Scene, ScriptSegment } from '../types'
 
 type PanelMode = 'script' | 'scenes'
@@ -19,7 +19,7 @@ function seconds(frame: number, fps: number) {
 
 function SortableSceneCard({
   scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength, layers, scriptSegments,
-  openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, duplicateScene, deleteScene,
+  openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, duplicateScene, copyScene, deleteScene,
 }: {
   scene: Scene; index: number; isActive: boolean; canMerge: boolean
   currentFrame: number; fps: number; totalFrames: number; scenesLength: number
@@ -31,6 +31,7 @@ function SortableSceneCard({
   splitScene: (id: string) => void
   mergeSceneWithNext: (id: string) => void
   duplicateScene: (id: string) => void
+  copyScene: (id: string) => void
   deleteScene: (id: string) => void
 }) {
   const { t } = useTranslation()
@@ -125,6 +126,7 @@ function SortableSceneCard({
         <button className="icon-btn" title={t('scenes.splitAtPlayhead')} disabled={currentFrame <= scene.startFrame || currentFrame >= scene.endFrame} onClick={() => splitScene(scene.id)}><Scissors size={12} /></button>
         <button className="icon-btn" title={t('scenes.mergeNext')} disabled={!canMerge} onClick={() => mergeSceneWithNext(scene.id)}><Merge size={12} /></button>
         <button className="icon-btn" title={t('scenes.duplicate')} onClick={() => duplicateScene(scene.id)}><Copy size={12} /></button>
+        <button className="icon-btn" title={t('scenes.copy')} onClick={() => copyScene(scene.id)}><Clipboard size={12} /></button>
         <button className="icon-btn hover:!text-red-400" title={t('common.delete')} onClick={() => deleteScene(scene.id)}><Trash2 size={12} /></button>
       </div>
     </div>
@@ -143,12 +145,27 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
   const {
     script, scenes, captions, localVoice, layers, currentFrame, fps, totalFrames,
     setScriptText, generateScenesFromScript, addScene, updateScene, deleteScene,
-    splitScene, mergeSceneWithNext, duplicateScene, moveScene, reorderScene, setCurrentFrame, openScene,
+    splitScene, mergeSceneWithNext, duplicateScene, copyScene, pasteScene, moveScene, reorderScene, setCurrentFrame, openScene,
     updateScriptSegment, splitScriptSegment, mergeScriptSegmentWithNext,
     importStructuredScript, updateScriptSegmentRange, alignScriptSegmentsToScenes, setCaptions,
     setLocalVoice, applyGeneratedNarration,
   } = useStore()
   const activeScene = useMemo(() => sceneAtFrame(scenes, currentFrame), [scenes, currentFrame])
+  // Whether a scene is sitting in the clipboard (localStorage, see
+  // copyScene/pasteScene in store.ts) — checked on mount and refreshed after
+  // every copy, since paste may happen after a project switch (a fresh
+  // mount) rather than a live update within this session.
+  const [hasClipboardScene, setHasClipboardScene] = useState(() => {
+    try {
+      return localStorage.getItem(SCENE_CLIPBOARD_KEY) !== null
+    } catch {
+      return false
+    }
+  })
+  function handleCopyScene(id: string) {
+    copyScene(id)
+    setHasClipboardScene(true)
+  }
   const sceneDragSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
   function handleSceneDragEnd(event: DragEndEvent) {
     const { active, over } = event
@@ -435,7 +452,10 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
     <div className="flex flex-col h-full" style={{ width: '100%', background: 'var(--panel)' }}>
       <div className="flex items-center justify-between gap-2 px-3 flex-shrink-0" style={{ height: 32, borderBottom: '1px solid var(--border)', color: 'var(--text2)' }}>
         <div className="flex items-center gap-1.5"><ListVideo size={13} /><span className="section-header" style={{ padding: 0 }}>{t('scenes.title')}</span></div>
-        <button className="icon-btn" title={t('scenes.addScene')} onClick={() => addScene(currentFrame)}><Plus size={14} /></button>
+        <div className="flex items-center gap-1">
+          <button className="icon-btn" title={t('scenes.paste')} disabled={!hasClipboardScene} onClick={() => pasteScene()}><ClipboardPaste size={14} /></button>
+          <button className="icon-btn" title={t('scenes.addScene')} onClick={() => addScene(currentFrame)}><Plus size={14} /></button>
+        </div>
       </div>
       <div className="p-2 overflow-y-auto flex-1 flex flex-col gap-2">
         {!scenes.length && <p className="text-xs text-center mt-8" style={{ color: 'var(--text3)' }}>{t('scenes.empty')}</p>}
@@ -461,6 +481,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
                 splitScene={splitScene}
                 mergeSceneWithNext={mergeSceneWithNext}
                 duplicateScene={duplicateScene}
+                copyScene={handleCopyScene}
                 deleteScene={deleteScene}
               />
             ))}

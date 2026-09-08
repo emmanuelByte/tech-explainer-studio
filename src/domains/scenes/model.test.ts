@@ -8,6 +8,7 @@ import {
   moveScene,
   reorderScene,
   normalizeScenes,
+  remapSceneOwnedLayers,
   sceneAtFrame,
   splitScene,
   splitScriptSegment,
@@ -103,6 +104,22 @@ describe('scene timing', () => {
 
   it('returns null when duplicating a scene id that does not exist', () => {
     expect(duplicateScene(scenes, 'missing', 60)).toBeNull()
+  })
+
+  it('remaps scene-owned layers onto a new scene with fresh ids and rewritten parentId', () => {
+    let counter = 0
+    const idGenerator = () => `new-${counter++}`
+    const layers = [
+      { id: 'root', parentId: null, sceneId: 'one' },
+      { id: 'child', parentId: 'root', sceneId: 'one' },
+      { id: 'orphaned-parent-ref', parentId: 'outside-the-set', sceneId: 'one' },
+    ]
+    const result = remapSceneOwnedLayers(layers, 'two', idGenerator)
+    expect(result).toEqual([
+      { id: 'new-0', parentId: null, sceneId: 'two' },
+      { id: 'new-1', parentId: 'new-0', sceneId: 'two' },
+      { id: 'new-2', parentId: 'outside-the-set', sceneId: 'two' },
+    ])
   })
 })
 

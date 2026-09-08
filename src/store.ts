@@ -22,11 +22,13 @@ import {
   EMPTY_SCRIPT_DOCUMENT,
   addScene as addSceneToTimeline,
   createScenesForScript,
+  createSceneId,
   deleteScene as deleteSceneFromTimeline,
   duplicateScene as duplicateSceneOnTimeline,
   mergeSceneWithNext,
   moveScene as moveSceneOnTimeline,
   reorderScene as reorderSceneOnTimeline,
+  remapSceneOwnedLayers,
   mergeScriptSegmentWithNext as mergeScriptSegment,
   normalizeScenes,
   splitScene as splitSceneAtFrame,
@@ -53,6 +55,18 @@ import {
 } from './domains/narration/model'
 
 function uid() { return Math.random().toString(36).slice(2, 9) }
+
+// Phase 7.4 scene clipboard — a single localStorage key holding the
+// most-recently-copied scene + its owned layers (ids unremapped, see
+// copyScene). localStorage (not sessionStorage or navigator.clipboard) is
+// the only mechanism that both survives a project switch within the
+// browser and has any existing precedent in this codebase; there is no
+// server-side session/multi-tab sync to build on instead.
+export const SCENE_CLIPBOARD_KEY = 'clipboard:scene'
+interface SceneClipboardPayload {
+  scene: Scene
+  layers: Layer[]
+}
 
 function svgDataUrl(svg: string) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
@@ -1323,6 +1337,8 @@ interface Actions {
   updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame' | 'scriptSegmentIds' | 'transitionIn' | 'transitionOut'>>) => void
   deleteScene: (id: string) => void
   duplicateScene: (id: string) => void
+  copyScene: (id: string) => void
+  pasteScene: () => void
   splitScene: (id: string, frame?: number) => void
   mergeSceneWithNext: (id: string) => void
   moveScene: (id: string, direction: -1 | 1) => void
@@ -2025,23 +2041,59 @@ export const useStore = create<Store>()(
         set((s) => {
           const result = duplicateSceneOnTimeline(s.scenes, id, s.totalFrames)
           if (!result) return {}
-          // Duplicate every layer owned by the source scene, remapping ids
-          // (and parentId within the duplicated set, mirroring
-          // duplicateLayer) and pointing the copies at the new scene. Their
-          // scene-local frames carry over verbatim — no shift needed, since
-          // a scene-local frame is already relative to the new scene's own
-          // start (Phase 7.3).
           const owned = s.layers.filter((layer) => layer.scope === 'scene' && layer.sceneId === id)
-          const idMap = new Map(owned.map((layer) => [layer.id, uid()]))
-          const copies = owned.map((layer) => ({
-            ...layer,
-            id: idMap.get(layer.id)!,
-            parentId: layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : layer.parentId,
-            sceneId: result.newSceneId,
-          }))
+          const copies = remapSceneOwnedLayers(owned, result.newSceneId, uid)
           return {
             scenes: result.scenes,
             totalFrames: result.totalFrames,
+            layers: [...s.layers, ...copies],
+          }
+        })
+      },
+
+      copyScene: (id) => {
+        const s = get()
+        const scene = s.scenes.find((sc) => sc.id === id)
+        if (!scene) return
+        const owned = s.layers.filter((layer) => layer.scope === 'scene' && layer.sceneId === id)
+        // Ids stay as-authored here (unremapped) — `pasteScene` remaps them
+        // fresh at paste time, since the same clipboard payload might be
+        // pasted more than once, or into a different project entirely.
+        const payload: SceneClipboardPayload = { scene, layers: owned }
+        try {
+          localStorage.setItem(SCENE_CLIPBOARD_KEY, JSON.stringify(payload))
+        } catch {
+          // Best-effort — a full/unavailable localStorage just means paste
+          // won't find anything, which pasteScene already handles.
+        }
+      },
+
+      pasteScene: () => {
+        let payload: SceneClipboardPayload | null = null
+        try {
+          const raw = localStorage.getItem(SCENE_CLIPBOARD_KEY)
+          payload = raw ? (JSON.parse(raw) as SceneClipboardPayload) : null
+        } catch {
+          payload = null
+        }
+        if (!payload) return
+        get()._snapshot()
+        set((s) => {
+          const newSceneId = createSceneId()
+          const duration = payload.scene.endFrame - payload.scene.startFrame
+          const startFrame = s.totalFrames
+          const endFrame = startFrame + duration
+          const newScene: Scene = {
+            ...payload.scene,
+            id: newSceneId,
+            startFrame,
+            endFrame,
+            scriptSegmentIds: [],
+          }
+          const copies = remapSceneOwnedLayers(payload.layers, newSceneId, uid)
+          return {
+            scenes: normalizeScenes([...s.scenes, newScene], endFrame),
+            totalFrames: endFrame,
             layers: [...s.layers, ...copies],
           }
         })

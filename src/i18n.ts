@@ -288,6 +288,8 @@ export const resources = {
         splitAtPlayhead: 'Split at playhead',
         mergeNext: 'Merge with next scene',
         duplicate: 'Duplicate scene',
+        copy: 'Copy scene',
+        paste: 'Paste scene',
         moveUp: 'Move scene earlier',
         moveDown: 'Move scene later',
         dragToReorder: 'Drag to reorder',

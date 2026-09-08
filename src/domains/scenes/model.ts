@@ -122,6 +122,33 @@ export function deleteScene(scenes: Scene[], id: string, totalFrames: number): S
 }
 
 /**
+ * Remaps a set of scene-owned layers onto a new scene: fresh ids (via
+ * `idGenerator`, so the caller controls the id scheme — store.ts's short
+ * `uid()`), `parentId` rewritten within the remapped set (a parent outside
+ * it, or none, is left as-is), and `sceneId` pointed at `newSceneId`. Scene-
+ * local frames carry over verbatim — no shift needed, since a scene-local
+ * frame is already relative to the new scene's own start (Phase 7.3).
+ *
+ * Shared by store.ts's `duplicateScene` (source and destination are the
+ * same store call) and `pasteScene` (source was serialized earlier, by
+ * `copyScene`, possibly into a different project) — both need the exact
+ * same id-remap shape, just at different times.
+ */
+export function remapSceneOwnedLayers<T extends { id: string; parentId?: string | null; sceneId?: string }>(
+  layers: T[],
+  newSceneId: string,
+  idGenerator: () => string,
+): T[] {
+  const idMap = new Map(layers.map((layer) => [layer.id, idGenerator()]))
+  return layers.map((layer) => ({
+    ...layer,
+    id: idMap.get(layer.id)!,
+    parentId: layer.parentId && idMap.has(layer.parentId) ? idMap.get(layer.parentId)! : layer.parentId,
+    sceneId: newSceneId,
+  }))
+}
+
+/**
  * Insert a copy of scene `id` immediately after it, same duration, title
  * suffixed " Copy". The project's `totalFrames` grows by that duration so
  * every later scene ripples forward instead of being compressed to fit
