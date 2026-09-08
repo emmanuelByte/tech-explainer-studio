@@ -18,11 +18,12 @@ function seconds(frame: number, fps: number) {
 
 function SortableSceneCard({
   scene, index, isActive, canMerge, currentFrame, fps, totalFrames, scenesLength,
-  openScene, updateScene, moveScene, splitScene, mergeSceneWithNext, deleteScene,
+  openScene, setCurrentFrame, updateScene, moveScene, splitScene, mergeSceneWithNext, deleteScene,
 }: {
   scene: Scene; index: number; isActive: boolean; canMerge: boolean
   currentFrame: number; fps: number; totalFrames: number; scenesLength: number
   openScene: (id: string) => void
+  setCurrentFrame: (frame: number) => void
   updateScene: (id: string, patch: Partial<Pick<Scene, 'title' | 'startFrame' | 'endFrame'>>) => void
   moveScene: (id: string, direction: -1 | 1) => void
   splitScene: (id: string) => void
@@ -48,7 +49,12 @@ function SortableSceneCard({
           title={t('scenes.dragToReorder')}
           style={{ cursor: 'grab', color: 'var(--text3)', marginTop: 3, flexShrink: 0, touchAction: 'none' }}
         ><GripVertical size={12} /></span>
-        <button className="flex-1 min-w-0 text-left" onClick={() => openScene(scene.id)} title={t('scenes.openScene')}>
+        <button
+          className="flex-1 min-w-0 text-left"
+          onClick={() => setCurrentFrame(scene.startFrame)}
+          onDoubleClick={() => openScene(scene.id)}
+          title={t('scenes.openSceneHint')}
+        >
           <div className="text-[10px] mb-1" style={{ color: 'var(--text3)' }}>
             {t('scenes.timeRange', { start: seconds(scene.startFrame, fps), end: seconds(scene.endFrame, fps) })}
           </div>
@@ -414,6 +420,7 @@ export function ScriptScenesPanel({ mode }: { mode: PanelMode }) {
                 totalFrames={totalFrames}
                 scenesLength={scenes.length}
                 openScene={openScene}
+                setCurrentFrame={setCurrentFrame}
                 updateScene={updateScene}
                 moveScene={moveScene}
                 splitScene={splitScene}

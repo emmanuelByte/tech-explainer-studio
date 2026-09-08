@@ -278,6 +278,7 @@ export const resources = {
         empty: 'No scenes yet. Create them from your script or add one at the playhead.',
         seekScene: 'Seek to scene start',
         openScene: 'Open scene',
+        openSceneHint: 'Click to seek · double-click to open',
         timeRange: '{{start}}s – {{end}}s',
         sceneTitle: 'Scene title',
         startFrame: 'Start frame',
