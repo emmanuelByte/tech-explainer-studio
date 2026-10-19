@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "id": "load-balancer",
+  "title": "How a Load Balancer Works",
+  "nodes": [
+    {
+      "id": "clients",
+      "kind": "client",
+      "label": "Clients"
+    },
+    {
+      "id": "lb",
+      "kind": "load-balancer",
+      "label": "Load Balancer"
+    },
+    {
+      "id": "s1",
+      "kind": "server",
+      "label": "Server 1"
+    },
+    {
+      "id": "s2",
+      "kind": "server",
+      "label": "Server 2"
+    },
+    {
+      "id": "s3",
+      "kind": "server",
+      "label": "Server 3"
+    }
+  ],
+  "edges": [
+    {
+      "id": "clients-s1",
+      "from": "clients",
+      "to": "s1",
+      "label": "every request",
+      "style": "dashed"
+    },
+    {
+      "id": "clients-lb",
+      "from": "clients",
+      "to": "lb",
+      "label": "requests"
+    },
+    {
+      "id": "lb-s1",
+      "from": "lb",
+      "to": "s1"
+    },
+    {
+      "id": "lb-s2",
+      "from": "lb",
+      "to": "s2"
+    },
+    {
+      "id": "lb-s3",
+      "from": "lb",
+      "to": "s3"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "problem",
+      "title": "The problem",
+      "narration": "Every time you open a website, your browser sends a request to a server.",
+      "reveal": [
+        "clients"
+      ]
+    },
+    {
+      "id": "bottleneck",
+      "title": "One server is not enough",
+      "narration": "As traffic grows, a single server becomes a bottleneck. It slows down, and eventually it fails.",
+      "reveal": [
+        "s1",
+        "clients-s1"
+      ]
+    },
+    {
+      "id": "solution",
+      "title": "Add a load balancer",
+      "narration": "A load balancer sits in front of your servers and receives every request first.",
+      "reveal": [
+        "lb",
+        "clients-lb"
+      ],
+      "hide": [
+        "clients-s1"
+      ]
+    },
+    {
+      "id": "distribute",
+      "title": "Spread the traffic",
+      "narration": "It then distributes those requests across several servers, so no single machine is overwhelmed.",
+      "reveal": [
+        "s2",
+        "s3",
+        "lb-s1",
+        "lb-s2",
+        "lb-s3"
+      ]
+    },
+    {
+      "id": "recap",
+      "title": "Recap",
+      "narration": "The result is a faster, more reliable service that keeps working even when one server goes down.",
+      "focus": [
+        "clients",
+        "lb",
+        "s1",
+        "s2",
+        "s3"
+      ]
+    }
+  ]
+}

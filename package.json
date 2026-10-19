@@ -13,7 +13,8 @@
     "remotion:compositions": "remotion compositions src/remotion/index.tsx",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lesson": "esbuild tools/lesson/cli.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/lesson-cli.mjs --log-level=warning && node node_modules/.cache/lesson-cli.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
