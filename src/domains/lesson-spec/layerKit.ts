@@ -14,7 +14,7 @@ export function svgDataUrl(svg: string) {
 
 /** Mirrors the editor's makeLayer defaults, minus its randomness, so output is deterministic. */
 export function baseLayer(theme: LessonTheme, type: LayerType, overrides: Partial<Layer> & Pick<Layer, 'id' | 'name' | 'startFrame' | 'endFrame' | 'keyframes'>): Layer {
-  const { colors: COLORS, sketch: SKETCH, typography: TYPE } = theme
+  const { colors: COLORS, typography: TYPE } = theme
   const layer: Layer = {
     type,
     visible: true,
@@ -53,8 +53,9 @@ export function baseLayer(theme: LessonTheme, type: LayerType, overrides: Partia
     borderBottomLeftRadius: 0,
     borderRadiusLinked: true,
     pathClosed: false,
-    sketchEnabled: SKETCH.enabled,
-    sketchRoughness: SKETCH.roughness,
+    // Sketch distortion is opted into per element (component bodies, connectors); text, panels and backgrounds stay crisp.
+    sketchEnabled: false,
+    sketchRoughness: theme.sketch.roughness,
     shadowEnabled: false,
     shadowColor: COLORS.shadow,
     shadowFollowsPerspective: false,

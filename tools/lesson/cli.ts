@@ -11,6 +11,7 @@ import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './n
 import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from '../../src/domains/review/notes'
 import { atomicWriteFile } from '../../server/atomicFile'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
+import { THEME_IDS, type ThemeId } from '../../src/domains/lesson-spec/theme'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -57,8 +58,16 @@ function requestedCanvas() {
   return ASPECTS[value as keyof typeof ASPECTS]
 }
 
+function requestedTheme(): ThemeId | undefined {
+  const at = process.argv.indexOf('--theme')
+  if (at < 0) return undefined
+  const value = process.argv[at + 1]
+  if (!(THEME_IDS as readonly string[]).includes(value)) throw new Error(`--theme must be one of ${THEME_IDS.join(', ')}.`)
+  return value as ThemeId
+}
+
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
-  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration, canvas: requestedCanvas() })
+  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration, canvas: requestedCanvas(), theme: requestedTheme() })
 }
 
 function flag(name: string, fallback: string) {

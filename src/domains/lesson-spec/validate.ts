@@ -1,3 +1,4 @@
+import { THEME_IDS } from './theme'
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { narrationCueProblems, parseNarration } from './narration'
 import { BULLET_LIMITS, CARD_LIMITS, COMPARISON_LIMITS, SEQUENCE_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
@@ -19,6 +20,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   if (typeof input.id !== 'string' || !ID_PATTERN.test(input.id)) add('id', 'Required lowercase slug (a-z, 0-9, - or _).')
   if (typeof input.title !== 'string' || !input.title.trim()) add('title', 'Required.')
 
+  if (input.theme !== undefined && !(THEME_IDS as readonly unknown[]).includes(input.theme)) add('theme', `Must be one of: ${THEME_IDS.join(', ')}.`)
   if (input.canvas !== undefined) {
     if (!isRecord(input.canvas)) add('canvas', 'Must be an object.')
     else {

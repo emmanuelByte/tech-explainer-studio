@@ -1,4 +1,5 @@
 import type { TechnicalComponentKind } from '../../types'
+import type { ThemeId } from './theme'
 
 /**
  * The lesson spec is the AI-authored source of truth for a video
@@ -12,6 +13,8 @@ export interface LessonSpec {
   id: string
   title: string
   canvas?: { width?: number; height?: number; fps?: number }
+  /** Visual preset (see theme.ts). Overridden by `lesson build --theme`. Defaults to `dark-sketch`. */
+  theme?: ThemeId
   /** A silent title card before the first scene (shows `title` and an optional subtitle). */
   intro?: { subtitle?: string; seconds?: number }
   /** A silent closing card over the dimmed final diagram. */

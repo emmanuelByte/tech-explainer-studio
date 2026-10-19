@@ -16,7 +16,7 @@ import { parseNarration } from './narration'
 import { contentCentreOffset, contentHeight, frameFor, type FrameSpec } from './frame'
 import { baseLayer, staticKeyframe, svgDataUrl, type BuildContext } from './layerKit'
 import { bulletLayers, cardLayers, comparisonLayers, sequenceLayers, titleCardLayers } from './overlays'
-import { LESSON_THEME, type LessonTheme } from './theme'
+import { LESSON_THEMES, resolveTheme, type LessonTheme, type ThemeId } from './theme'
 import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecBullets, type SpecCard, type SpecComparison, type SpecNode, type SpecScene, type SpecSequence } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
 
@@ -31,7 +31,8 @@ export interface CompileOptions {
   narration?: NarrationManifest
   /** Output size, overriding the spec's own canvas; lets one lesson render in 16:9 and 9:16. */
   canvas?: { width: number; height: number }
-  theme?: LessonTheme
+  /** Visual preset; overrides the spec's own `theme`. */
+  theme?: ThemeId
 }
 
 export class LessonSpecError extends Error {
@@ -41,10 +42,8 @@ export class LessonSpecError extends Error {
   }
 }
 
-/** Theme values the compiler reads outside any one builder. Layout constants are theme-independent in practice but live in the theme so a preset can tune them. */
-const { spacing: SPACE, motion: MOTION } = LESSON_THEME
-const { nodeWidth: NODE_WIDTH, nodeHeight: NODE_HEIGHT, columnStep: COLUMN_STEP, rowStep: ROW_STEP } = SPACE
-const { nodeFadeFrames: NODE_FADE_FRAMES, edgeDrawFrames: EDGE_DRAW_FRAMES, revealLeadFrames: REVEAL_LEAD_FRAMES, cameraMoveFrames: CAMERA_MOVE_FRAMES, emphasisRampFrames: EMPHASIS_RAMP_FRAMES, emphasisScale: EMPHASIS_SCALE, emphasisGlowBlur: EMPHASIS_GLOW_BLUR, emphasisGlowSpread: EMPHASIS_GLOW_SPREAD, titleSeconds: DEFAULT_TITLE_SECONDS } = MOTION
+/** Component geometry is shared by every theme: layout, camera and lint all rely on it. */
+const { nodeWidth: NODE_WIDTH, nodeHeight: NODE_HEIGHT, columnStep: COLUMN_STEP, rowStep: ROW_STEP } = LESSON_THEMES['clean-technical'].spacing
 const MAX_CAMERA_ZOOM = 2
 /** Zooming out is allowed so a tall or wide scene fits, but never so far that component labels become unreadable. */
 const MIN_CAMERA_ZOOM = 0.6
@@ -128,6 +127,7 @@ function nodeLayers(
   artwork: ComponentArtwork,
 ): Layer[] {
   const { theme } = ctx
+  const { nodeFadeFrames: NODE_FADE_FRAMES, emphasisRampFrames: EMPHASIS_RAMP_FRAMES, emphasisScale: EMPHASIS_SCALE, emphasisGlowBlur: EMPHASIS_GLOW_BLUR, emphasisGlowSpread: EMPHASIS_GLOW_SPREAD } = theme.motion
   const palette = theme.components[node.kind]
   const groupId = `node_${node.id}`
   const hidden = { ...DEFAULT_TRANSFORM, x: placement.x, y: placement.y, opacity: 0, scale: 0.92 }
@@ -176,16 +176,25 @@ function nodeLayers(
     fillColor: palette.fill,
     strokeEnabled: true,
     strokeColor: palette.stroke,
-    strokeWidth: 2,
+    strokeWidth: theme.sketch.strokeWidth,
     borderRadius: 16,
-    ...(ranges.length ? {
-      shadowEnabled: true,
-      shadowColor: palette.stroke,
-      propertyKeyframes: {
-        shadowBlur: glowKeyframes(`${groupId}_blur`, ranges, EMPHASIS_GLOW_BLUR),
-        shadowSpread: glowKeyframes(`${groupId}_spread`, ranges, EMPHASIS_GLOW_SPREAD),
-      },
-    } : {}),
+    sketchEnabled: theme.sketch.components,
+    sketchRoughness: theme.sketch.roughness,
+    ...(ranges.length ? { shadowEnabled: true, shadowColor: palette.stroke } : {}),
+    propertyKeyframes: {
+      ...(ranges.length ? {
+        shadowBlur: glowKeyframes(`${groupId}_blur`, ranges, EMPHASIS_GLOW_BLUR, EMPHASIS_RAMP_FRAMES),
+        shadowSpread: glowKeyframes(`${groupId}_spread`, ranges, EMPHASIS_GLOW_SPREAD, EMPHASIS_RAMP_FRAMES),
+      } : {}),
+      // The outline draws itself in as the component appears.
+      ...(theme.sketch.components && theme.motion.nodeDrawFrames > 0 && revealFrame > 0 ? {
+        drawProgress: [
+          { id: `${groupId}_draw0`, frame: 0, value: 0, easing: 'linear' as const },
+          { id: `${groupId}_draw1`, frame: revealFrame, value: 0, easing: 'ease-out' as const },
+          { id: `${groupId}_draw2`, frame: revealFrame + theme.motion.nodeDrawFrames, value: 1, easing: 'linear' as const },
+        ],
+      } : {}),
+    },
     ...timing,
     keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, shadowBlur: 0, shadowY: 0, shadowSpread: 0 } }],
   })
@@ -235,7 +244,8 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
 
   const width = options.canvas?.width ?? spec.canvas?.width ?? SPEC_DEFAULTS.width
   const height = options.canvas?.height ?? spec.canvas?.height ?? SPEC_DEFAULTS.height
-  const theme = options.theme ?? LESSON_THEME
+  const theme = resolveTheme(options.theme ?? spec.theme)
+  const { edgeDrawFrames: EDGE_DRAW_FRAMES, revealLeadFrames: REVEAL_LEAD_FRAMES, cameraMoveFrames: CAMERA_MOVE_FRAMES, titleSeconds: DEFAULT_TITLE_SECONDS } = theme.motion
   const frame = frameFor(width, height)
   const ctx: BuildContext = { theme, frame }
   const COLORS = theme.colors
@@ -428,7 +438,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       drawEndFrame: start + EDGE_DRAW_FRAMES,
       ...(hideFrame.has(edge.id) ? { hideFrame: hideFrame.get(edge.id) } : {}),
       ...(flowRange.has(edge.id) ? { pulseStartFrame: flowRange.get(edge.id)!.start, pulseEndFrame: flowRange.get(edge.id)!.end } : {}),
-      sketchEnabled: theme.sketch.enabled,
+      sketchEnabled: theme.sketch.connectors,
       sketchRoughness: theme.sketch.roughness,
     }
   })
@@ -448,7 +458,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     script: { rawText: segments.map((segment) => segment.text).join('\n\n'), segments },
     scenes,
     connectors,
-    camera: { keyframes: cameraTrack(framings, scenes) },
+    camera: { keyframes: cameraTrack(framings, scenes, CAMERA_MOVE_FRAMES) },
     captions: { enabled: true, style: 'readable' },
     localVoice: {
       baseVoiceId: options.narration?.voiceId ?? '',
@@ -495,14 +505,14 @@ function cameraFor(
 }
 
 /** Hold each framing until its scene starts, then move to the next one and hold again. */
-function cameraTrack(framings: CameraKeyframe[], scenes: Scene[]): CameraKeyframe[] {
+function cameraTrack(framings: CameraKeyframe[], scenes: Scene[], moveFrames: number): CameraKeyframe[] {
   const track: CameraKeyframe[] = [{ ...framings[0], frame: 0 }]
   for (let index = 1; index < framings.length; index += 1) {
     const previous = framings[index - 1]
     const next = framings[index]
     if (previous.x === next.x && previous.y === next.y && previous.zoom === next.zoom) continue
     const start = scenes[index].startFrame
-    const moveEnd = Math.min(start + CAMERA_MOVE_FRAMES, scenes[index].endFrame - 1)
+    const moveEnd = Math.min(start + moveFrames, scenes[index].endFrame - 1)
     track.push({ ...previous, frame: start }, { ...next, frame: moveEnd })
   }
   return track
@@ -518,10 +528,10 @@ function titleThumbnail(theme: LessonTheme, title: string, width: number, height
 }
 
 /** Glow strength over time: 0, ramping to `peak` for each range, back to 0. */
-function glowKeyframes(idPrefix: string, ranges: { start: number; end: number }[], peak: number): PropertyKeyframe[] {
+function glowKeyframes(idPrefix: string, ranges: { start: number; end: number }[], peak: number, ramp: number): PropertyKeyframe[] {
   const points: [number, number][] = [[0, 0]]
   for (const range of ranges) {
-    points.push([range.start, 0], [range.start + EMPHASIS_RAMP_FRAMES, peak], [range.end - EMPHASIS_RAMP_FRAMES, peak], [range.end, 0])
+    points.push([range.start, 0], [range.start + ramp, peak], [range.end - ramp, peak], [range.end, 0])
   }
   return points.map(([frame, value], index) => ({ id: `${idPrefix}_${index}`, frame, value, easing: 'linear' }))
 }
