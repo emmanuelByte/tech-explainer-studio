@@ -472,3 +472,42 @@ What was added (all uncommitted work is now committed; see `git log`):
 9:16 vertical output (layout assumes wide canvas), sequence diagrams and bullet
 lists, adaptive column spacing for graphs deeper than five columns, and a human
 listen to the voice on `page-load`.
+
+## Production pipeline (branch `feat/production-pipeline`, 2026-10-19)
+
+Done, in order: atomic narration commits and scoped review-note resolution;
+orientation-independent cycle validation; real sequence diagrams (lifelines,
+sync/async/response arrows); native 9:16 (`frame.ts`, responsive `overlays.ts`,
+portrait node layout, camera zoom-out); `dark-sketch` and `clean-technical`
+themes (`theme.ts`, `spec.theme` / `--theme`); `npm run produce` (resumable,
+fingerprinted, ffprobe-verified, 16:9/9:16/both; `docs/PRODUCTION_PIPELINE.md`);
+agent authoring from a plain script (`--script`, `docs/AUTHORING_GUIDE.md`);
+review/revise/compare/verify cycle; GitHub Actions (`.github/workflows/ci.yml`).
+
+Decisions worth keeping:
+
+- Portrait output is a different **project id** (`lesson_<id>-9x16`), not a mode of
+  the landscape project, so both can be reviewed and exported side by side.
+- Narration depends only on narration text and voice settings, so theme, aspect
+  and quality changes never re-speak anything.
+- Verification is evidence-gated: `notes --verify` refuses until something was
+  rendered after the correction; deleting a review note needs an explicit id and
+  only works while it is pending.
+- Sketch distortion is applied to component bodies and connectors only.
+
+Gotchas learned:
+
+- `tsconfig.json` used to include only `src`; `tools/` and `server/` were never
+  type-checked. It now covers all three (`npm run typecheck`).
+- A fresh clone has no `data/assets/index.json`, which the Remotion entry imports;
+  render paths create the empty list (`ensureAssetIndex`).
+- Remotion's default colour output is full-range `yuvj420p`; renders use
+  `--color-space=bt709` (yuv420p, limited range).
+- ffmpeg prints tiny differences in exponent form (`4.8e-07`); parse it.
+- Stills are taken 16 frames before a scene ends so overlays are not mid fade-out.
+
+Not done / limits: GitHub Actions has not been observed running (written and
+exercised locally on a clean clone only); captions show a whole scene's narration
+at once (long scenes make tall captions, lint warns); the voice worker is
+required for narrated output and is slow (about 10 minutes for a 100-second
+lesson the first time, near-instant from cache).
