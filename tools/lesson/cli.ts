@@ -2,13 +2,14 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
+import { compileLessonSpec, LessonSpecError, projectIdFor, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
 import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
 import { checkNarrationAudio } from './audioChecks'
 import { loadArtwork } from './artwork'
 import { renderStills } from './stills'
 import { produceCommand, reportFailure } from './produceCommand'
+import { extractReviewFrames, loadProject } from './reviewFrames'
 import { renderedSince } from './revise'
 import { compareCommand, readProductionState, reviseCommand } from './reviseCommand'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
@@ -25,7 +26,7 @@ async function readSpec(path: string | undefined) {
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-const USAGE = 'Usage: lesson <produce|validate|narrate|audio|build|lint|stills|notes|revise|compare|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
+const USAGE = 'Usage: lesson <produce|validate|narrate|audio|build|lint|stills|frames|notes|revise|compare|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
 /** `--aspect 16:9|9:16` renders the same lesson at the native size of that format. */
 const ASPECTS = { '16:9': { width: 1920, height: 1080 }, '9:16': { width: 1080, height: 1920 } } as const
@@ -118,6 +119,16 @@ async function main() {
     console.log(findings.length ? `${findings.length} finding(s).` : 'No audio findings.')
     console.log('These checks measure the signal. They cannot hear pronunciation or naturalness: listen to the narration before approving.')
     if (findings.some((finding) => finding.severity === 'error')) process.exit(1)
+    return
+  }
+  if (command === 'frames') {
+    // Representative frames from a finished MP4, for review: `lesson frames <spec> --video <mp4> --out <dir> [--aspect 9:16]`
+    const video = flag('video', '')
+    if (!video) throw new Error('Usage: lesson frames <spec> --video <file.mp4> --out <dir> [--aspect 9:16]')
+    const aspect = flag('aspect', '16:9')
+    const project = await loadProject(resolve(root, 'data', 'projects', `${projectIdFor((spec as LessonSpec).id, aspect === '9:16' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 })}.json`))
+    const files = await extractReviewFrames(resolve(process.cwd(), video), project, resolve(process.cwd(), flag('out', 'frames')), aspect === '9:16' ? 'portrait' : 'landscape', aspect === '9:16' ? 540 : 960)
+    for (const file of files) console.log(file)
     return
   }
   if (command === 'revise') return reviseCommand(root, resolve(process.cwd(), specPath!), spec as LessonSpec, process.argv.slice(4))
