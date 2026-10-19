@@ -506,3 +506,38 @@ exercised locally on a clean clone only); captions show a whole scene's narratio
 at once (long scenes make tall captions, lint warns); the voice worker is
 required for narrated output and is slow (about 10 minutes for a 100-second
 lesson the first time, near-instant from cache).
+
+## Final production quality pass (branch `feat/production-pipeline`, 2026-10-19)
+
+Report with measurements and the defect list: `docs/PRODUCTION_ACCEPTANCE.md`.
+How to run it: `docs/PRODUCTION_PIPELINE.md`. How to write a spec: `docs/AUTHORING_GUIDE.md`.
+
+What changed in behaviour:
+
+- Narration is spoken a **sentence** at a time; every sentence is **forced-aligned**
+  (`tools/local-tts/align.py`, torchaudio wav2vec2, free, local). Cue times and
+  caption times come from the aligned words. The manifest stores `words`,
+  `pace` and `mastering`; manifests without them are regenerated (cheaply, from
+  the take cache).
+- Captions are per-phrase `script.segments` with frame ranges, split per format
+  (`captions.ts`, `frame.ts: captionPhraseChars`). Words are marked aligned or estimated.
+- The voice averaged 219 wpm; sentences above 3.0 w/s are slowed up to 20%
+  (`--pace`). Narration is mastered to about -16 LUFS with a peak limiter.
+- New checks: audio (`audioChecks.ts`, `lesson audio`), lint rules for overlay
+  collisions, text overflow, late reveals, blank starts and caption timing, and
+  decoded-frame inspection plus a contact sheet in `produce`.
+
+Gotchas learned:
+
+- Chain checks with `&&`, never `;`, before `git commit`: a `;` twice let a failing
+  test or typecheck into a commit.
+- `gh` run from this clone targets the **upstream** repo; pass `-R emmanuelByte/tech-explainer-studio`.
+- ffmpeg prints tiny values in exponent form (`4.8e-07`).
+- A "blank" decoded frame check must scale its crop to the video size (draft renders are half size).
+- Agent-authored specs can teach the wrong mechanism (the first caching draft's
+  cache-miss diagram skipped the lookup that missed). Review them for accuracy,
+  not just validity.
+
+Open: listen to the caching narration (pronunciation of "TTL", naturalness of
+slowed sentences); regenerate the four older lessons with the new narration
+pipeline; larger portrait overlays if short panels in a tall frame look sparse.
