@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Types, lint, tests, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      # Includes the narration-recovery, pipeline-restart, layout and every-lesson compile tests.
+      - run: npm test
+      - run: npm run build
+
+  render-smoke:
+    name: Render smoke test (silent, both formats)
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: System packages for headless Chrome and ffprobe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libnss3 libdbus-1-3 libatk1.0-0 libatk-bridge2.0-0 libasound2t64 libxrandr2 libxkbcommon0 libxfixes3 libxcomposite1 libxdamage1 libgbm1 libcups2
+      - run: npm ci
+      # Heavyweight Chatterbox inference stays out of hosted CI: this builds from a clean clone with no local audio.
+      # `produce` renders both formats at draft size and verifies each file with ffprobe.
+      - name: Produce both formats from a spec
+        run: npm run produce -- lessons/request-response-sequence.lesson.json --narration none --quality draft --aspect both --no-stills
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smoke-videos
+          path: data/exports/*.mp4
+          retention-days: 3

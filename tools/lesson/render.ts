@@ -1,6 +1,20 @@
 import { spawn } from 'node:child_process'
-import { rename, rm } from 'node:fs/promises'
+import { access, mkdir, rename, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { atomicWriteFile } from '../../server/atomicFile'
+
+/**
+ * The Remotion entry imports data/assets/index.json to find local audio. It is
+ * local state (not tracked), so a fresh clone has none: create the empty list
+ * the renderer expects rather than failing to bundle.
+ */
+export async function ensureAssetIndex(root: string) {
+  const path = resolve(root, 'data', 'assets', 'index.json')
+  try { await access(path) } catch {
+    await mkdir(resolve(path, '..'), { recursive: true })
+    await atomicWriteFile(path, '[]\n')
+  }
+}
 
 export type Quality = 'draft' | 'standard' | 'high'
 
@@ -81,7 +95,7 @@ export function checkProbe(expected: ExpectedVideo, probe: Probe): string[] {
   if (!Number.isFinite(seconds) || Math.abs(seconds - wanted) > 1.5 / expected.fps + 0.05) problems.push(`Duration is ${seconds}s, expected ${wanted.toFixed(2)}s.`)
   if (expected.audio && !audio) problems.push('Narration is expected but the file has no audio stream.')
   if (expected.audio && audio && audio.codec_name !== 'aac') problems.push(`Audio codec is ${audio.codec_name}, expected aac.`)
-  if (!expected.audio && audio) problems.push('The file has an audio stream but the lesson is silent.')
+  // A silent lesson may still carry an empty audio track (Remotion adds one); that plays everywhere, so it is accepted.
   return problems
 }
 
@@ -110,6 +124,7 @@ export async function probeVideo(root: string, file: string): Promise<Probe> {
 
 /** Renders to a temporary name and renames on success, so a crashed render never leaves a half-written MP4 that looks finished. */
 export async function renderVideo(root: string, input: RenderInput, onProgress: (done: number, total: number) => void) {
+  await ensureAssetIndex(root)
   const partial = input.outPath.replace(/\.mp4$/, '.partial.mp4')
   await rm(partial, { force: true })
   const bin = resolve(root, 'node_modules', '.bin', 'remotion')

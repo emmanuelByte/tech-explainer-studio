@@ -50,10 +50,10 @@ describe('checkProbe', () => {
     expect(checkProbe(expected, { ...good(), format: { duration: '9.5' } })).not.toEqual([])
   })
 
-  it('checks that audio is present exactly when the lesson is narrated', () => {
+  it('requires audio when the lesson is narrated and accepts either when it is silent', () => {
     const silent: Probe = { ...good(), streams: [good().streams[0]] }
     expect(checkProbe(expected, silent).join()).toContain('no audio')
-    expect(checkProbe(expectedVideo(canvas, 'standard', false), good()).join()).toContain('silent')
+    expect(checkProbe(expectedVideo(canvas, 'standard', false), good())).toEqual([])
     expect(checkProbe(expectedVideo(canvas, 'standard', false), silent)).toEqual([])
   })
 })

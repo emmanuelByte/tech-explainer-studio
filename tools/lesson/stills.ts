@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdir, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { MotionProject } from '../../src/types'
+import { ensureAssetIndex } from './render'
 
 /** Overlays fade out over the last 12 frames of a scene; stay clear of that. */
 export const STILL_OFFSET_FRAMES = 16
@@ -26,6 +27,7 @@ function renderStill(root: string, projectPath: string, frame: number, outPath: 
 
 /** One frame per scene, late enough that reveals and the camera move have finished but before overlays start fading out. */
 export async function renderStills(root: string, projectPath: string, project: MotionProject, log: (line: string) => void = () => undefined) {
+  await ensureAssetIndex(root)
   const dir = stillsDir(root, project.id)
   await rm(dir, { recursive: true, force: true }) // stale stills from an older scene order would mislead
   await mkdir(dir, { recursive: true })
