@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../src/types'
 import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
+import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
 import { loadNarrationManifest, narrateLesson } from './narrate'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
@@ -37,7 +38,7 @@ async function readSpec(path: string | undefined) {
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes> <spec.json>  (narrate: --voice <id> --worker <url>)'
+const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>)'
 
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
   return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration })
@@ -66,7 +67,7 @@ function renderStill(projectPath: string, frame: number, outPath: string) {
 }
 
 async function main() {
-  const [command, specPath] = process.argv.slice(2)
+  const [command, specPath, patchPath] = process.argv.slice(2)
   const spec = await readSpec(specPath)
   if (command === 'validate') {
     const issues = validateLessonSpec(spec)
@@ -91,6 +92,22 @@ async function main() {
       await writeFile(path, `${JSON.stringify({ notes: notes.map((note) => ({ ...note, done: true })) }, null, 2)}\n`)
       console.log('Marked as done.')
     }
+    return
+  }
+  if (command === 'patch') {
+    if (!patchPath) throw new Error(USAGE)
+    const issues = validateLessonSpec(spec)
+    if (issues.length) throw new LessonSpecError(issues)
+    const patch = JSON.parse(await readFile(resolve(process.cwd(), patchPath), 'utf-8')) as unknown
+    const next = applyLessonSpecPatch(spec as LessonSpec, patch)
+    if (!process.argv.includes('--write')) {
+      console.log(JSON.stringify(next, null, 2))
+      console.log('\nPatch is valid. Re-run with --write to replace the source spec.')
+      return
+    }
+    const target = resolve(process.cwd(), specPath!)
+    await writeFile(target, `${JSON.stringify(next, null, 2)}\n`)
+    console.log(`Patched ${target}. Re-run narrate if narration text changed, then build, lint and stills.`)
     return
   }
   const artwork = await loadArtwork()

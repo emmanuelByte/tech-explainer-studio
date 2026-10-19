@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { migrateProject } from '../project/migrations'
 import { compileLessonSpec, layoutNodes, type ComponentArtwork } from './compile'
+import { LESSON_THEME } from './theme'
 import type { LessonSpec } from './types'
 import { validateLessonSpec } from './validate'
 
@@ -56,6 +57,12 @@ describe('layoutNodes', () => {
     expect(placements.get('lb')).toEqual({ x: 0, y: 0 })
     expect(placements.get('s1')).toEqual({ x: 400, y: -100 })
     expect(placements.get('s2')).toEqual({ x: 400, y: 100 })
+  })
+})
+
+describe('LESSON_THEME', () => {
+  it('has a component palette entry for every supported component kind', () => {
+    expect(Object.keys(LESSON_THEME.components).sort()).toEqual([...TECHNICAL_COMPONENT_KINDS].sort())
   })
 })
 
@@ -175,5 +182,36 @@ describe('narration', () => {
     const full = manifest(value)
     const missing = { ...full, scenes: Object.fromEntries(Object.entries(full.scenes).filter(([id]) => id !== 'three')) }
     expect(() => compileLessonSpec(value, { ...options, narration: missing })).toThrow('No narration audio')
+  })
+})
+
+describe('comparison cards', () => {
+  it('reveals comparison lines at their narration cues', () => {
+    const value = spec()
+    value.scenes[1].narration = '[[tradeoff.left.1]]Queues absorb spikes, [[tradeoff.right.1]]but direct work is immediate.'
+    value.scenes[1].comparison = {
+      id: 'tradeoff',
+      left: { title: 'Queue', lines: ['Absorbs spikes'] },
+      right: { title: 'Direct work', lines: ['Immediate response'] },
+    }
+    const audio = {
+      voiceId: 'baseVoice',
+      exaggeration: 0.5,
+      cfgWeight: 0.5,
+      scenes: {
+        one: { assetId: 'asset_one', durationSeconds: 3, cues: {}, source: value.scenes[0].narration },
+        two: { assetId: 'asset_two', durationSeconds: 4, cues: { 'tradeoff.left.1': 0, 'tradeoff.right.1': 1.5 }, source: value.scenes[1].narration },
+        three: { assetId: 'asset_three', durationSeconds: 5, cues: {}, source: value.scenes[2].narration },
+      },
+    }
+    const project = compileLessonSpec(value, { ...options, narration: audio })
+    const scene = project.scenes![1]
+    const audioStart = scene.startFrame + 15
+    const left = project.layers.find((layer) => layer.id === 'comparison_tradeoff__left-line1')!
+    const right = project.layers.find((layer) => layer.id === 'comparison_tradeoff__right-line1')!
+
+    expect(project.layers.some((layer) => layer.id === 'comparison_tradeoff')).toBe(true)
+    expect(left.keyframes[1].frame).toBe(audioStart)
+    expect(right.keyframes[1].frame).toBe(audioStart + 45)
   })
 })

@@ -27,6 +27,8 @@ npm run lesson -- build    lessons/load-balancer.lesson.json   # writes data/pro
 npm run lesson -- lint     lessons/load-balancer.lesson.json   # layout and pacing checks
 npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene, to look at
 npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes you left (--done marks them handled)
+npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json  # preview a stable-id patch
+npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json --write  # apply it to the spec
 ```
 
 You open **`http://localhost:3005/review/lesson_<id>`** (start the app with
@@ -72,12 +74,30 @@ pixel coordinates.
 - **Scene fields:** `reveal` (show nodes/edges), `hide` (remove earlier ones),
   `focus` (camera framing), `emphasize` (glow and subtly enlarge revealed
   nodes), `flow` (travelling dots on revealed edges), `card` (a code/request
-  panel over a dimmed diagram: up to 8 lines, revealed one by one), and
-  `durationSeconds` (only until narrated).
+  panel over a dimmed diagram: up to 8 lines, revealed one by one),
+  `comparison` (two titled, dimmed-diagram panels: up to 6 lines per side),
+  and `durationSeconds` (only until narrated). A scene uses either `card` or
+  `comparison`.
 - **Cues:** `[[id]]` in `narration` makes that element appear exactly when the
-  words after it begin; card lines use `[[<card id>.<line number>]]`.
+  words after it begin; card lines use `[[<card id>.<line number>]]` and
+  comparison lines use `[[<comparison id>.<left|right>.<line number>]]`.
   `[[emphasize:<node id>]]` and `[[flow:<edge id>]]` defer those effects to
   the words immediately after the cue.
+- **Theme:** [theme.ts](src/domains/lesson-spec/theme.ts) is the single visual
+  system for compiled lessons: colours, component palette, typography, spacing,
+  motion timing and sketch defaults. Adjust it to restyle every generated lesson
+  without adding pixel values to a spec.
+- **Review patches:** `lesson patch` updates existing `lesson`, `scenes`,
+  `nodes`, or `edges` by stable ID and validates the resulting spec. It previews
+  by default; `--write` is required to update the source spec. For example:
+
+  ```json
+  {
+    "version": 1,
+    "lessonId": "load-balancer",
+    "scenes": { "solution": { "title": "Route every request" } }
+  }
+  ```
 - Spec types and rules: [src/domains/lesson-spec/](src/domains/lesson-spec/).
   Plan, decisions and progress log:
   [docs/2026-10-19-AI-AUTHORED-PIVOT.md](docs/2026-10-19-AI-AUTHORED-PIVOT.md).

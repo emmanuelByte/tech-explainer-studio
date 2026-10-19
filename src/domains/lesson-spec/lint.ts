@@ -73,7 +73,7 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
 
     const cam = cameraAt(camera, scene.endFrame - 1)
     const framing = `${cam.x}|${cam.y}|${cam.zoom}`
-    const changes = (specScene.reveal?.length ?? 0) + (specScene.hide?.length ?? 0) > 0 || Boolean(specScene.card) || framing !== previousFraming
+    const changes = (specScene.reveal?.length ?? 0) + (specScene.hide?.length ?? 0) > 0 || Boolean(specScene.card) || Boolean(specScene.comparison) || framing !== previousFraming
     if (!changes && index > 0) add('warning', 'static-scene', 'Nothing is revealed, hidden or reframed; the screen will not change while this is narrated.')
     previousFraming = framing
 

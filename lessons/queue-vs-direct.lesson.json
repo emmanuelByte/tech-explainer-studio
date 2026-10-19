@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "id": "queue-vs-direct",
+  "title": "Queue vs Direct Work",
+  "intro": {
+    "subtitle": "Two ways to handle a slow task"
+  },
+  "nodes": [
+    { "id": "user", "kind": "client", "label": "User" },
+    { "id": "app", "kind": "server", "label": "Web App" },
+    { "id": "queue", "kind": "queue", "label": "Queue" },
+    { "id": "worker", "kind": "worker", "label": "Worker" }
+  ],
+  "edges": [
+    { "id": "user-app", "from": "user", "to": "app", "label": "upload" },
+    { "id": "app-queue", "from": "app", "to": "queue", "label": "job" },
+    { "id": "queue-worker", "from": "queue", "to": "worker", "label": "work" }
+  ],
+  "scenes": [
+    {
+      "id": "direct",
+      "title": "Direct work",
+      "narration": "Without a queue, the web app does the slow work before it can reply.",
+      "reveal": ["user", "app", "user-app"]
+    },
+    {
+      "id": "queue",
+      "title": "Hand it off",
+      "narration": "A queue lets the app hand off work and respond right away.",
+      "reveal": ["queue", "worker", "app-queue", "queue-worker"]
+    },
+    {
+      "id": "compare",
+      "title": "Choose the trade-off",
+      "narration": "Direct work is simple for quick tasks. A queue protects the app when work is slow or traffic spikes.",
+      "comparison": {
+        "id": "tradeoff",
+        "left": {
+          "title": "Direct work",
+          "lines": ["Simpler request path", "Good for quick tasks", "Request waits for work"]
+        },
+        "right": {
+          "title": "Queue + worker",
+          "lines": ["Replies immediately", "Absorbs traffic spikes", "Adds background work"]
+        }
+      }
+    }
+  ]
+}

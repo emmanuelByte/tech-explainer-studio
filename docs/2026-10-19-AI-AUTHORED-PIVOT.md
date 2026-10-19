@@ -108,10 +108,10 @@ human can preview and export without opening an editing panel.
 | 3 Self-review loop (`validate`/`build`/`lint`/`stills`) | Done |
 | 4 Narration-driven timing | Done (chunk cues; no forced alignment needed) |
 | 5 Component kit | Done (10 kinds) |
-| 6 Explainer blocks | Partly: `hide`, code/request cards, title/outro cards, emphasis and data-flow pulses. Not yet: sequence diagrams and bullet/comparison cards |
-| 7 Theme file | Not started (colours are constants in `compile.ts`) |
+| 6 Explainer blocks | Partly: `hide`, code/request and comparison cards, title/outro cards, emphasis and data-flow pulses. Not yet: sequence diagrams and bullet lists |
+| 7 Theme file | Done (`src/domains/lesson-spec/theme.ts`) |
 | 8 Review-only UI | Done (`/review/<id>`) |
-| 9 Patchable specs / stable ids | Not started (ids are stable; no patch tooling) |
+| 9 Patchable specs / stable ids | Done (stable-id patch CLI with validation and explicit write) |
 
 ## Progress log
 
@@ -326,6 +326,37 @@ sequence diagrams).
 - VS Code's built-in video preview does not play audio; check videos in
   QuickTime or the review page.
 
+### 2026-10-19 — Milestone 9: lesson theme
+
+- `src/domains/lesson-spec/theme.ts` is now the typed visual system for
+  compiled lessons: background and surface colours, the per-component palette,
+  typography, layout spacing, motion timing and sketch defaults. The compiler
+  consumes it instead of defining presentation constants inline.
+- A focused test ensures the theme remains complete when a technical component
+  kind is added. The theme does not change the spec schema or existing renders.
+
+### 2026-10-19 — Milestone 10: patchable specs
+
+- `npm run lesson -- patch <spec.json> <patch.json>` applies a narrow semantic
+  patch format in memory and prints the resulting spec. `--write` is explicit;
+  without it, no source file changes. Patches address existing lesson, scene,
+  node and edge fields by their stable IDs and cannot replace those IDs.
+- The patcher validates the complete proposed result through the usual lesson
+  validator, so an invalid reference, reveal order or layout rule is rejected
+  before it reaches a spec. It is intended for the AI to turn a human review
+  note into a small, auditable JSON patch—not to interpret free-form notes
+  automatically.
+
+### 2026-10-19 — Milestone 11: comparison cards
+
+- Scenes can now use `comparison: { id, left, right }` for two titled panels
+  over a dimmed diagram. Each side accepts one to six short lines; those lines
+  can reveal on narration cues such as `[[tradeoff.left.2]]`. A comparison and
+  a code/request `card` are intentionally mutually exclusive in one scene.
+- `lessons/queue-vs-direct.lesson.json` is a small source-controlled example.
+  It validates and lints cleanly, and its rendered comparison still was checked
+  at video scale for legibility and layout.
+
 ## Milestone 8 handoff and implementation notes (written 2026-10-19)
 
 The following was written as a handoff when the implementation was complete but
@@ -413,7 +444,6 @@ What was added (all uncommitted work is now committed; see `git log`):
 
 ### Remaining roadmap after this task (see "Status at a glance")
 
-9:16 vertical output (layout assumes wide canvas), a theme file (colours/fonts are
-constants in `compile.ts`), spec patch tooling for applying review notes, sequence
-diagrams and comparison cards, adaptive column spacing for graphs deeper than five
-columns, and a human listen to the voice on `page-load`.
+9:16 vertical output (layout assumes wide canvas), sequence diagrams and bullet
+lists, adaptive column spacing for graphs deeper than five columns, and a human
+listen to the voice on `page-load`.

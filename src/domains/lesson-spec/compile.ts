@@ -13,7 +13,8 @@ import {
 } from '../../types'
 import { CURRENT_PROJECT_SCHEMA_VERSION } from '../project/migrations'
 import { parseNarration } from './narration'
-import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecCard, type SpecNode, type SpecScene } from './types'
+import { LESSON_THEME } from './theme'
+import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecCard, type SpecComparison, type SpecNode, type SpecScene } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
 
 /** Raw SVG source per component kind; injected so this module stays free of Vite/Node imports. */
@@ -34,49 +35,14 @@ export class LessonSpecError extends Error {
   }
 }
 
-const NODE_WIDTH = 240
-const NODE_HEIGHT = 150
-const COLUMN_STEP = 400
-const ROW_STEP = 200
-const CAMERA_MARGIN_X = 160
-const CAMERA_MARGIN_Y = 80
-/** Bottom strip kept clear for captions (up to three lines at the readable caption size). */
-const CAPTION_RESERVE = 360
+const { spacing: SPACE, motion: MOTION, colors: COLORS, sketch: SKETCH, typography: TYPE, components: PALETTE } = LESSON_THEME
+const { nodeWidth: NODE_WIDTH, nodeHeight: NODE_HEIGHT, columnStep: COLUMN_STEP, rowStep: ROW_STEP, cameraMarginX: CAMERA_MARGIN_X, cameraMarginY: CAMERA_MARGIN_Y, captionReserve: CAPTION_RESERVE, cardWidth: CARD_WIDTH, cardPadding: CARD_PADDING, cardTitleHeight: CARD_TITLE_HEIGHT, cardLineHeight: CARD_LINE_HEIGHT } = SPACE
+const { nodeFadeFrames: NODE_FADE_FRAMES, edgeDrawFrames: EDGE_DRAW_FRAMES, revealLeadFrames: REVEAL_LEAD_FRAMES, cameraMoveFrames: CAMERA_MOVE_FRAMES, cardFadeFrames: CARD_FADE_FRAMES, emphasisRampFrames: EMPHASIS_RAMP_FRAMES, emphasisScale: EMPHASIS_SCALE, emphasisGlowBlur: EMPHASIS_GLOW_BLUR, emphasisGlowSpread: EMPHASIS_GLOW_SPREAD, titleSeconds: DEFAULT_TITLE_SECONDS } = MOTION
 const MAX_CAMERA_ZOOM = 2
-const NODE_FADE_FRAMES = 12
-const EDGE_DRAW_FRAMES = 24
-const REVEAL_LEAD_FRAMES = 15
-const CAMERA_MOVE_FRAMES = 24
-const CARD_WIDTH = 1200
-const CARD_PADDING = 40
-const CARD_TITLE_HEIGHT = 56
-const CARD_LINE_HEIGHT = 44
-const CARD_FADE_FRAMES = 12
-const EMPHASIS_RAMP_FRAMES = 10
-const EMPHASIS_SCALE = 1.06
-const EMPHASIS_GLOW_BLUR = 30
-const EMPHASIS_GLOW_SPREAD = 6
-const DEFAULT_TITLE_SECONDS = 3
-const CARD_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 const WORDS_PER_SECOND = 2.5
 /** Silence before the voice starts and after it ends, per scene. */
 const NARRATION_LEAD_SECONDS = 0.5
 const NARRATION_TAIL_SECONDS = 0.7
-
-const PALETTE: Record<TechnicalComponentKind, { fill: string; stroke: string }> = {
-  'load-balancer': { fill: '#1d4ed8', stroke: '#60a5fa' },
-  database: { fill: '#9a3412', stroke: '#fdba74' },
-  cache: { fill: '#b91c1c', stroke: '#fca5a5' },
-  queue: { fill: '#a16207', stroke: '#fde047' },
-  cdn: { fill: '#0e7490', stroke: '#67e8f9' },
-  'api-gateway': { fill: '#4338ca', stroke: '#a5b4fc' },
-  'object-storage': { fill: '#475569', stroke: '#cbd5e1' },
-  worker: { fill: '#0f766e', stroke: '#5eead4' },
-  server: { fill: '#166534', stroke: '#4ade80' },
-  client: { fill: '#7c3aed', stroke: '#c4b5fd' },
-}
-
-const BACKGROUND = '#0b1020'
 
 function svgDataUrl(svg: string) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
@@ -104,11 +70,11 @@ function baseLayer(type: LayerType, overrides: Partial<Layer> & Pick<Layer, 'id'
     layoutJustify: 'start',
     gridColumns: 2,
     fillType: type === 'text' || type === 'group' ? 'none' : 'solid',
-    fillColor: type === 'text' || type === 'group' ? 'transparent' : '#6366f1',
-    gradientStops: [{ color: '#6366f1', position: 0 }, { color: '#a855f7', position: 100 }],
+    fillColor: type === 'text' || type === 'group' ? 'transparent' : COLORS.accentMuted,
+    gradientStops: [{ color: COLORS.accentMuted, position: 0 }, { color: COLORS.accentSecondary, position: 100 }],
     gradientAngle: 135,
     strokeEnabled: false,
-    strokeColor: '#ffffff',
+    strokeColor: COLORS.text,
     strokeWidth: 0,
     strokeTopWidth: 0,
     strokeRightWidth: 0,
@@ -122,24 +88,24 @@ function baseLayer(type: LayerType, overrides: Partial<Layer> & Pick<Layer, 'id'
     borderBottomLeftRadius: 0,
     borderRadiusLinked: true,
     pathClosed: false,
-    sketchEnabled: false,
-    sketchRoughness: 1,
+    sketchEnabled: SKETCH.enabled,
+    sketchRoughness: SKETCH.roughness,
     shadowEnabled: false,
-    shadowColor: 'rgba(0,0,0,0.5)',
+    shadowColor: COLORS.shadow,
     shadowFollowsPerspective: false,
     text: '',
-    fontFamily: 'Inter',
+    fontFamily: TYPE.sans,
     fontSize: 48,
     fontWeight: '600',
     textAlign: 'center',
     letterSpacing: 0,
     lineHeight: 1.2,
-    textColor: '#ffffff',
+    textColor: COLORS.text,
     textSpans: [],
     textRevealMode: 'plain',
     imageFit: 'contain',
-    svgStrokeColor: '#ffffff',
-    svgFillColor: '#ffffff',
+    svgStrokeColor: COLORS.text,
+    svgFillColor: COLORS.text,
     svgFillEnabled: false,
     svgStrokeWidth: 2,
     scope: 'global',
@@ -314,6 +280,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const framings: CameraKeyframe[] = []
   const narrationLayers: Layer[] = []
   const cardLayerSets: Layer[] = []
+  const comparisonLayerSets: Layer[] = []
   const titleLayerSets: Layer[] = []
   const emphasis = new Map<string, { start: number; end: number }[]>()
   const flowRange = new Map<string, { start: number; end: number }>()
@@ -376,6 +343,16 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       const lineFrames = card.lines.map((_, i) => cueFrame(`${card.id}.${i + 1}`)
         ?? cardStart + 8 + Math.floor((i * spread) / Math.max(1, card.lines.length)))
       cardLayerSets.push(...cardLayers(card, framing, { width, height }, start, end, cardStart, lineFrames))
+    }
+    if (specScene.comparison) {
+      const comparison = specScene.comparison
+      const comparisonStart = start + CAMERA_MOVE_FRAMES
+      const lineCount = Math.max(comparison.left.lines.length, comparison.right.lines.length)
+      const spread = Math.max(0, Math.floor((end - comparisonStart) * 0.7) - 8)
+      const lineFrames = (side: 'left' | 'right') => comparison[side].lines.map((_, index) =>
+        cueFrame(`${comparison.id}.${side}.${index + 1}`) ?? comparisonStart + 8 + Math.floor((index * spread) / Math.max(1, lineCount)),
+      )
+      comparisonLayerSets.push(...comparisonLayers(comparison, framing, { width, height }, start, end, comparisonStart, lineFrames('left'), lineFrames('right')))
     }
 
     const sceneId = `scene_${specScene.id}`
@@ -442,7 +419,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     layers.push(...nodeLayers(node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), emphasis.get(node.id) ?? [], totalFrames, options.artwork))
   }
   // Top-level layers stack first-on-top (a group's children stack last-on-top), so cards go first.
-  layers.unshift(...titleLayerSets, ...cardLayerSets)
+  layers.unshift(...titleLayerSets, ...cardLayerSets, ...comparisonLayerSets)
   layers.push(...narrationLayers)
 
   const connectors: Connector[] = spec.edges.map((edge) => {
@@ -465,8 +442,8 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       drawEndFrame: start + EDGE_DRAW_FRAMES,
       ...(hideFrame.has(edge.id) ? { hideFrame: hideFrame.get(edge.id) } : {}),
       ...(flowRange.has(edge.id) ? { pulseStartFrame: flowRange.get(edge.id)!.start, pulseEndFrame: flowRange.get(edge.id)!.end } : {}),
-      sketchEnabled: false,
-      sketchRoughness: 1,
+      sketchEnabled: SKETCH.enabled,
+      sketchRoughness: SKETCH.roughness,
     }
   })
 
@@ -477,7 +454,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     thumbnail: titleThumbnail(spec.title, width, height),
     createdAt: options.now,
     updatedAt: options.now,
-    canvas: { width, height, fps, durationFrames: totalFrames, backgroundColor: BACKGROUND, presetName: 'YouTube' },
+    canvas: { width, height, fps, durationFrames: totalFrames, backgroundColor: COLORS.background, presetName: 'YouTube' },
     layers,
     guides: [],
     timeline: { zoom: 1, scrollX: 0 },
@@ -590,16 +567,16 @@ function cardLayers(
   } as Parameters<typeof baseLayer>[1])
   const layers: Layer[] = [
     group,
-    child('backdrop', 'rectangle', 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: 'rgba(11,16,32,0.92)' }),
+    child('backdrop', 'rectangle', 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: COLORS.cardBackdrop }),
     child('panel', 'rectangle', 0, {
-      name: 'Panel', width: CARD_WIDTH, height: bodyHeight, fillColor: '#16213f',
-      strokeEnabled: true, strokeColor: '#60a5fa', strokeWidth: 2, borderRadius: 20,
+      name: 'Panel', width: CARD_WIDTH, height: bodyHeight, fillColor: COLORS.panel,
+      strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 20,
     }),
   ]
   if (card.title) {
     layers.push(child('title', 'text', top + CARD_PADDING + CARD_TITLE_HEIGHT / 2, {
       name: 'Title', text: card.title, width: CARD_WIDTH - 2 * CARD_PADDING, height: CARD_TITLE_HEIGHT,
-      fontSize: 32, fontWeight: '700', textColor: '#93c5fd', textAlign: 'left', htmlText: true, htmlWhiteSpace: 'pre',
+      fontSize: 32, fontWeight: '700', textColor: COLORS.mutedText, textAlign: 'left', htmlText: true, htmlWhiteSpace: 'pre',
     }))
   }
   card.lines.forEach((line, index) => {
@@ -608,7 +585,7 @@ function cardLayers(
     const shown = { ...DEFAULT_TRANSFORM, x: 0, y: offsetY }
     layers.push(child(`line${index + 1}`, 'text', offsetY, {
       name: `Line ${index + 1}`, text: line, width: CARD_WIDTH - 2 * CARD_PADDING, height: CARD_LINE_HEIGHT,
-      fontFamily: CARD_MONO, fontSize: 28, fontWeight: '500', textColor: '#e2e8f0', textAlign: 'left',
+      fontFamily: TYPE.mono, fontSize: 28, fontWeight: '500', textColor: COLORS.cardText, textAlign: 'left',
       htmlText: true, htmlWhiteSpace: 'pre',
     }, [
       { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
@@ -619,11 +596,90 @@ function cardLayers(
   return layers
 }
 
+/** A two-column teaching card, centred over a dimmed diagram like a code card. */
+function comparisonLayers(
+  comparison: SpecComparison,
+  framing: CameraKeyframe,
+  canvas: { width: number; height: number },
+  start: number,
+  end: number,
+  comparisonStart: number,
+  leftLineFrames: number[],
+  rightLineFrames: number[],
+): Layer[] {
+  const x = framing.x - canvas.width / 2
+  const y = framing.y - canvas.height / 2 - CAPTION_RESERVE / (2 * framing.zoom)
+  const scale = 1 / framing.zoom
+  const panelWidth = SPACE.comparisonPanelWidth
+  const panelGap = SPACE.comparisonGap
+  const panelHeight = CARD_PADDING * 2 + CARD_TITLE_HEIGHT + Math.max(comparison.left.lines.length, comparison.right.lines.length) * CARD_LINE_HEIGHT
+  const top = -panelHeight / 2
+  const leftX = -(panelWidth + panelGap) / 2
+  const rightX = (panelWidth + panelGap) / 2
+  const groupId = `comparison_${comparison.id}`
+  const timing = { startFrame: start, endFrame: end }
+  const at = (opacity: number) => ({ ...DEFAULT_TRANSFORM, x, y, scale, opacity })
+  const group = baseLayer('group', {
+    id: groupId,
+    name: 'Comparison',
+    width: panelWidth * 2 + panelGap,
+    height: panelHeight,
+    ...timing,
+    keyframes: [
+      { frame: start, easing: 'linear', props: at(0) },
+      { frame: comparisonStart, easing: 'ease-out', props: at(0) },
+      { frame: comparisonStart + CARD_FADE_FRAMES, easing: 'linear', props: at(1) },
+      { frame: end - CARD_FADE_FRAMES, easing: 'ease-in', props: at(1) },
+      { frame: end, easing: 'linear', props: at(0) },
+    ],
+  })
+  const child = (id: string, type: LayerType, offsetX: number, offsetY: number, overrides: Partial<Layer>, keyframes?: Keyframe[]) => baseLayer(type, {
+    id: `${groupId}__${id}`,
+    parentId: groupId,
+    ...timing,
+    keyframes: keyframes ?? staticKeyframe(start, offsetX, offsetY),
+    ...overrides,
+  } as Parameters<typeof baseLayer>[1])
+  const sideLayers = (side: 'left' | 'right', offsetX: number, panelColor: string, accentColor: string, lineFrames: number[]): Layer[] => {
+    const data = comparison[side]
+    const sideLayers: Layer[] = [
+      child(`${side}-panel`, 'rectangle', offsetX, 0, {
+        name: `${data.title} panel`, width: panelWidth, height: panelHeight, fillColor: panelColor,
+        strokeEnabled: true, strokeColor: accentColor, strokeWidth: 2, borderRadius: 20,
+      }),
+      child(`${side}-title`, 'text', offsetX, top + CARD_PADDING + CARD_TITLE_HEIGHT / 2, {
+        name: `${data.title} title`, text: data.title, width: panelWidth - CARD_PADDING * 2, height: CARD_TITLE_HEIGHT,
+        fontSize: 32, fontWeight: '700', textColor: accentColor, textAlign: 'left',
+      }),
+    ]
+    data.lines.forEach((line, index) => {
+      const offsetY = top + CARD_PADDING + CARD_TITLE_HEIGHT + index * CARD_LINE_HEIGHT + CARD_LINE_HEIGHT / 2
+      const frame = lineFrames[index]
+      const shown = { ...DEFAULT_TRANSFORM, x: offsetX, y: offsetY }
+      sideLayers.push(child(`${side}-line${index + 1}`, 'text', offsetX, offsetY, {
+        name: `${data.title} line ${index + 1}`, text: `• ${line}`, width: panelWidth - CARD_PADDING * 2, height: CARD_LINE_HEIGHT,
+        fontSize: 28, fontWeight: '500', textColor: COLORS.cardText, textAlign: 'left',
+      }, [
+        { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
+        { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },
+        { frame: frame + CARD_FADE_FRAMES, easing: 'ease-out', props: shown },
+      ]))
+    })
+    return sideLayers
+  }
+  return [
+    group,
+    child('backdrop', 'rectangle', 0, 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: COLORS.cardBackdrop }),
+    ...sideLayers('left', leftX, COLORS.comparisonLeftPanel, COLORS.comparisonLeftAccent, leftLineFrames),
+    ...sideLayers('right', rightX, COLORS.comparisonRightPanel, COLORS.comparisonRightAccent, rightLineFrames),
+  ]
+}
+
 /** A plain title card so lessons are recognisable on the home screen before any frame is rendered. */
 function titleThumbnail(title: string, width: number, height: number) {
   const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${BACKGROUND}"/>`
-    + `<text x="${width / 2}" y="${height / 2}" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="${Math.round(height / 11)}" font-weight="700" text-anchor="middle">${escaped}</text></svg>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${COLORS.background}"/>`
+    + `<text x="${width / 2}" y="${height / 2}" fill="${COLORS.cardText}" font-family="${TYPE.sans}, sans-serif" font-size="${Math.round(height / 11)}" font-weight="700" text-anchor="middle">${escaped}</text></svg>`
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
@@ -674,13 +730,13 @@ function titleCardLayers(
   } as Parameters<typeof baseLayer>[1])
   const layers: Layer[] = [
     baseLayer('group', { id: groupId, name: mode === 'intro' ? 'Title card' : 'Outro card', width: 1600, height: 400, ...timing, keyframes }),
-    child('backdrop', 'rectangle', 0, { width: 8000, height: 6000, fillColor: mode === 'intro' ? BACKGROUND : 'rgba(11,16,32,0.88)' }),
+    child('backdrop', 'rectangle', 0, { width: 8000, height: 6000, fillColor: mode === 'intro' ? COLORS.introBackdrop : COLORS.outroBackdrop }),
     child('title', 'text', subtitle ? -36 : 0, {
-      text: title, width: 1600, height: 120, fontSize: mode === 'intro' ? 84 : 64, fontWeight: '800', textColor: '#ffffff',
+      text: title, width: 1600, height: 120, fontSize: mode === 'intro' ? 84 : 64, fontWeight: '800', textColor: COLORS.text,
     }),
   ]
   if (subtitle) {
-    layers.push(child('subtitle', 'text', 76, { text: subtitle, width: 1600, height: 64, fontSize: 40, fontWeight: '500', textColor: '#93c5fd' }))
+    layers.push(child('subtitle', 'text', 76, { text: subtitle, width: 1600, height: 64, fontSize: 40, fontWeight: '500', textColor: COLORS.mutedText }))
   }
   return layers
 }

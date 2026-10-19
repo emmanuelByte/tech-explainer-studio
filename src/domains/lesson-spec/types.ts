@@ -45,9 +45,24 @@ export interface SpecCard {
   lines: string[]
 }
 
+export interface SpecComparisonSide {
+  /** Short heading above this column. */
+  title: string
+  /** A concise point revealed one line at a time. */
+  lines: string[]
+}
+
+export interface SpecComparison {
+  /** Unique across cards, comparisons, nodes and edges. Cue ids are `<id>.<side>.<line number>`. */
+  id: string
+  left: SpecComparisonSide
+  right: SpecComparisonSide
+}
+
 export const TITLE_LIMITS = { title: 60, subtitle: 60, seconds: [1, 10] } as const
 
 export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
+export const COMPARISON_LIMITS = { lines: 6, lineLength: 60, titleLength: 32 } as const
 
 export interface SpecScene {
   /** Unique slug; stable so later spec patches can address the scene. */
@@ -66,6 +81,8 @@ export interface SpecScene {
   flow?: string[]
   /** A code/request panel shown over the dimmed diagram for this scene only. */
   card?: SpecCard
+  /** Two concise columns shown over the dimmed diagram for this scene only. */
+  comparison?: SpecComparison
   /** Node ids the camera frames. Defaults to everything revealed so far. */
   focus?: string[]
 }

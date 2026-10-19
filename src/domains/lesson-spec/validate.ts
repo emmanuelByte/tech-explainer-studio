@@ -1,6 +1,6 @@
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { narrationCueProblems, parseNarration } from './narration'
-import { CARD_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
+import { CARD_LIMITS, COMPARISON_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
 
 const KINDS = new Set<string>(TECHNICAL_COMPONENT_KINDS)
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
@@ -91,7 +91,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   const sceneIds = new Set<string>()
   const revealed = new Set<string>()
   const hidden = new Set<string>()
-  const cardIds = new Set<string>()
+  const overlayIds = new Set<string>()
   const flowing = new Set<string>()
   scenes?.forEach((scene, index) => {
     const path = `scenes[${index}]`
@@ -113,14 +113,14 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         revealed.add(id)
       })
     }
-    const cardCueIds: string[] = []
+    const overlayCueIds: string[] = []
     if (scene.card !== undefined) {
       const card = scene.card
       if (!isRecord(card)) add(`${path}.card`, 'Must be an object.')
       else {
         if (typeof card.id !== 'string' || !ID_PATTERN.test(card.id)) add(`${path}.card.id`, 'Required lowercase slug.')
-        else if (ids.has(card.id) || cardIds.has(card.id)) add(`${path}.card.id`, `Duplicate id "${card.id}".`)
-        else cardIds.add(card.id)
+        else if (ids.has(card.id) || overlayIds.has(card.id)) add(`${path}.card.id`, `Duplicate id "${card.id}".`)
+        else overlayIds.add(card.id)
         if (card.title !== undefined && (typeof card.title !== 'string' || card.title.length > CARD_LIMITS.titleLength)) {
           add(`${path}.card.title`, `Text of ${CARD_LIMITS.titleLength} characters or fewer.`)
         }
@@ -133,7 +133,36 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
               add(`${path}.card.lines[${i}]`, `Text of ${CARD_LIMITS.lineLength} characters or fewer.`)
             }
           })
-          if (typeof card.id === 'string') lines.forEach((_, i) => cardCueIds.push(`${card.id}.${i + 1}`))
+          if (typeof card.id === 'string') lines.forEach((_, i) => overlayCueIds.push(`${card.id}.${i + 1}`))
+        }
+      }
+    }
+    if (scene.comparison !== undefined) {
+      if (scene.card !== undefined) add(`${path}.comparison`, 'Use either card or comparison in a scene, not both.')
+      const comparison = scene.comparison
+      if (!isRecord(comparison)) add(`${path}.comparison`, 'Must be an object.')
+      else {
+        if (typeof comparison.id !== 'string' || !ID_PATTERN.test(comparison.id)) add(`${path}.comparison.id`, 'Required lowercase slug.')
+        else if (ids.has(comparison.id) || overlayIds.has(comparison.id)) add(`${path}.comparison.id`, `Duplicate id "${comparison.id}".`)
+        else overlayIds.add(comparison.id)
+        for (const side of ['left', 'right'] as const) {
+          const value = comparison[side]
+          const sidePath = `${path}.comparison.${side}`
+          if (!isRecord(value)) { add(sidePath, 'Must be an object.'); continue }
+          if (typeof value.title !== 'string' || !value.title.trim() || value.title.length > COMPARISON_LIMITS.titleLength) {
+            add(`${sidePath}.title`, `Required text of ${COMPARISON_LIMITS.titleLength} characters or fewer.`)
+          }
+          const lines = value.lines
+          if (!Array.isArray(lines) || !lines.length || lines.length > COMPARISON_LIMITS.lines) {
+            add(`${sidePath}.lines`, `Must be 1 to ${COMPARISON_LIMITS.lines} lines.`)
+          } else {
+            lines.forEach((line, i) => {
+              if (typeof line !== 'string' || line.length > COMPARISON_LIMITS.lineLength) {
+                add(`${sidePath}.lines[${i}]`, `Text of ${COMPARISON_LIMITS.lineLength} characters or fewer.`)
+              }
+            })
+            if (typeof comparison.id === 'string') lines.forEach((_, i) => overlayCueIds.push(`${comparison.id}.${side}.${i + 1}`))
+          }
         }
       }
     }
@@ -176,12 +205,12 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
       const allowed = new Set<string>([
         ...(Array.isArray(scene.reveal) ? scene.reveal : []),
         ...(Array.isArray(scene.hide) ? scene.hide : []),
-        ...cardCueIds,
+        ...overlayCueIds,
         ...extraCueIds,
       ].filter((id): id is string => typeof id === 'string'))
       const seen = new Set<string>()
       for (const cue of parsed.cues) {
-        if (!allowed.has(cue.id)) add(`${path}.narration`, `Cue "[[${cue.id}]]" is not in this scene's reveal or hide list.`)
+        if (!allowed.has(cue.id)) add(`${path}.narration`, `Cue "[[${cue.id}]]" is not in this scene's reveal, hide or overlay list.`)
         else if (seen.has(cue.id)) add(`${path}.narration`, `Cue "[[${cue.id}]]" appears more than once.`)
         seen.add(cue.id)
       }
