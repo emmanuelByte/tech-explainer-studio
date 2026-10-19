@@ -65,3 +65,26 @@ export function markVerified(notes: ReviewNote[], ids: string[], check: { eviden
 }
 
 export const openNotes = (notes: ReviewNote[]) => notes.filter((note) => noteStatus(note) === 'pending')
+
+/**
+ * Reconciles the notes a client sends with those on disk. The client owns what a
+ * note says and whether it exists while pending; the agent owns status and its
+ * evidence. So an older client copy cannot reset an applied or verified note,
+ * and notes that were handled are never silently dropped.
+ */
+export function mergeReviewNotes(onDisk: ReviewNote[], incoming: ReviewNote[]): ReviewNote[] {
+  const stored = new Map(onDisk.map((note) => [note.id, note]))
+  const merged: ReviewNote[] = []
+  for (const note of incoming) {
+    const existing = stored.get(note.id)
+    if (!existing) {
+      // A new note always starts pending, whatever the client claims.
+      const { status: _s, done: _d, appliedSummary: _a, appliedAt: _t, appliedSpecHash: _h, verification: _v, verifiedAt: _w, ...fresh } = note
+      merged.push(fresh)
+    } else merged.push(existing)
+    stored.delete(note.id)
+  }
+  // Present on disk but absent from the client: removed by the user if still pending, otherwise kept.
+  for (const note of stored.values()) if (noteStatus(note) !== 'pending') merged.push(note)
+  return merged
+}

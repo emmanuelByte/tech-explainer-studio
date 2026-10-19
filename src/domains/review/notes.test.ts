@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from './notes'
+import { markApplied, markVerified, mergeReviewNotes, noteStatus, openNotes, type ReviewNote } from './notes'
 
 const note = (id: string, extra: Partial<ReviewNote> = {}): ReviewNote => ({ id, sceneId: 's', frame: 0, text: id, createdAt: '2026-01-01', ...extra })
 const now = '2026-10-19T00:00:00Z'
@@ -31,5 +31,26 @@ describe('review note resolution', () => {
 
   it('reads the legacy done flag as applied, never verified', () => {
     expect(noteStatus(note('x', { done: true }))).toBe('applied')
+  })
+})
+
+describe('mergeReviewNotes', () => {
+  const applied = markApplied([note('a')], ['a'], { summary: 'fix', specHash: 'h', now })[0]
+
+  it('keeps agent-owned status when a stale client copy is saved', () => {
+    const merged = mergeReviewNotes([applied, note('b')], [note('a'), note('b'), note('c')])
+    expect(merged.map(noteStatus)).toEqual(['applied', 'pending', 'pending'])
+    expect(merged[0].appliedSummary).toBe('fix')
+  })
+
+  it('lets the user delete a pending note but never a handled one', () => {
+    expect(mergeReviewNotes([applied, note('b')], []).map((n) => n.id)).toEqual(['a'])
+  })
+
+  it('never lets a client create a note that is already applied or verified', () => {
+    const forged = { ...note('z'), status: 'verified' as const, verification: 'trust me' }
+    const [merged] = mergeReviewNotes([], [forged])
+    expect(noteStatus(merged)).toBe('pending')
+    expect(merged.verification).toBeUndefined()
   })
 })

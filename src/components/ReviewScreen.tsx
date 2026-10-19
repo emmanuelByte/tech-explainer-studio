@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Player, type PlayerRef } from '@remotion/player'
-import { ArrowLeft, Check, Download, FolderOpen, Trash2 } from 'lucide-react'
+import { ArrowLeft, Check, Download, FolderOpen, RefreshCw, Trash2 } from 'lucide-react'
 import { EditorComposition } from '../remotion/Composition'
 import { readProject } from '../projectStorage'
 import { noteStatus, type ReviewNote } from '../domains/review/notes'
@@ -40,12 +40,16 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
   const [notes, setNotes] = useState<ReviewNote[]>([])
   const [draft, setDraft] = useState('')
   const [job, setJob] = useState<ExportJob | null>(null)
+  const [noteScene, setNoteScene] = useState('')
+  const [updated, setUpdated] = useState(false)
+  const loadedSignature = useRef('')
 
   useEffect(() => {
     void (async () => {
       const loaded = await readProject(projectId)
       if (!loaded) return setError(`Project "${projectId}" could not be loaded.`)
       setProject(loaded)
+      loadedSignature.current = JSON.stringify(loaded)
       document.title = `Review: ${loaded.name}`
       try {
         setNotes((await api<{ notes: ReviewNote[] }>(`/api/reviews/${encodeURIComponent(projectId)}`)).notes)
@@ -63,11 +67,13 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
 
   const saveNotes = useCallback(async (next: ReviewNote[]) => {
     setNotes(next)
-    await api(`/api/reviews/${encodeURIComponent(projectId)}`, {
+    // The server merges with what the AI has since done to the notes and returns the result.
+    const saved = await api<{ notes: ReviewNote[] }>(`/api/reviews/${encodeURIComponent(projectId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ notes: next }),
     })
+    setNotes(saved.notes)
   }, [projectId])
 
   const scenes = useMemo(() => project?.scenes ?? [], [project])
@@ -75,6 +81,21 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
     () => scenes.find((scene) => frame >= scene.startFrame && frame < scene.endFrame) ?? scenes[scenes.length - 1],
     [scenes, frame],
   )
+
+  // The AI rebuilds the project after applying notes and the notes' status changes; pick both up without a manual refresh.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void (async () => {
+        try {
+          const latest = await readProject(projectId)
+          if (latest && JSON.stringify(latest) !== loadedSignature.current) setUpdated(true)
+          const saved = await api<{ notes: ReviewNote[] }>(`/api/reviews/${encodeURIComponent(projectId)}`)
+          setNotes((current) => (JSON.stringify(current) === JSON.stringify(saved.notes) ? current : saved.notes))
+        } catch { /* polling is best-effort */ }
+      })()
+    }, 4000)
+    return () => window.clearInterval(timer)
+  }, [projectId])
 
   // Poll the export job until it finishes.
   useEffect(() => {
@@ -92,9 +113,13 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
   const seek = (target: number) => { playerRef.current?.seekTo(target); setFrame(target) }
   const addNote = () => {
     const text = draft.trim()
-    if (!text || !currentScene) return
-    const note: ReviewNote = { id: `note_${Date.now().toString(36)}`, sceneId: currentScene.id.replace(/^scene_/, ''), frame, text, createdAt: new Date().toISOString() }
+    const target = scenes.find((scene) => scene.id === noteScene) ?? currentScene
+    if (!text || !target) return
+    // A note for another scene points at that scene's start; one for the current scene keeps the exact moment.
+    const at = target.id === currentScene?.id ? frame : target.startFrame
+    const note: ReviewNote = { id: `note_${Date.now().toString(36)}`, sceneId: target.id.replace(/^scene_/, ''), frame: at, text, createdAt: new Date().toISOString() }
     setDraft('')
+    setNoteScene('')
     void saveNotes([...notes, note]).catch((e: Error) => setError(e.message))
   }
   const startExport = () => {
@@ -113,6 +138,11 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
         <a href="/" className="icon-btn" title="All projects"><ArrowLeft size={16} /></a>
         <strong style={{ flex: 1 }}>{project.name}</strong>
         {error && <span style={{ color: '#ef4444', fontSize: 12 }}>{error}</span>}
+        {updated && (
+          <button className="pill-btn" onClick={() => window.location.reload()} title="The AI rebuilt this lesson">
+            <RefreshCw size={14} /> New version - reload
+          </button>
+        )}
         {job?.status === 'done' && (
           <button className="pill-btn" onClick={() => void api(`/api/exports/${job.id}/reveal`, { method: 'POST' })}>
             <FolderOpen size={14} /> {job.fileName}
@@ -174,23 +204,28 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
             <div style={{ fontSize: 11, color: 'var(--section-header)', marginBottom: 6 }}>NOTES FOR THE AI</div>
             {!notes.length && <div style={{ color: 'var(--text3)', fontSize: 13 }}>No notes yet. Pause on a moment and describe what to change.</div>}
             {notes.map((note) => (
-              <div key={note.id} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border2)', opacity: noteStatus(note) === 'verified' ? 0.5 : 1 }}>
+              <div key={note.id} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border2)', opacity: noteStatus(note) === 'verified' ? 0.55 : 1 }}>
                 <button className="icon-btn" title="Go to this moment" onClick={() => seek(note.frame)} style={{ fontSize: 12, width: 'auto', padding: '0 6px' }}>
                   {clock(note.frame, fps)}
                 </button>
-                <div style={{ flex: 1, fontSize: 13, textDecoration: noteStatus(note) === 'verified' ? 'line-through' : 'none' }}>
+                <div style={{ flex: 1, fontSize: 13, }}>
                   <span style={{ color: 'var(--text3)' }}>{note.sceneId}</span> — {note.text}
                 </div>
-                {noteStatus(note) === 'applied' && <span title={note.appliedSummary} style={{ fontSize: 11, color: '#f59e0b' }}>applied</span>}
-                {noteStatus(note) === 'verified' && <Check size={14} color="#22c55e" />}
-                <button className="icon-btn" title="Delete note" onClick={() => void saveNotes(notes.filter((n) => n.id !== note.id))}>
-                  <Trash2 size={13} />
-                </button>
+                {noteStatus(note) === 'applied' && <span title={`Changed, not yet checked: ${note.appliedSummary ?? ''}`} style={{ fontSize: 11, color: '#f59e0b' }}>applied</span>}
+                {noteStatus(note) === 'verified' && <span title={`Checked: ${note.verification ?? ''}`} style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, color: '#22c55e' }}><Check size={14} />verified</span>}
+                {noteStatus(note) === 'pending' && (
+                  <button className="icon-btn" title="Delete note" onClick={() => void saveNotes(notes.filter((n) => n.id !== note.id)).catch((e: Error) => setError(e.message))}>
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             ))}
           </section>
 
           <section style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+            <select className="input-base" value={noteScene || currentScene?.id || ''} onChange={(event) => setNoteScene(event.target.value)} style={{ width: '100%', marginBottom: 6 }} title="Which scene this note is about">
+              {scenes.map((scene, index) => <option key={scene.id} value={scene.id}>{index + 1}. {scene.title}</option>)}
+            </select>
             <textarea
               className="input-base"
               rows={3}

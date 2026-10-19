@@ -8,6 +8,8 @@ import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
 import { loadArtwork } from './artwork'
 import { renderStills } from './stills'
 import { produceCommand, reportFailure } from './produceCommand'
+import { renderedSince } from './revise'
+import { compareCommand, readProductionState, reviseCommand } from './reviseCommand'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
 import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from '../../src/domains/review/notes'
 import { atomicWriteFile } from '../../server/atomicFile'
@@ -22,7 +24,7 @@ async function readSpec(path: string | undefined) {
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-const USAGE = 'Usage: lesson <produce|validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
+const USAGE = 'Usage: lesson <produce|validate|narrate|build|lint|stills|notes|revise|compare|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
 /** `--aspect 16:9|9:16` renders the same lesson at the native size of that format. */
 const ASPECTS = { '16:9': { width: 1920, height: 1080 }, '9:16': { width: 1080, height: 1920 } } as const
@@ -84,6 +86,14 @@ async function main() {
     const ids = (name: string) => flag(name, '').split(',').map((value) => value.trim()).filter(Boolean)
     if (process.argv.includes('--done')) throw new Error('--done was removed because it closed every note at once. Use --apply <id,...> --summary "<what changed>" after editing the spec, then --verify <id,...> --evidence "<what the render shows>".')
     if (process.argv.includes('--apply')) notes = markApplied(notes, ids('apply'), { summary: flag('summary', ''), specHash, now })
+    if (process.argv.includes('--verify')) {
+      // A correction counts as verified only after it was rebuilt and rendered, not merely written into the spec.
+      const state = await readProductionState(root, (spec as LessonSpec).id)
+      for (const target of ids('verify')) {
+        const note = notes.find((candidate) => candidate.id === target)
+        if (note?.appliedAt && !renderedSince(state, note.appliedAt)) throw new Error(`Note ${target} was applied at ${note.appliedAt} but nothing has been rendered since. Run \`npm run produce -- <spec>\` and look at the new frames first.`)
+      }
+    }
     if (process.argv.includes('--verify')) notes = markVerified(notes, ids('verify'), { evidence: flag('evidence', ''), specHash, now })
     if (process.argv.includes('--apply') || process.argv.includes('--verify')) {
       await atomicWriteFile(path, `${JSON.stringify({ notes }, null, 2)}\n`)
@@ -98,6 +108,8 @@ async function main() {
     console.log(`${pending} pending, ${notes.filter((note) => noteStatus(note) === 'applied').length} applied (unverified), ${notes.filter((note) => noteStatus(note) === 'verified').length} verified.`)
     return
   }
+  if (command === 'revise') return reviseCommand(root, resolve(process.cwd(), specPath!), spec as LessonSpec, process.argv.slice(4))
+  if (command === 'compare') return compareCommand(root, spec as LessonSpec, process.argv.slice(4))
   if (command === 'patch') {
     if (!patchPath) throw new Error(USAGE)
     const issues = validateLessonSpec(spec)
