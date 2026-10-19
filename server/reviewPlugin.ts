@@ -1,7 +1,8 @@
 import type { ViteDevServer } from 'vite'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
+import { atomicWriteFile } from './atomicFile'
 
 /** Review notes the human leaves while previewing; the AI reads them with `npm run lesson -- notes`. */
 export function reviewPlugin() {
@@ -27,7 +28,7 @@ export function reviewPlugin() {
             const body = JSON.parse(await readBody(req) || '{}') as { notes?: unknown }
             if (!Array.isArray(body.notes)) return sendError(res, 400, 'Expected { notes: [] }.')
             await mkdir(resolve(path, '..'), { recursive: true })
-            await writeFile(path, `${JSON.stringify({ notes: body.notes }, null, 2)}\n`)
+            await atomicWriteFile(path, `${JSON.stringify({ notes: body.notes }, null, 2)}\n`)
             return sendJson(res, 200, { ok: true })
           }
           return next()

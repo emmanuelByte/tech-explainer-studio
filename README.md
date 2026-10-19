@@ -112,7 +112,8 @@ npm run dev        # http://localhost:3005
 ```
 
 Projects, assets, narration, review notes and exports are local files under
-`data/`, which is ignored by Git (except the tracked seed `data/assets/index.json`).
+`data/`, which is ignored by Git. Asset storage creates its empty index on first
+use, so a clean clone never needs generated narration metadata checked in.
 
 ### Voice (Chatterbox)
 
@@ -137,10 +138,12 @@ standard, high (2x) or ultra (3x) scale are supported.
 ## The editor (secondary)
 
 The original MotionEditor-based editor is still available at `/editor/<id>` for
-inspecting or hand-tuning a project: layers and groups, keyframes and easing,
+inspecting or hand-tuning a manual project: layers and groups, keyframes and easing,
 semantic connectors, deterministic sketch/draw-on, a separate video camera,
 narration and captions, a Story/Scene workspace, and a reusable library. It is
-not required for the lesson workflow and may be trimmed further.
+not required for the lesson workflow and may be trimmed further. AI-authored
+`lesson_*` projects are deliberately write-protected there; revise the lesson
+spec and rebuild instead.
 
 ## Local backend
 

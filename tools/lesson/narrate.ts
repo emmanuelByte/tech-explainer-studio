@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chunkLooksWrong, parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
@@ -29,6 +29,18 @@ export async function loadNarrationManifest(root: string, specId: string): Promi
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
+  }
+}
+
+/** Fail before compile/render when a manifest points at local audio that was cleaned up or never copied. */
+export async function assertNarrationAssets(root: string, manifest: NarrationManifest) {
+  const missing: string[] = []
+  for (const [sceneId, scene] of Object.entries(manifest.scenes)) {
+    const file = resolve(root, 'data', 'assets', 'files', `${scene.assetId}.wav`)
+    try { await access(file) } catch { missing.push(`${sceneId} (${scene.assetId})`) }
+  }
+  if (missing.length) {
+    throw new Error(`Narration audio is missing for ${missing.join(', ')}. Run \`lesson narrate <spec>\` to regenerate it.`)
   }
 }
 

@@ -357,6 +357,19 @@ sequence diagrams).
   It validates and lints cleanly, and its rendered comparison still was checked
   at video scale for legibility and layout.
 
+### 2026-10-19 — Production pipeline: reliability baseline
+
+- Generated `lesson_*` project files are now atomically written by the lesson
+  CLI, and the local project API refuses legacy-editor saves over them. Manual
+  projects retain ordinary editor persistence; lesson changes continue to flow
+  through the source spec and rebuild command.
+- Runtime asset indexes are no longer tracked. A clean clone creates an empty
+  ignored index on first use; missing asset files return an actionable 404, and
+  the lesson CLI rejects a narration manifest whose WAV files are unavailable.
+- Project histories and review notes use the same atomic replacement pattern.
+  The previously failing `focus.test.ts` fixture was made structurally valid,
+  restoring a clean TypeScript baseline.
+
 ## Milestone 8 handoff and implementation notes (written 2026-10-19)
 
 The following was written as a handoff when the implementation was complete but

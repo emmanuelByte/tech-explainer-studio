@@ -1,8 +1,9 @@
 import type { ViteDevServer } from 'vite'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
 import { migrateProject } from '../src/domains/project/migrations'
+import { atomicWriteFile } from './atomicFile'
 
 interface MotionProjectLike {
   id: string
@@ -190,7 +191,7 @@ async function saveProject(root: string, project: MotionProjectLike) {
   if (!project?.id) throw new Error('Missing project id.')
   await ensureProjectDir(root)
   project = sanitizeProject(migrateProject(project))
-  await writeFile(projectPath(root, project.id), `${JSON.stringify(project, null, 2)}\n`, 'utf-8')
+  await atomicWriteFile(projectPath(root, project.id), `${JSON.stringify(project, null, 2)}\n`)
   return project
 }
 
@@ -207,7 +208,7 @@ async function saveHistorySnapshot(root: string, id: string, snapshot: ProjectHi
   await ensureProjectDir(root)
   const snapshots = await readHistory(root, id)
   const migratedSnapshot = { ...snapshot, project: migrateProject(snapshot.project) }
-  await writeFile(historyPath(root, id), `${JSON.stringify([migratedSnapshot, ...snapshots].slice(0, 20), null, 2)}\n`, 'utf-8')
+  await atomicWriteFile(historyPath(root, id), `${JSON.stringify([migratedSnapshot, ...snapshots].slice(0, 20), null, 2)}\n`)
 }
 
 export function projectStoragePlugin() {
@@ -265,6 +266,13 @@ export function projectStoragePlugin() {
           }
 
           if (req.method === 'PUT' || req.method === 'POST') {
+            // Lesson projects are compiled from a spec by the CLI. The legacy
+            // editor autosaves arbitrary in-memory state, so it must never
+            // silently replace a freshly compiled lesson project.
+            if (id.startsWith('lesson_')) {
+              sendError(res, 409, 'This is an AI-authored lesson project. Edit its lesson spec and rebuild; the legacy editor cannot save over it.')
+              return
+            }
             const project = JSON.parse(await readBody(req)) as MotionProjectLike
             if (project.id !== id) {
               sendError(res, 400, 'Project id mismatch.')

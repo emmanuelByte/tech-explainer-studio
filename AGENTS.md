@@ -59,7 +59,7 @@ server/                          Vite middleware: projects, assets, exports, rev
 src/remotion/                    the renderer shared by preview and export
 src/domains/*                    camera, connectors, scenes, narration, sketch, timeline, project migrations
 src/domains/technical-components/assets/   component SVGs (240x150, line art, currentColor)
-data/                            local runtime files; git-ignored (except the seed data/assets/index.json)
+data/                            local runtime files; git-ignored (asset storage initializes itself)
 docs/                            vision, roadmap, schema, TTS, pivot plan
 ```
 

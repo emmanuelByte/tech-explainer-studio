@@ -1,8 +1,9 @@
 import type { ViteDevServer } from 'vite'
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
+import { atomicWriteFile } from './atomicFile'
 
 type StoredImageKind = 'raster' | 'svg'
 type StoredAssetKind = 'image' | 'video' | 'audio'
@@ -69,14 +70,20 @@ async function readIndex(root: string): Promise<StoredAsset[]> {
     const assets = JSON.parse(await readFile(indexPath(root), 'utf-8')) as StoredAsset[]
     return assets.map((asset) => ({ ...asset, url: assetUrl(asset.id) }))
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      // A clean clone deliberately has no runtime assets. Create an ignored
+      // empty index so upload/narration has a predictable starting point.
+      await ensureAssetDir(root)
+      await atomicWriteFile(indexPath(root), '[]\n')
+      return []
+    }
     throw error
   }
 }
 
 async function writeIndex(root: string, assets: StoredAsset[]) {
   await ensureAssetDir(root)
-  await writeFile(indexPath(root), `${JSON.stringify(assets, null, 2)}\n`, 'utf-8')
+  await atomicWriteFile(indexPath(root), `${JSON.stringify(assets, null, 2)}\n`)
 }
 
 function extensionForAsset(payload: UploadAssetPayload) {
@@ -192,6 +199,10 @@ export function assetStoragePlugin() {
 
           if (subresource === 'file' && (req.method === 'GET' || req.method === 'HEAD')) {
             const filePath = assetFilePath(root, asset)
+            try { await access(filePath) } catch {
+              sendError(res, 404, `Asset file is missing locally: ${asset.fileName}. Regenerate or re-import this asset.`)
+              return
+            }
             const fileStat = await stat(filePath)
             const total = fileStat.size
 

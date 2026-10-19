@@ -6,7 +6,8 @@ import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../sr
 import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
 import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
-import { loadNarrationManifest, narrateLesson } from './narrate'
+import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
+import { atomicWriteFile } from '../../server/atomicFile'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
 
@@ -52,7 +53,7 @@ function flag(name: string, fallback: string) {
 async function writeProject(project: ReturnType<typeof build>) {
   const out = resolve(root, 'data', 'projects', `${project.id}.json`)
   await mkdir(dirname(out), { recursive: true })
-  await writeFile(out, JSON.stringify(project, null, 2))
+  await atomicWriteFile(out, `${JSON.stringify(project, null, 2)}\n`)
   return out
 }
 
@@ -128,6 +129,7 @@ async function main() {
   }
   // Real narration audio, when it exists, sets scene lengths and reveal times.
   const narration = await loadNarrationManifest(root, (spec as LessonSpec).id)
+  if (narration) await assertNarrationAssets(root, narration)
   const project = build(spec, artwork, narration)
   if (command === 'build') {
     const out = await writeProject(project)
