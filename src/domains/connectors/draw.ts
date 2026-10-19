@@ -21,3 +21,21 @@ export function connectorLineDash(strokeWidth: number) {
   const safeWidth = Math.max(1, Math.min(16, strokeWidth))
   return `${safeWidth * 3} ${safeWidth * 2}`
 }
+
+export const PULSE_PERIOD_FRAMES = 54
+export const PULSE_COUNT = 2
+const PULSE_FADE_FRAMES = 12
+
+/**
+ * Flow dots for a connector: progress 0..1 along the path and an opacity for each.
+ * Dots are evenly spaced, loop every PULSE_PERIOD_FRAMES, and fade in and out
+ * at the ends of the pulse range. Pure, so preview and export agree.
+ */
+export function connectorPulses(frame: number, startFrame?: number, endFrame?: number) {
+  if (startFrame === undefined || endFrame === undefined || frame < startFrame || frame > endFrame) return []
+  const fade = Math.min(1, (frame - startFrame) / PULSE_FADE_FRAMES, (endFrame - frame) / PULSE_FADE_FRAMES)
+  return Array.from({ length: PULSE_COUNT }, (_, index) => {
+    const phase = ((frame - startFrame) / PULSE_PERIOD_FRAMES + index / PULSE_COUNT) % 1
+    return { progress: phase, opacity: Math.max(0, fade) }
+  })
+}

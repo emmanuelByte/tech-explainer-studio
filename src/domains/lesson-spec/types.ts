@@ -12,6 +12,10 @@ export interface LessonSpec {
   id: string
   title: string
   canvas?: { width?: number; height?: number; fps?: number }
+  /** A silent title card before the first scene (shows `title` and an optional subtitle). */
+  intro?: { subtitle?: string; seconds?: number }
+  /** A silent closing card over the dimmed final diagram. */
+  outro?: { text: string; seconds?: number }
   nodes: SpecNode[]
   edges: SpecEdge[]
   scenes: SpecScene[]
@@ -41,6 +45,8 @@ export interface SpecCard {
   lines: string[]
 }
 
+export const TITLE_LIMITS = { title: 60, subtitle: 60, seconds: [1, 10] } as const
+
 export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
 
 export interface SpecScene {
@@ -54,6 +60,10 @@ export interface SpecScene {
   reveal?: string[]
   /** Node/edge ids removed in this scene, once its first reveal begins. Must already be revealed. */
   hide?: string[]
+  /** Node ids that glow and pulse for the rest of this scene. Cue: `[[emphasize:<id>]]`. */
+  emphasize?: string[]
+  /** Edge ids that show travelling flow dots from here to the end of this scene. Cue: `[[flow:<id>]]`. */
+  flow?: string[]
   /** A code/request panel shown over the dimmed diagram for this scene only. */
   card?: SpecCard
   /** Node ids the camera frames. Defaults to everything revealed so far. */

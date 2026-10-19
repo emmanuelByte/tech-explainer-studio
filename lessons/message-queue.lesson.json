@@ -2,6 +2,12 @@
   "version": 1,
   "id": "message-queue",
   "title": "How a Message Queue Works",
+  "intro": {
+    "subtitle": "Background jobs, explained"
+  },
+  "outro": {
+    "text": "Thanks for watching"
+  },
   "nodes": [
     {
       "id": "user",
@@ -86,6 +92,9 @@
       "reveal": [
         "queue",
         "app-queue"
+      ],
+      "flow": [
+        "app-queue"
       ]
     },
     {
@@ -113,6 +122,10 @@
         "w2",
         "queue-w1",
         "queue-w2"
+      ],
+      "emphasize": [
+        "w1",
+        "w2"
       ]
     },
     {
@@ -121,6 +134,10 @@
       "narration": "Each worker saves its result to [[store]]storage, [[w1-store]][[w2-store]]and the user sees the new photo.",
       "reveal": [
         "store",
+        "w1-store",
+        "w2-store"
+      ],
+      "flow": [
         "w1-store",
         "w2-store"
       ]
@@ -138,6 +155,13 @@
       "hide": [
         "user",
         "app"
+      ],
+      "emphasize": [
+        "queue"
+      ],
+      "flow": [
+        "queue-w1",
+        "queue-w2"
       ]
     }
   ]

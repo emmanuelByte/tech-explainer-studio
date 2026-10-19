@@ -6,6 +6,7 @@ import {
   type Layer,
   type LayerType,
   type MotionProject,
+  type PropertyKeyframe,
   type Scene,
   type ScriptSegment,
   type TechnicalComponentKind,
@@ -51,6 +52,11 @@ const CARD_PADDING = 40
 const CARD_TITLE_HEIGHT = 56
 const CARD_LINE_HEIGHT = 44
 const CARD_FADE_FRAMES = 12
+const EMPHASIS_RAMP_FRAMES = 10
+const EMPHASIS_SCALE = 1.06
+const EMPHASIS_GLOW_BLUR = 30
+const EMPHASIS_GLOW_SPREAD = 6
+const DEFAULT_TITLE_SECONDS = 3
 const CARD_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 const WORDS_PER_SECOND = 2.5
 /** Silence before the voice starts and after it ends, per scene. */
@@ -191,6 +197,7 @@ function nodeLayers(
   placement: NodePlacement,
   revealFrame: number,
   hideFrame: number | undefined,
+  emphasis: { start: number; end: number }[],
   totalFrames: number,
   artwork: ComponentArtwork,
 ): Layer[] {
@@ -205,6 +212,18 @@ function nodeLayers(
       { frame: revealFrame, easing: 'ease-out', props: hidden },
       { frame: revealFrame + NODE_FADE_FRAMES, easing: 'ease-out', props: shown },
     ]
+  // Emphasis: a slight scale bump here and a glow on the body (below) for the rest of a scene.
+  const ranges = emphasis
+    .map((range) => ({ start: Math.max(range.start, revealFrame + NODE_FADE_FRAMES), end: Math.min(range.end, hideFrame ?? Infinity) }))
+    .filter((range) => range.end - range.start > 2 * EMPHASIS_RAMP_FRAMES)
+  for (const range of ranges) {
+    keyframes.push(
+      { frame: range.start, easing: 'ease-out', props: shown },
+      { frame: range.start + EMPHASIS_RAMP_FRAMES, easing: 'linear', props: { ...shown, scale: EMPHASIS_SCALE } },
+      { frame: range.end - EMPHASIS_RAMP_FRAMES, easing: 'ease-in', props: { ...shown, scale: EMPHASIS_SCALE } },
+      { frame: range.end, easing: 'linear', props: shown },
+    )
+  }
   if (hideFrame !== undefined) {
     keyframes.push(
       { frame: hideFrame, easing: 'ease-in', props: shown },
@@ -232,8 +251,16 @@ function nodeLayers(
     strokeColor: palette.stroke,
     strokeWidth: 2,
     borderRadius: 16,
+    ...(ranges.length ? {
+      shadowEnabled: true,
+      shadowColor: palette.stroke,
+      propertyKeyframes: {
+        shadowBlur: glowKeyframes(`${groupId}_blur`, ranges, EMPHASIS_GLOW_BLUR),
+        shadowSpread: glowKeyframes(`${groupId}_spread`, ranges, EMPHASIS_GLOW_SPREAD),
+      },
+    } : {}),
     ...timing,
-    keyframes: staticKeyframe(0, 0, 0),
+    keyframes: [{ frame: 0, easing: 'ease-out', props: { ...DEFAULT_TRANSFORM, shadowBlur: 0, shadowY: 0, shadowSpread: 0 } }],
   })
   const art = baseLayer('image', {
     id: `${groupId}__artwork`,
@@ -287,8 +314,20 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const framings: CameraKeyframe[] = []
   const narrationLayers: Layer[] = []
   const cardLayerSets: Layer[] = []
+  const titleLayerSets: Layer[] = []
+  const emphasis = new Map<string, { start: number; end: number }[]>()
+  const flowRange = new Map<string, { start: number; end: number }>()
   let visibleNodes: string[] = []
   let cursor = 0
+
+  if (spec.intro) {
+    const introFrames = Math.round((spec.intro.seconds ?? DEFAULT_TITLE_SECONDS) * fps)
+    const framing = cameraFor([], placements, 0, width, height)
+    framings.push(framing)
+    scenes.push({ id: 'scene_intro', title: spec.title, startFrame: 0, endFrame: introFrames, scriptSegmentIds: [], transitionIn: 0, transitionOut: 0 })
+    titleLayerSets.push(...titleCardLayers('intro', spec.title, spec.intro.subtitle, framing, { width, height }, 0, introFrames, 'intro'))
+    cursor = introFrames
+  }
 
   for (const specScene of spec.scenes) {
     const parsed = parseNarration(specScene.narration)
@@ -317,6 +356,14 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     for (const id of specScene.hide ?? []) {
       hideFrame.set(id, cueFrame(id) ?? start + REVEAL_LEAD_FRAMES)
       visibleNodes = visibleNodes.filter((candidate) => candidate !== id)
+    }
+
+    for (const id of specScene.emphasize ?? []) {
+      emphasis.set(id, [...(emphasis.get(id) ?? []), { start: cueFrame(`emphasize:${id}`) ?? audioStart, end }])
+    }
+    for (const id of specScene.flow ?? []) {
+      const ready = (revealFrame.get(id) ?? 0) + EDGE_DRAW_FRAMES
+      flowRange.set(id, { start: cueFrame(`flow:${id}`) ?? Math.max(start + REVEAL_LEAD_FRAMES, ready), end })
     }
 
     const framing = cameraFor(specScene.focus ?? visibleNodes, placements, start, width, height)
@@ -379,14 +426,23 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     }
     cursor = end
   }
+
+  if (spec.outro) {
+    const outroFrames = Math.round((spec.outro.seconds ?? DEFAULT_TITLE_SECONDS) * fps)
+    const framing = { ...framings[framings.length - 1], frame: cursor }
+    framings.push(framing)
+    scenes.push({ id: 'scene_outro', title: 'Outro', startFrame: cursor, endFrame: cursor + outroFrames, scriptSegmentIds: [], transitionIn: 0, transitionOut: 0 })
+    titleLayerSets.push(...titleCardLayers('outro', spec.outro.text, undefined, framing, { width, height }, cursor, cursor + outroFrames, 'outro'))
+    cursor += outroFrames
+  }
   const totalFrames = cursor
 
   const layers: Layer[] = []
   for (const node of spec.nodes) {
-    layers.push(...nodeLayers(node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), totalFrames, options.artwork))
+    layers.push(...nodeLayers(node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), emphasis.get(node.id) ?? [], totalFrames, options.artwork))
   }
   // Top-level layers stack first-on-top (a group's children stack last-on-top), so cards go first.
-  layers.unshift(...cardLayerSets)
+  layers.unshift(...titleLayerSets, ...cardLayerSets)
   layers.push(...narrationLayers)
 
   const connectors: Connector[] = spec.edges.map((edge) => {
@@ -408,6 +464,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       drawStartFrame: start,
       drawEndFrame: start + EDGE_DRAW_FRAMES,
       ...(hideFrame.has(edge.id) ? { hideFrame: hideFrame.get(edge.id) } : {}),
+      ...(flowRange.has(edge.id) ? { pulseStartFrame: flowRange.get(edge.id)!.start, pulseEndFrame: flowRange.get(edge.id)!.end } : {}),
       sketchEnabled: false,
       sketchRoughness: 1,
     }
@@ -568,4 +625,62 @@ function titleThumbnail(title: string, width: number, height: number) {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${BACKGROUND}"/>`
     + `<text x="${width / 2}" y="${height / 2}" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="${Math.round(height / 11)}" font-weight="700" text-anchor="middle">${escaped}</text></svg>`
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+}
+
+/** Glow strength over time: 0, ramping to `peak` for each range, back to 0. */
+function glowKeyframes(idPrefix: string, ranges: { start: number; end: number }[], peak: number): PropertyKeyframe[] {
+  const points: [number, number][] = [[0, 0]]
+  for (const range of ranges) {
+    points.push([range.start, 0], [range.start + EMPHASIS_RAMP_FRAMES, peak], [range.end - EMPHASIS_RAMP_FRAMES, peak], [range.end, 0])
+  }
+  return points.map(([frame, value], index) => ({ id: `${idPrefix}_${index}`, frame, value, easing: 'linear' }))
+}
+
+/**
+ * A silent title or closing card, centred on the camera framing and scaled by
+ * 1/zoom so it keeps a fixed on-screen size. The intro is opaque and fades out;
+ * the outro dims the diagram behind it and holds to the end of the video.
+ */
+function titleCardLayers(
+  id: string,
+  title: string,
+  subtitle: string | undefined,
+  framing: CameraKeyframe,
+  canvas: { width: number; height: number },
+  start: number,
+  end: number,
+  mode: 'intro' | 'outro',
+): Layer[] {
+  const x = framing.x - canvas.width / 2
+  const y = framing.y - canvas.height / 2
+  const scale = 1 / framing.zoom
+  const groupId = `title_${id}`
+  const timing = { startFrame: start, endFrame: end }
+  const at = (opacity: number) => ({ ...DEFAULT_TRANSFORM, x, y, scale, opacity })
+  const keyframes: Keyframe[] = [
+    { frame: start, easing: 'ease-out', props: at(0) },
+    { frame: start + CARD_FADE_FRAMES, easing: 'linear', props: at(1) },
+  ]
+  if (mode === 'intro') {
+    keyframes.push({ frame: end - CARD_FADE_FRAMES, easing: 'ease-in', props: at(1) }, { frame: end, easing: 'linear', props: at(0) })
+  }
+  const child = (name: string, type: LayerType, offsetY: number, overrides: Partial<Layer>) => baseLayer(type, {
+    id: `${groupId}__${name}`,
+    parentId: groupId,
+    name,
+    ...timing,
+    keyframes: staticKeyframe(start, 0, offsetY),
+    ...overrides,
+  } as Parameters<typeof baseLayer>[1])
+  const layers: Layer[] = [
+    baseLayer('group', { id: groupId, name: mode === 'intro' ? 'Title card' : 'Outro card', width: 1600, height: 400, ...timing, keyframes }),
+    child('backdrop', 'rectangle', 0, { width: 8000, height: 6000, fillColor: mode === 'intro' ? BACKGROUND : 'rgba(11,16,32,0.88)' }),
+    child('title', 'text', subtitle ? -36 : 0, {
+      text: title, width: 1600, height: 120, fontSize: mode === 'intro' ? 84 : 64, fontWeight: '800', textColor: '#ffffff',
+    }),
+  ]
+  if (subtitle) {
+    layers.push(child('subtitle', 'text', 76, { text: subtitle, width: 1600, height: 64, fontSize: 40, fontWeight: '500', textColor: '#93c5fd' }))
+  }
+  return layers
 }

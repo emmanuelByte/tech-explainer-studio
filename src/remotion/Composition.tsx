@@ -8,7 +8,8 @@ import { useStore } from '../store'
 import { resolveLayerAnimation } from '../animationProperties'
 import { styledSvgDataUrl } from '../svgImage'
 import { resolveConnector } from '../domains/connectors/resolve'
-import { connectorDash, connectorDrawProgress, connectorLineDash } from '../domains/connectors/draw'
+import { connectorDash, connectorDrawProgress, connectorLineDash, connectorPulses } from '../domains/connectors/draw'
+import { pointAtDistance } from '../domains/connectors/geometry'
 import { sketchPathVariants, sketchPolylineVariants, sketchPrimitiveVariants, type SketchPrimitive } from '../domains/sketch/geometry'
 import { normalizedDrawStroke } from '../domains/sketch/draw'
 import { cameraTransform, resolveCamera } from '../domains/camera/model'
@@ -1139,6 +1140,15 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
                 style={{ pointerEvents: 'none', filter: selectedConnectorId === connector.id ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : undefined }}
               />
             ))}
+            {progress === 1 && connectorPulses(frame, connector.pulseStartFrame, connector.pulseEndFrame).map((pulse, index) => {
+              const at = pointAtDistance(path.segments, pulse.progress * path.length)
+              return (
+                <g key={`pulse-${index}`} opacity={pulse.opacity} style={{ pointerEvents: 'none' }}>
+                  <circle cx={at.x} cy={at.y} r={15} fill={connector.color} opacity={0.25} />
+                  <circle cx={at.x} cy={at.y} r={9} fill={connector.color} stroke="#ffffff" strokeWidth={2.5} />
+                </g>
+              )
+            })}
             {selectedConnectorId === connector.id && (
               <>
                 <circle data-connector-endpoint="source" data-connector-id={connector.id} cx={path.from.x} cy={path.from.y} r={10} fill="#f59e0b" stroke="#fff" strokeWidth={3} style={{ pointerEvents: 'all', cursor: 'crosshair' }} onMouseDown={(event) => {

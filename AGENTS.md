@@ -71,7 +71,7 @@ under the assets folder, a colour pair in `PALETTE` (`compile.ts`) and a path in
 
 1. **One project model.** Preview and Remotion export consume the same project JSON.
 2. **Deterministic.** The same spec compiles to the same project; no `Math.random`, no wall-clock in rendering.
-3. **Migrations.** Any persisted-field change needs a new `schemaVersion` and one migration (`src/domains/project/migrations.ts`), and `docs/PROJECT_SCHEMA.md` updated. Current version: 14.
+3. **Migrations.** Any persisted-field change needs a new `schemaVersion` and one migration (`src/domains/project/migrations.ts`), and `docs/PROJECT_SCHEMA.md` updated. Current version: 15.
 4. **Semantic connectors.** Arrows attach to component layers and follow them.
 5. **Domain modules.** Put new logic in `src/domains/<domain>/`; do not grow `store.ts`, `CanvasOverlay.tsx` or `Timeline.tsx`.
 6. **Renderer facts.** Top-level layers stack first-on-top, a group's children last-on-top. Layers carry per-side border widths and per-corner radii that override plain `strokeWidth` / `borderRadius` (the compiler's `baseLayer` sets all of them). Renders need `--public-dir=data` to find audio.

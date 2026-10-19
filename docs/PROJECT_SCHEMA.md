@@ -1,7 +1,7 @@
 # Project schema and migrations
 
 Tech Explainer Studio persists a complete project as JSON. Every project now
-has a top-level `schemaVersion`; the current version is **14**.
+has a top-level `schemaVersion`; the current version is **15**.
 
 ## Loading and saving
 
@@ -45,6 +45,9 @@ imported object.
   scene-local frames). Version `14` adds an optional connector `hideFrame`
   (fade-out start; absent means never hidden), so existing projects are
   unchanged.
+- Version `15` adds optional connector `pulseStartFrame` / `pulseEndFrame`
+  (flow dots travel along the connector between them; absent means no pulses),
+  so existing projects are unchanged.
 - A project whose version is newer than the editor supports is rejected. It is
   never silently downgraded or overwritten.
 - Any future persisted-field change must increment

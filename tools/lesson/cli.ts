@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../src/types'
@@ -129,6 +129,7 @@ async function main() {
     // One frame per scene, just before it ends, when its reveals and camera move have finished.
     const projectPath = await writeProject(project)
     const dir = resolve(root, 'data', 'exports', 'stills', project.id)
+    await rm(dir, { recursive: true, force: true }) // stale stills from an older scene order would mislead
     await mkdir(dir, { recursive: true })
     for (const [index, scene] of (project.scenes ?? []).entries()) {
       const out = resolve(dir, `${String(index + 1).padStart(2, '0')}-${scene.id.replace(/^scene_/, '')}.png`)

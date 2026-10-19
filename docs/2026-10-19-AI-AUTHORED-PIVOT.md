@@ -325,3 +325,94 @@ sequence diagrams).
   a lower `--cfg` (e.g. 0.3) makes Chatterbox speak faster.
 - VS Code's built-in video preview does not play audio; check videos in
   QuickTime or the review page.
+
+## HANDOFF — current task for the next agent (written 2026-10-19, end of session)
+
+The human ran out of tokens mid-task. Read this section first, then `AGENTS.md`.
+
+### Task in progress: "visual polish" (milestone 8) — implemented, NOT yet verified visually
+
+The human approved this plan: **data-flow pulses, title card + outro, emphasis**,
+then a **voice-speed comparison**. The code for the first three is written,
+type-checks and the 175 existing tests pass, but **nobody has looked at a render
+of it yet** and no new tests were added (testing stance: keep tests light, see
+`AGENTS.md`).
+
+What was added (all uncommitted work is now committed; see `git log`):
+
+- **Pulses (flow dots).** Spec: scene `flow: ["<edge id>"]` (edge must already be
+  revealed; one flow range per edge; optional cue `[[flow:<edge id>]]`). Compiler
+  sets connector `pulseStartFrame`/`pulseEndFrame` (start = cue, else after the edge
+  finishes drawing; end = end of the scene). Schema **15** (identity migration).
+  Renderer: `connectorPulses()` in `src/domains/connectors/draw.ts` (2 dots, 54-frame
+  loop, fade in/out), `pointAtDistance()` in `geometry.ts`, drawn in
+  `ConnectorOverlay` in `src/remotion/Composition.tsx` (white-ringed dot with a halo).
+- **Emphasis.** Spec: scene `emphasize: ["<node id>"]` (node must be revealed;
+  optional cue `[[emphasize:<node id>]]`). Compiler: scale bump to 1.06 on the
+  component group plus a glow on its body via `shadowBlur`/`shadowSpread`
+  `propertyKeyframes` (`glowKeyframes()` in `compile.ts`). **Unverified: whether the
+  renderer actually draws that box-shadow glow nicely** (it uses the layer's
+  `shadowEnabled`/`shadowColor`). Check the render; if it is invisible or ugly,
+  switch to an extra rounded-rect "halo" layer behind the body instead.
+- **Intro / outro.** Spec: top-level `intro: { subtitle?, seconds? }` (silent title
+  card, opaque, fades out; title = spec `title`) and `outro: { text, seconds? }`
+  (silent, dims the final diagram, holds to the end). Compiler adds scenes
+  `scene_intro` / `scene_outro` with no script segment (so no captions) and
+  `titleCardLayers()` in `compile.ts`. Default 3 s each. Lint now maps spec scenes
+  to project scenes by id (indices shift when an intro exists).
+- `lessons/message-queue.lesson.json` now uses all of it: intro "Background jobs,
+  explained", outro "Thanks for watching", `flow` on `app-queue` / `w1-store` /
+  `w2-store` / `queue-w1` / `queue-w2`, `emphasize` on `w1,w2` (workers scene) and
+  `queue` (scale scene). Narration text is unchanged, so the existing audio is still
+  valid. It built to 8 scenes / 48.1 s with no lint issues.
+- `npm run lesson -- stills` now clears its output folder first (stale stills from an
+  older scene order used to mix in).
+
+### What the next agent should do, in order
+
+1. **Look at the renders.** `npm run lesson -- stills lessons/message-queue.lesson.json`
+   (~35 s), then read `data/exports/stills/lesson_message-queue/`: `01-intro.png`,
+   `05-workers.png` (emphasis), `06-store.png` (flow dots), `07-scale.png`
+   (emphasis + dots), `08-outro.png`. Stills are taken 8 frames before each scene
+   ends. Fix anything ugly: dot size/colour, glow, title sizing/position, outro dimming.
+2. **Check timing in motion**, not just stills: render a short slice (see
+   `AGENTS.md`/pivot doc for `remotion render ... --frames=a-b --public-dir=data`) or
+   export the full MP4 (below) and confirm dots loop smoothly and fade at the ends.
+3. **Export and let the human review**: with the app running, `POST /api/exports`
+   `{"projectId":"lesson_message-queue","fileName":"How a Message Queue Works","format":"mp4","quality":"standard"}`
+   and poll `GET /api/exports/<id>`; output is `data/exports/How a Message Queue Works.mp4`.
+   Tell the human to watch it **in QuickTime or at `/review/lesson_message-queue`, not
+   VS Code's preview (it plays no audio)**.
+4. **Document the new spec fields** in `README.md` ("Scene fields") — `intro`,
+   `outro`, `emphasize`, `flow`, cues `[[emphasize:id]]` / `[[flow:id]]`; add the
+   limits (`TITLE_LIMITS` in `src/domains/lesson-spec/types.ts`).
+5. Optionally add **one** small test for the pulse math (`connectorPulses`) and one
+   for the intro offset in `compile.test.ts`. Do not add per-error-message tests.
+6. **Voice speed comparison (approved, not started).** The human found the voice
+   "a little slow, fine for now". Chatterbox speaks faster with a lower
+   `cfg_weight`. Non-destructive test: with the voice worker running
+   (`docs/LOCAL_TTS.md`), `npm run lesson -- narrate lessons/message-queue.lesson.json --cfg 0.3`
+   (~3 min; chunks are cached per setting), `build`, export to a file named
+   `... (faster).mp4`, then run `narrate` again without `--cfg` (instant, from cache)
+   and `build` to restore the default. Ask the human which they prefer.
+7. Update this log with what you verified and changed.
+
+### Gotchas learned this session
+
+- **Never** write `open(p,'w').write(open(p).read())` in an edit script: it empties
+  the file (it wiped `compile.ts` once; recovered with `git checkout`). Read first,
+  then write.
+- Top-level layers stack **first-on-top**; a group's children stack **last-on-top**.
+- Do not open `/editor/<id>` before `build`: autosave overwrites the build.
+- `data/assets/index.json` is local runtime data (lists narration audio): do not commit it.
+- Chatterbox can stretch one- or two-word chunks; `narrate` now re-rolls takes that
+  look wrong (3 tries). If it warns "still looks wrong", merge the phrase into a
+  longer one in the spec.
+- Pushed history has one non-buildable commit (`e5e726d`); not worth rewriting.
+
+### Remaining roadmap after this task (see "Status at a glance")
+
+9:16 vertical output (layout assumes wide canvas), a theme file (colours/fonts are
+constants in `compile.ts`), spec patch tooling for applying review notes, sequence
+diagrams and comparison cards, adaptive column spacing for graphs deeper than five
+columns, and a human listen to the voice on `page-load`.

@@ -44,6 +44,20 @@ function midpointOnSegments(segments: Array<{ from: Point; to: Point }>, length:
   return segments[0]?.from ?? { x: 0, y: 0 }
 }
 
+/** The point `travelled` pixels along a routed path, clamped to its ends. */
+export function pointAtDistance(segments: Array<{ from: Point; to: Point }>, travelled: number): Point {
+  let remaining = Math.max(0, travelled)
+  for (const segment of segments) {
+    const segmentLength = distance(segment.from, segment.to)
+    if (remaining <= segmentLength || segment === segments[segments.length - 1]) {
+      const ratio = segmentLength === 0 ? 0 : Math.min(1, remaining / segmentLength)
+      return { x: segment.from.x + (segment.to.x - segment.from.x) * ratio, y: segment.from.y + (segment.to.y - segment.from.y) * ratio }
+    }
+    remaining -= segmentLength
+  }
+  return segments[0]?.from ?? { x: 0, y: 0 }
+}
+
 function portVector(port: ConnectorPort): Point {
   if (port === 'left') return { x: -1, y: 0 }
   if (port === 'right') return { x: 1, y: 0 }

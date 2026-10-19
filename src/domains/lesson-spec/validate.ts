@@ -1,6 +1,6 @@
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { narrationCueProblems, parseNarration } from './narration'
-import { CARD_LIMITS, SPEC_DEFAULTS, type LessonSpec, type SpecIssue } from './types'
+import { CARD_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
 
 const KINDS = new Set<string>(TECHNICAL_COMPONENT_KINDS)
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
@@ -30,6 +30,21 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
       }
     }
   }
+
+  for (const key of ['intro', 'outro'] as const) {
+    const value = input[key]
+    if (value === undefined) continue
+    if (!isRecord(value)) { add(key, 'Must be an object.'); continue }
+    const text = key === 'intro' ? value.subtitle : value.text
+    const field = key === 'intro' ? 'subtitle' : 'text'
+    if (key === 'outro' && (typeof text !== 'string' || !text.trim())) add(`${key}.text`, 'Required.')
+    else if (text !== undefined && (typeof text !== 'string' || text.length > TITLE_LIMITS.subtitle)) add(`${key}.${field}`, `Text of ${TITLE_LIMITS.subtitle} characters or fewer.`)
+    const seconds = value.seconds
+    if (seconds !== undefined && (typeof seconds !== 'number' || seconds < TITLE_LIMITS.seconds[0] || seconds > TITLE_LIMITS.seconds[1])) {
+      add(`${key}.seconds`, `A number from ${TITLE_LIMITS.seconds[0]} to ${TITLE_LIMITS.seconds[1]}.`)
+    }
+  }
+  if (typeof input.title === 'string' && input.title.length > TITLE_LIMITS.title) add('title', `Text of ${TITLE_LIMITS.title} characters or fewer.`)
 
   const ids = new Map<string, 'node' | 'edge'>()
   const nodes = Array.isArray(input.nodes) ? input.nodes : null
@@ -77,6 +92,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   const revealed = new Set<string>()
   const hidden = new Set<string>()
   const cardIds = new Set<string>()
+  const flowing = new Set<string>()
   scenes?.forEach((scene, index) => {
     const path = `scenes[${index}]`
     if (!isRecord(scene)) return add(path, 'Must be an object.')
@@ -121,6 +137,26 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         }
       }
     }
+    const extraCueIds: string[] = []
+    if (scene.emphasize !== undefined) {
+      if (!Array.isArray(scene.emphasize)) add(`${path}.emphasize`, 'Must be an array of node ids.')
+      else scene.emphasize.forEach((id, i) => {
+        const here = Array.isArray(scene.reveal) && scene.reveal.includes(id)
+        if (typeof id !== 'string' || ids.get(id) !== 'node') add(`${path}.emphasize[${i}]`, `"${String(id)}" is not a node id.`)
+        else if (!revealed.has(id) && !here) add(`${path}.emphasize[${i}]`, `"${id}" is not revealed yet.`)
+        else extraCueIds.push(`emphasize:${id}`)
+      })
+    }
+    if (scene.flow !== undefined) {
+      if (!Array.isArray(scene.flow)) add(`${path}.flow`, 'Must be an array of edge ids.')
+      else scene.flow.forEach((id, i) => {
+        const here = Array.isArray(scene.reveal) && scene.reveal.includes(id)
+        if (typeof id !== 'string' || ids.get(id) !== 'edge') add(`${path}.flow[${i}]`, `"${String(id)}" is not an edge id.`)
+        else if (!revealed.has(id) && !here) add(`${path}.flow[${i}]`, `"${id}" is not revealed yet.`)
+        else if (flowing.has(id)) add(`${path}.flow[${i}]`, `"${id}" already flows in an earlier scene (an edge can have one flow range).`)
+        else { flowing.add(id); extraCueIds.push(`flow:${id}`) }
+      })
+    }
     const hide = scene.hide
     if (hide !== undefined) {
       if (!Array.isArray(hide)) add(`${path}.hide`, 'Must be an array of ids.')
@@ -141,6 +177,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         ...(Array.isArray(scene.reveal) ? scene.reveal : []),
         ...(Array.isArray(scene.hide) ? scene.hide : []),
         ...cardCueIds,
+        ...extraCueIds,
       ].filter((id): id is string => typeof id === 'string'))
       const seen = new Set<string>()
       for (const cue of parsed.cues) {

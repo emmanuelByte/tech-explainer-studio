@@ -31,6 +31,9 @@ export interface Connector {
   drawEndFrame?: number
   /** Frame at which the connector starts fading out (schema 14). Absent = never hidden. */
   hideFrame?: number
+  /** Frames during which flow dots travel along the connector (schema 15). Absent = no pulses. */
+  pulseStartFrame?: number
+  pulseEndFrame?: number
   sketchEnabled?: boolean
   sketchRoughness?: number
 }

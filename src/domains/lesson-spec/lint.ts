@@ -51,7 +51,7 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
   let previousFraming = ''
 
   spec.scenes.forEach((specScene, index) => {
-    const scene = scenes[index]
+    const scene = scenes.find((candidate) => candidate.id === `scene_${specScene.id}`)!
     const add = (severity: LintIssue['severity'], rule: LintIssue['rule'], message: string) =>
       issues.push({ severity, scene: specScene.id, rule, message })
 

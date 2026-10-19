@@ -6,7 +6,7 @@ import { shiftLayerFrames } from '../scenes/layerTiming'
  * Projects are migrated one version at a time so an old file never relies on
  * incidental UI sanitisation to remain usable.
  */
-export const CURRENT_PROJECT_SCHEMA_VERSION = 14
+export const CURRENT_PROJECT_SCHEMA_VERSION = 15
 
 type ProjectRecord = Record<string, unknown>
 
@@ -241,6 +241,13 @@ const PROJECT_MIGRATIONS: ProjectMigration[] = [
     from: 13,
     to: 14,
     migrate: (project) => ({ ...project, schemaVersion: 14 }),
+  },
+  {
+    // Flow pulses: connectors gain optional `pulseStartFrame`/`pulseEndFrame`.
+    // Absent means no pulses, so existing projects need no data change.
+    from: 14,
+    to: 15,
+    migrate: (project) => ({ ...project, schemaVersion: 15 }),
   },
 ]
 
