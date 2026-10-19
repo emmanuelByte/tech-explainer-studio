@@ -42,12 +42,23 @@ const FONT_WEIGHTS = [300, 400, 500, 600, 700, 800, 900]
 let editorFontsReady: Promise<void> | null = null
 
 function ensureLink(rel: string, href: string, attrs: Record<string, string> = {}) {
-  if (document.querySelector(`link[rel="${rel}"][href="${href}"]`)) return
+  const existing = document.querySelector<HTMLLinkElement>(`link[rel="${rel}"][href="${href}"]`)
+  if (existing) return existing
   const link = document.createElement('link')
   link.rel = rel
   link.href = href
   Object.entries(attrs).forEach(([key, value]) => link.setAttribute(key, value))
   document.head.appendChild(link)
+  return link
+}
+
+/** Resolves once a stylesheet link has loaded (or failed), so its @font-face rules exist. */
+function stylesheetSettled(link: HTMLLinkElement) {
+  if (link.sheet) return Promise.resolve()
+  return new Promise<void>((resolve) => {
+    link.addEventListener('load', () => resolve(), { once: true })
+    link.addEventListener('error', () => resolve(), { once: true })
+  })
 }
 
 function loadEditorFonts() {
@@ -56,18 +67,21 @@ function loadEditorFonts() {
 
   ensureLink('preconnect', 'https://fonts.googleapis.com')
   ensureLink('preconnect', 'https://fonts.gstatic.com', { crossorigin: 'anonymous' })
-  ensureLink('stylesheet', GOOGLE_FONTS_STYLESHEET, { 'data-editor-fonts': 'google' })
+  const stylesheet = ensureLink('stylesheet', GOOGLE_FONTS_STYLESHEET, { 'data-editor-fonts': 'google' })
 
   if (!document.fonts) {
     editorFontsReady = Promise.resolve()
     return editorFontsReady
   }
 
-  const fontLoads = GOOGLE_FONTS.flatMap((family) =>
-    FONT_WEIGHTS.map((weight) => document.fonts.load(`${weight} 16px "${family}"`))
-  )
-
-  editorFontsReady = Promise.allSettled([...fontLoads, document.fonts.ready]).then(() => undefined)
+  // document.fonts.load() resolves empty until the stylesheet's @font-face rules
+  // are parsed, which let renders continue with fallback fonts.
+  editorFontsReady = stylesheetSettled(stylesheet).then(() => {
+    const fontLoads = GOOGLE_FONTS.flatMap((family) =>
+      FONT_WEIGHTS.map((weight) => document.fonts.load(`${weight} 16px "${family}"`))
+    )
+    return Promise.allSettled([...fontLoads, document.fonts.ready]).then(() => undefined)
+  })
   return editorFontsReady
 }
 

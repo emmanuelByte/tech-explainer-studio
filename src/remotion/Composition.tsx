@@ -722,7 +722,7 @@ function LayerElement({ layer, frame, canvasWidth, canvasHeight, isSelected, onS
           display: htmlText ? 'block' : 'flex',
           alignItems: htmlText ? undefined : 'flex-start',
           justifyContent: 'stretch',
-          fontFamily: animatedLayer.fontFamily,
+          fontFamily: `${animatedLayer.fontFamily}, sans-serif`,
           fontSize: animatedLayer.fontSize,
           fontWeight: animatedLayer.fontWeight,
           color: animatedLayer.textColor,
@@ -1076,7 +1076,7 @@ function CaptionOverlay({ script, settings, frame, canvasWidth, canvasHeight }: 
       data-caption-overlay
       style={{
         position: 'absolute', left: '50%', bottom: technical ? canvasHeight * 0.1 : canvasHeight * 0.13,
-        transform: 'translateX(-50%)', maxWidth: canvasWidth * 0.82,
+        transform: 'translateX(-50%)', width: 'max-content', maxWidth: canvasWidth * 0.82,
         padding: technical ? `${canvasHeight * 0.012}px ${canvasWidth * 0.018}px` : `${canvasHeight * 0.017}px ${canvasWidth * 0.025}px`,
         borderRadius: technical ? 5 : 14,
         background: technical ? 'rgba(2, 6, 23, 0.86)' : 'rgba(2, 6, 23, 0.76)',
@@ -1093,7 +1093,7 @@ function CaptionOverlay({ script, settings, frame, canvasWidth, canvasHeight }: 
   )
 }
 
-function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight, selectedConnectorId, onSelect }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number; selectedConnectorId: string | null; onSelect: (id: string) => void }) {
+function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight, backgroundColor, selectedConnectorId, onSelect }: { connectors: Connector[]; layers: Layer[]; frame: number; canvasWidth: number; canvasHeight: number; backgroundColor: string; selectedConnectorId: string | null; onSelect: (id: string) => void }) {
   if (!connectors.length) return null
   return (
     <svg width={canvasWidth} height={canvasHeight} viewBox={`0 0 ${canvasWidth} ${canvasHeight}`} style={{ position: 'absolute', inset: 0, pointerEvents: 'auto', zIndex: 0, overflow: 'visible' }}>
@@ -1103,6 +1103,8 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
         if (!resolved || resolved.opacity <= 0) return null
         const { path, opacity } = resolved
         const progress = connectorDrawProgress(frame, connector.drawStartFrame, connector.drawEndFrame)
+        // Not started drawing yet: skip it entirely, or its arrowhead marker shows as a dot.
+        if (progress <= 0) return null
         const dash = connectorDash(path.length, progress)
         const dashed = connector.lineStyle === 'dashed'
         const visualVariants = connector.sketchEnabled && path.segments.length
@@ -1153,7 +1155,7 @@ function ConnectorOverlay({ connectors, layers, frame, canvasWidth, canvasHeight
                 }} />
               </>
             )}
-            {connector.label && progress === 1 && <text x={labelX} y={labelY} fill={connector.color} fontSize={18} fontWeight={600} textAnchor="middle">{connector.label}</text>}
+            {connector.label && progress === 1 && <text x={labelX} y={labelY} fill={connector.color} fontFamily="Inter, sans-serif" fontSize={18} fontWeight={600} textAnchor="middle" stroke={backgroundColor} strokeWidth={8} strokeLinejoin="round" paintOrder="stroke">{connector.label}</text>}
           </g>
         )
       })}
@@ -1190,7 +1192,7 @@ export function EditorComposition({ layers: rawLayers, scenes = [], connectors =
       onClick={() => selectLayer(null)}
     >
       <div data-camera-world style={{ position: 'absolute', inset: 0, transform: worldTransform.css, transformOrigin: 'top left' }}>
-        <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} selectedConnectorId={selectedConnectorId} onSelect={selectConnector} />
+        <ConnectorOverlay connectors={connectors} layers={layers} frame={frame} canvasWidth={canvasWidth} canvasHeight={canvasHeight} backgroundColor={backgroundColor} selectedConnectorId={selectedConnectorId} onSelect={selectConnector} />
         {rootLayers.map((layer, index) => (
           <RenderLayerNode
             key={layer.id}
