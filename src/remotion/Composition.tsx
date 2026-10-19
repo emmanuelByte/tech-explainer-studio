@@ -13,7 +13,7 @@ import { pointAtDistance } from '../domains/connectors/geometry'
 import { sketchPathVariants, sketchPolylineVariants, sketchPrimitiveVariants, type SketchPrimitive } from '../domains/sketch/geometry'
 import { normalizedDrawStroke } from '../domains/sketch/draw'
 import { cameraTransform, resolveCamera } from '../domains/camera/model'
-import { segmentAtFrame } from '../domains/narration/model'
+import { captionOpacity, segmentAtFrame } from '../domains/narration/model'
 import { isEffectivelyMuted } from '../domains/audio/mixing'
 import { speedAtFrame } from './videoSegments'
 import { captionMetrics } from '../domains/lesson-spec/frame'
@@ -1089,6 +1089,7 @@ function CaptionOverlay({ script, settings, frame, canvasWidth, canvasHeight }: 
         fontSize: metrics.fontSize,
         fontWeight: technical ? 600 : 700, lineHeight: metrics.lineHeight, letterSpacing: technical ? '0.01em' : '-0.01em',
         textAlign: 'center', zIndex: 1000, pointerEvents: 'none', whiteSpace: 'pre-wrap',
+        opacity: captionOpacity(script?.segments ?? [], segment, frame),
       }}
     >
       {segment.text}

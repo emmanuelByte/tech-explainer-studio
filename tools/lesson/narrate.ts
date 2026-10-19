@@ -1,12 +1,21 @@
 import { createHash } from 'node:crypto'
 import { access, readdir, readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { chunkLooksWrong, parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
-import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
+import { estimateWordTimes } from '../../src/domains/lesson-spec/captions'
+import { chunkLooksWrong, narrationWords, splitSentences } from '../../src/domains/lesson-spec/narration'
+import type { LessonSpec, NarrationManifest, NarrationWord } from '../../src/domains/lesson-spec/types'
 import { atomicWriteFile } from '../../server/atomicFile'
-import { encodeWav, joinWavs, parseWav, wavSeconds } from './wav'
+import { localAligner, type AlignFn, type AlignResult } from './align'
+import { normalizeLoudness, speechRegion, trimSilence } from './audio'
+import { encodeWav, joinWavsWithGaps, parseWav, wavSeconds, type Wav } from './wav'
 
-const GAP_SECONDS = 0.18
+/** Silence kept on each side of a trimmed sentence so no word is clipped. */
+const EDGE_SECONDS = 0.05
+/** Pause between spoken sentences; shorter where a long sentence was split at a comma. */
+const SENTENCE_GAP_SECONDS = 0.34
+const CLAUSE_GAP_SECONDS = 0.16
+/** Below this mean confidence a clip's alignment is not trusted. */
+const MIN_ALIGNMENT_SCORE = 0.35
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
 
 export interface NarrateOptions {
@@ -18,6 +27,8 @@ export interface NarrateOptions {
   log: (line: string) => void
   /** Replaces the Chatterbox request; used by tests. */
   generate?: (text: string) => Promise<Buffer>
+  /** Replaces the forced aligner; used by tests. */
+  align?: AlignFn
 }
 
 const sha = (value: string | Buffer, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length)
@@ -44,7 +55,7 @@ export function narrationInputs(spec: LessonSpec, params: { voice: string; exagg
 export function narrationIsCurrent(spec: LessonSpec, manifest: NarrationManifest | undefined, params: { voice: string; exaggeration: number; cfgWeight: number }) {
   if (!manifest) return false
   if (manifest.voiceId !== params.voice || manifest.exaggeration !== params.exaggeration || manifest.cfgWeight !== params.cfgWeight) return false
-  return spec.scenes.every((scene) => manifest.scenes[scene.id]?.source === scene.narration)
+  return spec.scenes.every((scene) => manifest.scenes[scene.id]?.source === scene.narration && (manifest.scenes[scene.id]?.words?.length ?? 0) > 0)
     && Object.keys(manifest.scenes).length === spec.scenes.length
 }
 
@@ -79,7 +90,7 @@ async function synthesise(options: NarrateOptions, text: string) {
   const cached = resolve(options.root, 'data', 'narration', 'cache', `${key}.wav`)
   try {
     const bytes = await readFile(cached)
-    if (!chunkLooksWrong(text, wavSeconds(parseWav(bytes)))) return { bytes, note: 'cached' }
+    if (!chunkLooksWrong(text, wavSeconds(parseWav(bytes)))) return { bytes, note: 'cached', key, path: cached }
     options.log(`  (cached take of "${text.slice(0, 30)}" looks wrong; re-rolling)`)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
@@ -95,7 +106,7 @@ async function synthesise(options: NarrateOptions, text: string) {
   }
   if (chunkLooksWrong(text, bestSeconds)) options.log(`  WARNING: "${text}" still looks wrong; merge it into a longer phrase`)
   await atomicWriteFile(cached, best!)
-  return { bytes: best!, note: '' }
+  return { bytes: best!, note: '', key, path: cached }
 }
 
 interface StoredAsset { id: string; name: string; fileName: string; [key: string]: unknown }
@@ -184,33 +195,134 @@ async function assertManifestConsistent(root: string, manifest: NarrationManifes
   await assertNarrationAssets(root, manifest)
 }
 
+interface SpokenClip {
+  /** First and last word of the narration this sentence covers. */
+  wordStart: number
+  wordEnd: number
+  text: string
+  /** Trimmed audio. */
+  wav: Wav
+  /** Seconds removed from the start of the cached take; alignment times are relative to the untrimmed take. */
+  trimmed: number
+  path: string
+  key: string
+  endsSentence: boolean
+}
+
+const alignmentCachePath = (root: string, key: string) => resolve(root, 'data', 'narration', 'cache', `${key}.align.json`)
+
+async function readAlignment(root: string, key: string): Promise<AlignResult | undefined> {
+  try { return JSON.parse(await readFile(alignmentCachePath(root, key), 'utf-8')) as AlignResult } catch { return undefined }
+}
+
+/** Aligns every clip that has no cached alignment yet, in one batch so the model loads once. */
+async function alignClips(options: NarrateOptions, clips: SpokenClip[]) {
+  const results = new Map<string, AlignResult>()
+  const missing: SpokenClip[] = []
+  for (const clip of clips) {
+    const cached = await readAlignment(options.root, clip.key)
+    if (cached && !cached.error) results.set(clip.key, cached)
+    else if (!missing.some((other) => other.key === clip.key)) missing.push(clip)
+  }
+  if (missing.length) {
+    options.log(`  aligning ${missing.length} sentence(s) to their audio...`)
+    const aligner = options.align ?? localAligner(options.root, options.log)
+    const aligned = await aligner(missing.map((clip) => ({ wav: clip.path, text: clip.text })))
+    missing.forEach((clip, index) => {
+      const result = aligned?.[index]
+      if (!result || result.error) return
+      results.set(clip.key, result)
+    })
+    for (const clip of missing) {
+      const result = results.get(clip.key)
+      if (result) await atomicWriteFile(alignmentCachePath(options.root, clip.key), `${JSON.stringify(result)}\n`)
+    }
+  }
+  return results
+}
+
 /**
- * Synthesises every scene (chunk by chunk, cached), joins it, registers it, and
- * commits the manifest. The previous manifest and its audio stay valid until
- * the very last step, so a failure or interruption at any point leaves the last
- * working narration intact; superseded audio is removed only afterwards.
+ * Word times for one spoken sentence, relative to the start of its trimmed clip.
+ * Words the aligner could not place (pure symbols) take the time between their
+ * neighbours; a clip whose alignment is not trusted is estimated and marked so.
+ */
+function clipWords(clip: SpokenClip, result: AlignResult | undefined): NarrationWord[] {
+  const words = clip.text.split(' ')
+  const speech = speechRegion(clip.wav)
+  const estimated = () => estimateWordTimes(words, speech.start, speech.end)
+  if (!result || result.words.length !== words.length) return estimated()
+  const placed = result.words.filter((word) => word.start !== null)
+  if (!placed.length || placed.reduce((sum, word) => sum + word.score, 0) / placed.length < MIN_ALIGNMENT_SCORE) return estimated()
+  const out = result.words.map((word, index) => ({
+    text: words[index],
+    start: word.start === null ? NaN : word.start - clip.trimmed,
+    end: word.end === null ? NaN : word.end - clip.trimmed,
+    timing: 'aligned' as const,
+  }))
+  for (let i = 0; i < out.length; i += 1) {
+    if (!Number.isNaN(out[i].start)) continue
+    const before = [...out.slice(0, i)].reverse().find((word) => !Number.isNaN(word.end))
+    const after = out.slice(i + 1).find((word) => !Number.isNaN(word.start))
+    const from = before?.end ?? speech.start
+    const to = after?.start ?? speech.end
+    out[i] = { ...out[i], start: from, end: Math.max(from, to), timing: 'aligned' }
+  }
+  // Alignment can place a word's edge a hair outside the clip; keep every time inside it.
+  const duration = wavSeconds(clip.wav)
+  return out.map((word) => {
+    const start = Math.min(Math.max(0, word.start), duration)
+    return { ...word, start, end: Math.min(Math.max(start, word.end), duration) }
+  })
+}
+
+/**
+ * Speaks every scene a sentence at a time, joins the sentences with natural
+ * pauses at one loudness, aligns each to its audio, and commits the manifest.
+ * Cue times and caption times come from the aligned words, so a cue in the
+ * middle of a sentence no longer cuts the speech there. The previous manifest
+ * and its audio stay valid until the very last step, so a failure at any point
+ * leaves the last working narration intact; superseded audio is removed only
+ * afterwards.
  */
 export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): Promise<NarrationManifest> {
   await pruneNarrationAssets(options.root, spec.id) // recover from an interrupted earlier run
   const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, scenes: {} }
   for (const scene of spec.scenes) {
-    const parsed = parseNarration(scene.narration)
-    const clips = []
-    for (const [index, chunk] of parsed.chunks.entries()) {
+    const { words, cues } = narrationWords(scene.narration)
+    const clips: SpokenClip[] = []
+    for (const [index, group] of splitSentences(words).entries()) {
+      const text = words.slice(group.start, group.end).join(' ')
       const started = Date.now()
-      const { bytes, note } = await synthesise(options, chunk)
-      clips.push(parseWav(bytes))
-      options.log(`  ${scene.id} ${index + 1}/${parsed.chunks.length} ${note || `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${chunk.slice(0, 48)}`)
+      const { bytes, note, key, path } = await synthesise(options, text)
+      const raw = parseWav(bytes)
+      const { wav, offset } = trimSilence(raw, EDGE_SECONDS)
+      clips.push({ wordStart: group.start, wordEnd: group.end, text, wav, trimmed: offset, path, key, endsSentence: /[.!?]["')\]]*$/.test(text) })
+      options.log(`  ${scene.id} sentence ${index + 1}: ${note || `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${text.slice(0, 56)}`)
     }
-    const joined = joinWavs(clips, GAP_SECONDS)
+    const alignments = await alignClips(options, clips)
+    // Join with a pause that fits each sentence ending, and note where each clip starts.
+    const gaps = clips.map((clip) => (clip.endsSentence ? SENTENCE_GAP_SECONDS : CLAUSE_GAP_SECONDS))
+    const starts: number[] = []
+    let cursor = 0
+    clips.forEach((clip, index) => {
+      starts.push(cursor)
+      cursor += wavSeconds(clip.wav) + (index < clips.length - 1 ? gaps[index] : 0)
+    })
+    const joined = normalizeLoudness(joinWavsWithGaps(clips.map((clip) => clip.wav), gaps))
     const seconds = wavSeconds(joined)
+    const spoken: NarrationWord[] = clips.flatMap((clip, index) =>
+      clipWords(clip, alignments.get(clip.key)).map((word) => ({ ...word, start: round(starts[index] + word.start), end: round(starts[index] + word.end) })))
+    const cueTimes = Object.fromEntries(cues.map((cue) => [cue.id, cue.wordIndex < spoken.length ? spoken[cue.wordIndex].start : round(seconds)]))
     const assetId = await registerAsset(options.root, `${lessonAssetPrefix(spec.id)}${scene.id}`, encodeWav(joined), seconds)
     manifest.scenes[scene.id] = {
       assetId,
       durationSeconds: Math.round(seconds * 1000) / 1000,
-      cues: resolveCueTimes(parsed, clips.map(wavSeconds), GAP_SECONDS),
+      cues: cueTimes,
       source: scene.narration,
+      words: spoken,
     }
+    const estimatedCount = spoken.filter((word) => word.timing === 'estimated').length
+    if (estimatedCount) options.log(`  NOTE ${scene.id}: ${estimatedCount}/${spoken.length} words have estimated (not measured) timing`)
   }
   await assertManifestConsistent(options.root, manifest)
   await atomicWriteFile(narrationManifestPath(options.root, spec.id), `${JSON.stringify(manifest, null, 2)}\n`)
@@ -218,3 +330,5 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
   if (removed) options.log(`  removed ${removed} superseded audio file(s)`)
   return manifest
 }
+
+const round = (value: number) => Math.round(value * 1000) / 1000

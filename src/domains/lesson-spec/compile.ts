@@ -12,8 +12,9 @@ import {
   type TechnicalComponentKind,
 } from '../../types'
 import { CURRENT_PROJECT_SCHEMA_VERSION } from '../project/migrations'
-import { parseNarration } from './narration'
-import { contentCentreOffset, contentHeight, frameFor, type FrameSpec } from './frame'
+import { narrationWords, parseNarration } from './narration'
+import { buildCaptions, estimateWordTimes } from './captions'
+import { captionPhraseChars, contentCentreOffset, contentHeight, frameFor, type FrameSpec } from './frame'
 import { baseLayer, staticKeyframe, svgDataUrl, type BuildContext } from './layerKit'
 import { bulletLayers, cardLayers, comparisonLayers, sequenceLayers, titleCardLayers } from './overlays'
 import { LESSON_THEMES, resolveTheme, type LessonTheme, type ThemeId } from './theme'
@@ -353,16 +354,26 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
 
     const sceneId = `scene_${specScene.id}`
     const segmentId = `segment_${specScene.id}`
+    // Captions follow the measured words when narration exists; otherwise the words are spread over the scene and marked estimated.
+    const spokenWords = audio?.words ?? estimateWordTimes(narrationWords(specScene.narration).words, 0, Math.max(0.5, (end - audioStart) / fps - NARRATION_TAIL_SECONDS))
+    const captionSegments: ScriptSegment[] = buildCaptions(spokenWords, { maxChars: captionPhraseChars(width, height) }).map((phrase, index) => ({
+      id: `${segmentId}_c${index + 1}`,
+      text: phrase.text,
+      sceneId,
+      startFrame: Math.min(end - 1, audioStart + Math.round(phrase.start * fps)),
+      endFrame: Math.min(end, Math.max(audioStart + Math.round(phrase.end * fps), audioStart + Math.round(phrase.start * fps) + 1)),
+    }))
     scenes.push({
       id: sceneId,
       title: specScene.title,
       startFrame: start,
       endFrame: end,
-      scriptSegmentIds: [segmentId],
+      scriptSegmentIds: [segmentId, ...captionSegments.map((segment) => segment.id)],
       transitionIn: 0,
       transitionOut: 0,
     })
-    segments.push({ id: segmentId, text: parsed.plain, sceneId, startFrame: start, endFrame: end })
+    // The scene's whole script stays as a record; what is shown on screen is its short timed phrases.
+    segments.push({ id: segmentId, text: parsed.plain, sceneId }, ...captionSegments)
     if (audio && options.narration) {
       const sourceFrames = Math.max(1, Math.round(audio.durationSeconds * fps))
       narrationLayers.push(baseLayer(theme, 'audio', {

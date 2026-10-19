@@ -64,6 +64,23 @@ export function joinWavs(clips: Wav[], gapSeconds: number): Wav {
   return { ...first, data: Buffer.concat(parts) }
 }
 
+/** Joins clips with a possibly different silence after each (`gaps[i]` follows clip i). */
+export function joinWavsWithGaps(clips: Wav[], gaps: number[]): Wav {
+  if (!clips.length) throw new Error('Nothing to join.')
+  const [first] = clips
+  for (const clip of clips) {
+    if (clip.format !== first.format || clip.channels !== first.channels || clip.sampleRate !== first.sampleRate || clip.bitsPerSample !== first.bitsPerSample) {
+      throw new Error('Cannot join WAV clips with different formats.')
+    }
+  }
+  const parts: Buffer[] = []
+  clips.forEach((clip, index) => {
+    parts.push(clip.data)
+    if (index < clips.length - 1) parts.push(Buffer.alloc(Math.round((gaps[index] ?? 0) * first.sampleRate) * frameBytes(first)))
+  })
+  return { ...first, data: Buffer.concat(parts) }
+}
+
 export function encodeWav(wav: Wav): Buffer {
   const fact = wav.format === 3 ? 12 : 0
   const header = Buffer.alloc(44 + fact)

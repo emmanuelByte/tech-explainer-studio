@@ -45,7 +45,7 @@ export function frameFor(width: number, height: number): FrameSpec {
     ? {
       width, height, orientation: 'portrait', unit,
       // Short-video apps overlay their own controls on the bottom fifth and the top edge.
-      captionReserve: Math.round(height * 0.37),
+      captionReserve: Math.round(height * 0.26),
       safeTop: Math.round(height * 0.07),
       cameraMarginX: Math.round(60 * unit),
       cameraMarginY: Math.round(60 * unit),
@@ -100,4 +100,15 @@ export function captionTop(text: string, width: number, height: number, style: C
   const charsPerLine = Math.max(1, Math.floor(innerWidth / (metrics.fontSize * 0.52)))
   const lines = Math.max(1, Math.ceil(text.length / charsPerLine))
   return height - metrics.bottom - (lines * metrics.fontSize * metrics.lineHeight + 2 * metrics.paddingY)
+}
+
+/**
+ * Most characters one caption phrase should hold in this format: a single line
+ * in landscape, two short balanced lines in portrait. Phrases are split to fit
+ * this, so captions stay short and readable rather than filling the frame.
+ */
+export function captionPhraseChars(width: number, height: number, style: CaptionStyle = 'readable') {
+  const metrics = captionMetrics(width, height, style)
+  const perLine = Math.floor((metrics.maxWidth - 2 * metrics.paddingX) / (metrics.fontSize * 0.55))
+  return Math.floor(perLine * (height > width ? 1.7 : 0.95))
 }

@@ -10,6 +10,7 @@ import { atomicWriteFile } from '../../server/atomicFile'
 import { loadArtwork } from './artwork'
 import { fingerprint, sourceFingerprint } from './fingerprint'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationInputs, narrationIsCurrent, type NarrateOptions } from './narrate'
+import { checkNarrationAudio, checkProjectAudio, type AudioFinding } from './audioChecks'
 import { checkProbe, expectedVideo, probeVideo, renderVideo, type Probe, type Quality } from './render'
 import { renderStills, stillsDir } from './stills'
 
@@ -183,6 +184,16 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
     }
   }
   const narrationPrint = manifest ? fingerprint(manifest) : 'silent'
+  const reportAudio = (findings: AudioFinding[], label: string) => {
+    for (const finding of findings) log(`[audio${label}] ${finding.severity.toUpperCase()} [${finding.scene}] ${finding.rule}: ${finding.message}`)
+    const errors = findings.filter((finding) => finding.severity === 'error')
+    if (errors.length) fail('audio', `${errors.length} problem(s) in the narration audio (listed above).`, 'Run `npm run produce -- <spec> --force` to speak it again; if it repeats, shorten or reword the scene it names. Audio checks cannot hear pronunciation: still listen to the result.')
+  }
+  if (manifest) {
+    const findings = await checkNarrationAudio(root, spec, manifest)
+    reportAudio(findings, '')
+    if (!findings.some((finding) => finding.severity !== 'note')) log('[audio] narration files check out (levels, silence, clipping, pace, timing)')
+  }
 
   const results: ProducedVideo[] = []
   for (const aspect of options.aspects) {
@@ -214,6 +225,8 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
       log(`[build ${tag}] ${project.id}: ${project.layers.length} layers, ${(project.canvas.durationFrames / project.canvas.fps).toFixed(1)}s, theme ${theme.id}`)
       ran.push('build')
     }
+
+    if (manifest) reportAudio(checkProjectAudio(project, manifest), ` ${tag}`)
 
     // --- lint: cheap, always shown ---
     const lint = lintLesson(spec, project)

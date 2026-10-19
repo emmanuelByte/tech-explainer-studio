@@ -37,6 +37,45 @@ const options = (generate?: NarrateOptions['generate']): NarrateOptions => ({
 const wavFiles = async () => (await readdir(resolve(root, 'data', 'assets', 'files'))).filter((name) => name.endsWith('.wav')).sort()
 const indexIds = async () => (JSON.parse(await readFile(resolve(root, 'data', 'assets', 'index.json'), 'utf-8')) as { id: string }[]).map((a) => a.id).sort()
 
+describe('narration timing', () => {
+  const uniform: NarrateOptions['align'] = async (items) => items.map((item) => ({
+    error: null,
+    words: item.text.split(' ').map((text, index) => ({ text, start: 0.05 + index * 0.4, end: 0.05 + index * 0.4 + 0.3, score: 0.95 })),
+  }))
+  const spoken: string[] = []
+  const recording: NarrateOptions['generate'] = async (text) => { spoken.push(text); return fakeVoice(text) }
+
+  it('speaks whole sentences and takes cue times from the aligned words', async () => {
+    spoken.length = 0
+    const spec = lesson('t', 'The client asks [[server]]the server for data today. It answers back very quickly today.', 'Short scene here, then done.')
+    spec.scenes[0].reveal = ['a']
+    const manifest = await narrateLesson(spec, { ...options(recording), align: uniform })
+    expect(spoken).toContain('The client asks the server for data today.')
+    expect(spoken.some((text) => text === 'The client asks')).toBe(false)
+    const scene = manifest.scenes.one
+    expect(scene.words!.every((word) => word.timing === 'aligned')).toBe(true)
+    expect(scene.cues.server).toBe(scene.words![3].start)
+    // Words are in order and inside the audio.
+    for (let i = 1; i < scene.words!.length; i += 1) expect(scene.words![i].start).toBeGreaterThanOrEqual(scene.words![i - 1].start)
+    expect(scene.words![scene.words!.length - 1].end).toBeLessThanOrEqual(scene.durationSeconds + 0.01)
+  })
+
+  it('marks words estimated, not aligned, when the aligner is unavailable or untrustworthy', async () => {
+    const none = await narrateLesson(lesson('t2', 'First sentence is here today. Second one follows right after.', 'Another short scene to say.'), { ...options(), align: async () => undefined })
+    expect(none.scenes.one.words!.every((word) => word.timing === 'estimated')).toBe(true)
+    const lowScore: NarrateOptions['align'] = async (items) => items.map((item) => ({ error: null, words: item.text.split(' ').map((text, i) => ({ text, start: i * 0.3, end: i * 0.3 + 0.2, score: 0.05 })) }))
+    const bad = await narrateLesson(lesson('t3', 'First sentence is here today. Second one follows right after.', 'Another short scene to say.'), { ...options(), align: lowScore })
+    expect(bad.scenes.one.words!.every((word) => word.timing === 'estimated')).toBe(true)
+  })
+
+  it('places a pause between sentences and evens out loudness', async () => {
+    const manifest = await narrateLesson(lesson('t4', 'First sentence is here today. Second one follows right after.', 'Another short scene to say.'), { ...options(), align: uniform })
+    const words = manifest.scenes.one.words!
+    const firstEnd = words.findIndex((word) => word.text === 'today.')
+    expect(words[firstEnd + 1].start - words[firstEnd].end).toBeGreaterThan(0.25)
+  })
+})
+
 describe('narration commit', () => {
   it('keeps the last working audio when a regeneration fails part-way', async () => {
     const first = await narrateLesson(lesson('x', 'The client sends a request out.', 'The server answers it back.'), options())

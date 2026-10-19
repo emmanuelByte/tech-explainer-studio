@@ -55,9 +55,7 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     if (words / seconds > MAX_WORDS_PER_SECOND) {
       add('warning', 'fast-narration', `${words} words in ${seconds.toFixed(1)}s is ${(words / seconds).toFixed(1)} words/s; aim for at most ${MAX_WORDS_PER_SECOND}. Lengthen the scene or trim the narration.`)
     }
-    if (captionTop(spoken, width, height) < height * 0.5) {
-      add('warning', 'long-narration', 'The caption would cover more than half the frame; split the scene or shorten the narration.')
-    } else if (words > MAX_NARRATION_WORDS) {
+    if (words > MAX_NARRATION_WORDS) {
       add('warning', 'long-narration', `${words} words will wrap into many caption lines; split the scene (aim for at most ${MAX_NARRATION_WORDS} words).`)
     }
     if (visible.size > MAX_VISIBLE_NODES) {
@@ -70,7 +68,9 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     if (!changes && index > 0) add('warning', 'static-scene', 'Nothing is revealed, hidden or reframed; the screen will not change while this is narrated.')
     previousFraming = framing
 
-    const limit = captionTop(spoken, width, height) - CAPTION_GAP
+    // Captions are short timed phrases; the tallest one this scene shows is what the diagram must stay clear of.
+    const phrases = (project.script?.segments ?? []).filter((segment) => segment.sceneId === scene.id && segment.startFrame !== undefined)
+    const limit = Math.min(...(phrases.length ? phrases : [{ text: spoken }]).map((phrase) => captionTop(phrase.text, width, height))) - CAPTION_GAP
     const boxes: { id: string; left: number; top: number; right: number; bottom: number }[] = []
     for (const id of visible) {
       const layer = project.layers.find((candidate) => candidate.id === `node_${id}`)

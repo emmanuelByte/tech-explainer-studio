@@ -143,6 +143,8 @@ export interface SceneNarration {
   cues: Record<string, number>
   /** The exact `narration` text this audio was made from, cues included; detects stale audio. */
   source: string
+  /** Every spoken word with its time. Absent in manifests made before captions were synchronised. */
+  words?: NarrationWord[]
 }
 
 export const SPEC_DEFAULTS = {
@@ -154,4 +156,14 @@ export const SPEC_DEFAULTS = {
 export interface SpecIssue {
   path: string
   message: string
+}
+
+/** One spoken word with its time in the scene's audio, for captions and cues. */
+export interface NarrationWord {
+  text: string
+  /** Seconds from the start of the scene's audio. */
+  start: number
+  end: number
+  /** `aligned`: found in the audio by forced alignment. `estimated`: spread over the speech by letter count. */
+  timing: 'aligned' | 'estimated'
 }
