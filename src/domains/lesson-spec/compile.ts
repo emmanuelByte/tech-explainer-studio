@@ -417,6 +417,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     schemaVersion: CURRENT_PROJECT_SCHEMA_VERSION,
     id: `lesson_${spec.id}`,
     name: spec.title,
+    thumbnail: titleThumbnail(spec.title, width, height),
     createdAt: options.now,
     updatedAt: options.now,
     canvas: { width, height, fps, durationFrames: totalFrames, backgroundColor: BACKGROUND, presetName: 'YouTube' },
@@ -559,4 +560,12 @@ function cardLayers(
     ]))
   })
   return layers
+}
+
+/** A plain title card so lessons are recognisable on the home screen before any frame is rendered. */
+function titleThumbnail(title: string, width: number, height: number) {
+  const escaped = title.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="${BACKGROUND}"/>`
+    + `<text x="${width / 2}" y="${height / 2}" fill="#e2e8f0" font-family="Inter, sans-serif" font-size="${Math.round(height / 11)}" font-weight="700" text-anchor="middle">${escaped}</text></svg>`
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }

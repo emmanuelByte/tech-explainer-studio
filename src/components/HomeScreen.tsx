@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Code2, Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload, X } from 'lucide-react'
+import { Download, Grid2X2, Import, List, Moon, Plus, Search, Settings, Sun, Trash2, Upload, X } from 'lucide-react'
 import { CANVAS_PRESETS, MotionProject, ProjectIndexItem } from '../types'
 import {
   createBlankProject,
@@ -18,7 +18,6 @@ import { migrateProject } from '../domains/project/migrations'
 import { useStore } from '../store'
 import { SettingsModal } from './SettingsModal'
 import { ConfirmDialog, NoticeDialog } from './ConfirmDialog'
-import { HtmlImportModal } from './HtmlImportModal'
 
 type SortKey = 'updatedAt' | 'createdAt' | 'name'
 type ViewMode = 'grid' | 'list'
@@ -206,7 +205,6 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showNew, setShowNew] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
-  const [showHtmlImport, setShowHtmlImport] = useState(false)
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null)
   const [notice, setNotice] = useState<NoticeMessage | null>(null)
   const [dialogBusy, setDialogBusy] = useState(false)
@@ -517,14 +515,6 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
             </button>
           )}
           <button
-            onClick={() => setShowHtmlImport(true)}
-            className="pill-btn"
-            title={t('layers.importHtml')}
-            style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}
-          >
-            <Code2 size={13} />HTML
-          </button>
-          <button
             onClick={() => importRef.current?.click()}
             className="pill-btn"
             title={t('common.import')}
@@ -623,7 +613,8 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
                   <div className="flex items-start gap-2">
                     <ProjectName project={project} onRename={(name) => rename(project, name)} />
                     <div className="ml-auto opacity-0 group-hover:opacity-100" data-home-interactive="true">
-                      <button onClick={async (e) => { e.stopPropagation(); const copy = await duplicateProject(project.id); if (copy) await refresh() }}>{t('home.duplicate')}</button>
+                      <a href={`/review/${encodeURIComponent(project.id)}`} onClick={(e) => e.stopPropagation()} style={{ color: 'var(--accent)' }}>Review</a>
+                      <button className="ml-2" onClick={async (e) => { e.stopPropagation(); const copy = await duplicateProject(project.id); if (copy) await refresh() }}>{t('home.duplicate')}</button>
                       <button className="ml-2" onClick={async (e) => { e.stopPropagation(); const full = await readProject(project.id); if (full) exportJson(`${full.name}.motionproj`, full) }}>{t('common.export')}</button>
                       <button className="ml-2" style={{ color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); deleteSingle(project) }}>{t('common.delete')}</button>
                     </div>
@@ -655,13 +646,6 @@ export function HomeScreen({ onOpenProject }: { onOpenProject: (project: MotionP
       </main>
 
       {showNew && <NewProjectModal onClose={() => setShowNew(false)} onCreate={create} recentProjects={projects} />}
-      {showHtmlImport && (
-        <HtmlImportModal
-          target="library"
-          onClose={() => setShowHtmlImport(false)}
-          onSavedToLibrary={(itemName) => setNotice({ title: t('library.design'), message: t('layers.savedToLibrary', { name: itemName }) })}
-        />
-      )}
       {showSettings && (
         <SettingsModal onClose={() => setShowSettings(false)}>
             <section>

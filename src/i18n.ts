@@ -94,7 +94,7 @@ export const resources = {
         historyClearedTitle: 'Done',
       },
       home: {
-        appName: 'MotionEditor',
+        appName: 'Tech Explainer Studio',
         newProject: 'New Project',
         projectName: 'Project name',
         canvasPreset: 'Canvas preset',
