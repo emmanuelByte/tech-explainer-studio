@@ -65,11 +65,19 @@ pixel coordinates.
 - **Kinds:** `client`, `load-balancer`, `server`, `database`, `cache`, `queue`,
   `cdn`, `api-gateway`, `object-storage`, `worker` (labels up to 16 characters;
   graphs up to five columns wide).
+- **Top-level cards:** `intro` adds a silent title card using `title` and an
+  optional `subtitle`; `outro` shows `text` over a dimmed final diagram. Each
+  can set `seconds` (1–10; default 3); titles and subtitles are limited to 60
+  characters.
 - **Scene fields:** `reveal` (show nodes/edges), `hide` (remove earlier ones),
-  `focus` (camera framing), `card` (a code/request panel over a dimmed diagram:
-  up to 8 lines, revealed one by one), `durationSeconds` (only until narrated).
+  `focus` (camera framing), `emphasize` (glow and subtly enlarge revealed
+  nodes), `flow` (travelling dots on revealed edges), `card` (a code/request
+  panel over a dimmed diagram: up to 8 lines, revealed one by one), and
+  `durationSeconds` (only until narrated).
 - **Cues:** `[[id]]` in `narration` makes that element appear exactly when the
   words after it begin; card lines use `[[<card id>.<line number>]]`.
+  `[[emphasize:<node id>]]` and `[[flow:<edge id>]]` defer those effects to
+  the words immediately after the cue.
 - Spec types and rules: [src/domains/lesson-spec/](src/domains/lesson-spec/).
   Plan, decisions and progress log:
   [docs/2026-10-19-AI-AUTHORED-PIVOT.md](docs/2026-10-19-AI-AUTHORED-PIVOT.md).

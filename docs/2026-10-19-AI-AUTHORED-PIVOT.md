@@ -108,7 +108,7 @@ human can preview and export without opening an editing panel.
 | 3 Self-review loop (`validate`/`build`/`lint`/`stills`) | Done |
 | 4 Narration-driven timing | Done (chunk cues; no forced alignment needed) |
 | 5 Component kit | Done (10 kinds) |
-| 6 Explainer blocks | Partly: `hide`, code/request cards. Not yet: sequence diagrams, bullet/comparison cards, title/outro cards, data-flow pulses |
+| 6 Explainer blocks | Partly: `hide`, code/request cards, title/outro cards, emphasis and data-flow pulses. Not yet: sequence diagrams and bullet/comparison cards |
 | 7 Theme file | Not started (colours are constants in `compile.ts`) |
 | 8 Review-only UI | Done (`/review/<id>`) |
 | 9 Patchable specs / stable ids | Not started (ids are stable; no patch tooling) |
@@ -326,17 +326,16 @@ sequence diagrams).
 - VS Code's built-in video preview does not play audio; check videos in
   QuickTime or the review page.
 
-## HANDOFF — current task for the next agent (written 2026-10-19, end of session)
+## Milestone 8 handoff and implementation notes (written 2026-10-19)
 
-The human ran out of tokens mid-task. Read this section first, then `AGENTS.md`.
+The following was written as a handoff when the implementation was complete but
+not yet visually checked. The verification result is recorded below.
 
-### Task in progress: "visual polish" (milestone 8) — implemented, NOT yet verified visually
+### Visual polish (Milestone 8) — implementation
 
 The human approved this plan: **data-flow pulses, title card + outro, emphasis**,
-then a **voice-speed comparison**. The code for the first three is written,
-type-checks and the 175 existing tests pass, but **nobody has looked at a render
-of it yet** and no new tests were added (testing stance: keep tests light, see
-`AGENTS.md`).
+then a **voice-speed comparison**. The code for the first three was written
+with no new tests (testing stance: keep tests light, see `AGENTS.md`).
 
 What was added (all uncommitted work is now committed; see `git log`):
 
@@ -350,10 +349,8 @@ What was added (all uncommitted work is now committed; see `git log`):
 - **Emphasis.** Spec: scene `emphasize: ["<node id>"]` (node must be revealed;
   optional cue `[[emphasize:<node id>]]`). Compiler: scale bump to 1.06 on the
   component group plus a glow on its body via `shadowBlur`/`shadowSpread`
-  `propertyKeyframes` (`glowKeyframes()` in `compile.ts`). **Unverified: whether the
-  renderer actually draws that box-shadow glow nicely** (it uses the layer's
-  `shadowEnabled`/`shadowColor`). Check the render; if it is invisible or ugly,
-  switch to an extra rounded-rect "halo" layer behind the body instead.
+  `propertyKeyframes` (`glowKeyframes()` in `compile.ts`). The renderer draws the
+  box-shadow glow cleanly, so no fallback halo layer is needed.
 - **Intro / outro.** Spec: top-level `intro: { subtitle?, seconds? }` (silent title
   card, opaque, fades out; title = spec `title`) and `outro: { text, seconds? }`
   (silent, dims the final diagram, holds to the end). Compiler adds scenes
@@ -368,34 +365,38 @@ What was added (all uncommitted work is now committed; see `git log`):
 - `npm run lesson -- stills` now clears its output folder first (stale stills from an
   older scene order used to mix in).
 
-### What the next agent should do, in order
+### Verification, export and documentation
 
-1. **Look at the renders.** `npm run lesson -- stills lessons/message-queue.lesson.json`
-   (~35 s), then read `data/exports/stills/lesson_message-queue/`: `01-intro.png`,
-   `05-workers.png` (emphasis), `06-store.png` (flow dots), `07-scale.png`
-   (emphasis + dots), `08-outro.png`. Stills are taken 8 frames before each scene
-   ends. Fix anything ugly: dot size/colour, glow, title sizing/position, outro dimming.
-2. **Check timing in motion**, not just stills: render a short slice (see
-   `AGENTS.md`/pivot doc for `remotion render ... --frames=a-b --public-dir=data`) or
-   export the full MP4 (below) and confirm dots loop smoothly and fade at the ends.
-3. **Export and let the human review**: with the app running, `POST /api/exports`
-   `{"projectId":"lesson_message-queue","fileName":"How a Message Queue Works","format":"mp4","quality":"standard"}`
-   and poll `GET /api/exports/<id>`; output is `data/exports/How a Message Queue Works.mp4`.
-   Tell the human to watch it **in QuickTime or at `/review/lesson_message-queue`, not
-   VS Code's preview (it plays no audio)**.
-4. **Document the new spec fields** in `README.md` ("Scene fields") — `intro`,
-   `outro`, `emphasize`, `flow`, cues `[[emphasize:id]]` / `[[flow:id]]`; add the
-   limits (`TITLE_LIMITS` in `src/domains/lesson-spec/types.ts`).
-5. Optionally add **one** small test for the pulse math (`connectorPulses`) and one
-   for the intro offset in `compile.test.ts`. Do not add per-error-message tests.
-6. **Voice speed comparison (approved, not started).** The human found the voice
-   "a little slow, fine for now". Chatterbox speaks faster with a lower
-   `cfg_weight`. Non-destructive test: with the voice worker running
-   (`docs/LOCAL_TTS.md`), `npm run lesson -- narrate lessons/message-queue.lesson.json --cfg 0.3`
-   (~3 min; chunks are cached per setting), `build`, export to a file named
-   `... (faster).mp4`, then run `narrate` again without `--cfg` (instant, from cache)
-   and `build` to restore the default. Ask the human which they prefer.
-7. Update this log with what you verified and changed.
+- `validate` and `lint` are clean. The rebuilt Message Queue project has eight
+  scenes and runs for 48.1 seconds.
+- The full still set was inspected: the title card and outro are readable, the
+  worker and queue glow is clear without obscuring their labels, and pulse dots
+  remain distinct from the connector lines.
+- The review screen was used to play the flow scenes. Dots begin after their
+  cue and visibly travel along their worker paths; the scene change removes them
+  before the outro. No visual code changes were needed.
+- A new standard MP4 was exported through `/review/lesson_message-queue` and
+  verified as 1920×1080 at 30 fps with H.264 video and AAC audio (48.15 s).
+  Review it in QuickTime or at `/review/lesson_message-queue`, not VS Code's
+  preview, which does not play audio.
+- `README.md` now documents `intro`, `outro`, `emphasize`, `flow`, their cues,
+  and title-card limits.
+- `npm test` passes (25 files, 175 tests). `npx tsc --noEmit` still reports the
+  documented pre-existing error in `src/domains/scenes/focus.test.ts`; this work
+  does not add type errors.
+
+### Voice-speed comparison
+
+- The separate Chatterbox worker was started and a non-destructive `--cfg 0.3`
+  pass was generated. It produced **35.82 s** of speech and a **49.05 s** video,
+  slightly longer than the default `cfg 0.5` result (**34.94 s** speech,
+  **48.15 s** video), despite the lower setting being expected to sound faster.
+- The comparison is exported as `How a Message Queue Works (cfg 0.3 comparison).mp4`.
+  The default `cfg 0.5` manifest was then regenerated from cache and the project
+  rebuilt, so `/review/lesson_message-queue` remains on the standard version.
+- The remaining decision is human listening: compare the two MP4s in QuickTime
+  or the review screen and choose the preferred delivery, rather than assuming
+  a configuration value predicts perceived pace.
 
 ### Gotchas learned this session
 
