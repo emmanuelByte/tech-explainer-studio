@@ -1,5 +1,9 @@
 # Scene-first editor architecture
 
+> **Status (2026-10-19):** phases 7.1-7.4 were built; further work on human editing
+> ergonomics is stopped because the product is now AI-authored (see
+> `docs/2026-10-19-AI-AUTHORED-PIVOT.md`). Kept as design background for the Story/Scene workspaces.
+
 ## Decision
 
 Tech Explainer Studio will use a scene-first editing model. A creator assembles

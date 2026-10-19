@@ -271,6 +271,15 @@ sha256(model + voice fingerprint + text + exaggeration + cfg_weight)
 
 This should be implemented only after the local generation workflow is proven. The asset store itself remains the canonical persisted copy used by projects.
 
+## Use from the lesson CLI
+
+`npm run lesson -- narrate <spec>` is the main consumer of this worker now. It
+splits each scene's narration at its `[[id]]` cues, calls `POST /generate` once
+per chunk, caches each result by a hash of text + voice + settings in
+`data/narration/cache/`, joins the chunks with a short gap, registers one WAV per
+scene in `data/assets/`, and writes `data/narration/<spec id>.json` (durations and
+cue times). Start the worker first; a re-run only synthesises phrases that changed.
+
 ## Position in the roadmap
 
 Phase 6 (Narration + Captions) is already complete. Local TTS is a **Phase 6 follow-up / Phase 7 production helper**, not a prerequisite for narration.

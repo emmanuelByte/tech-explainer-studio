@@ -1,30 +1,30 @@
 # Product Vision
 
+> **Direction update (2026-10-19):** this project is now **AI-authored, human-reviewed**.
+> Claude writes a lesson spec (`lessons/*.lesson.json`) and builds, narrates, lints and
+> renders it with `npm run lesson`; the human previews at `/review/<project id>` and exports.
+> Statements below that call the product "manual-first" or say AI "must never be the only
+> path" are **superseded**. See `docs/2026-10-19-AI-AUTHORED-PIVOT.md` for the plan, the
+> decisions and the progress log.
+
 ## What we are building
 
-**Tech Explainer Studio** is a focused visual editor for creating technical education videos, especially software engineering and system-design explainers.
+**Tech Explainer Studio** creates technical education videos, especially software engineering and system-design explainers, from a short lesson description.
 
-The creator should be able to paste a teaching script, split it into scenes, visually build each scene, add and freely edit diagrams/icons/text/arrows, animate them on a timeline, synchronize narration, move a virtual camera, and export a polished video.
-
-The product is intentionally **manual-first and AI-assisted**, not AI-controlled.
+An AI writes a **lesson spec** (components, connections, scenes, narration), a deterministic compiler builds it into a normal project with layout, animation, camera, narration and captions, and the AI renders stills to check its own work. The human **previews, leaves notes, and exports**. The product is **AI-authored and human-reviewed**.
 
 ## Primary user workflow
 
 ```text
-Paste script
-  -> split into scenes
-  -> build diagrams on canvas
-  -> add technical components
-  -> connect components with smart arrows
-  -> animate progressive reveals and data flow
-  -> add narration
-  -> align scene timing and captions
-  -> animate camera pan/zoom
-  -> preview
-  -> export MP4/WebM
+Human gives a topic or script
+  -> AI writes the lesson spec
+  -> validate -> narrate (local voice) -> build -> lint -> render stills
+  -> AI looks at the stills and fixes problems
+  -> human previews, leaves notes, exports MP4
+  -> AI applies the notes to the spec and rebuilds
 ```
 
-Every generated or assisted result must remain editable using normal editor controls.
+The spec is the source of truth: changes go through the spec, never by hand-editing a generated project. Every build is still an ordinary project that the editor can open for inspection.
 
 ## The experience we are aiming for
 
@@ -40,28 +40,13 @@ The visual style should make it easy to create videos inspired by high-quality t
 - camera pan and zoom to focus attention
 - good output in both 16:9 and 9:16
 
-This is not about automatically generating a final video from a title. The value is the combination of **fast technical authoring + deep editability**.
+The value is the combination of **AI speed + structured, reviewable output**: the AI does the authoring, but it works with technical primitives, a deterministic compiler and measurable checks, so results are consistent and fixable.
 
 ## Why this product should exist
 
-General-purpose editors are flexible but slow for architecture lessons. Automatic AI explainer tools are fast but give weak control over diagrams and timing.
+General-purpose editors are flexible but slow for architecture lessons. Generic AI video tools are fast but give weak control over diagrams and timing, and their output cannot be fixed precisely.
 
-Tech Explainer Studio should sit between those extremes:
-
-```text
-General editor                        Automatic AI video
-maximum control                        minimum authoring effort
-slow technical authoring               weak editability
-        \                               /
-         \                             /
-          Tech Explainer Studio
-          technical primitives
-          reusable system components
-          editable scenes
-          smart connectors
-          timeline + narration
-          camera + whiteboard reveals
-```
+Tech Explainer Studio gets the speed without losing the control: the AI works in a small, typed vocabulary of system components, connectors, reveals, cues, cards and camera framing, so every result is deterministic, checkable (lint, stills) and correctable through review notes.
 
 ## Core product capabilities
 
@@ -156,13 +141,13 @@ work.
 - Associate timed script segments with the narration.
 - Render captions from the same timed script data.
 
-TTS and automatic alignment can be added later but must not be required to use the editor.
+Narration is generated with the local Chatterbox voice. Timing comes from measuring the generated audio, and inline cues (`[[id]]`) pin each reveal to the words it accompanies.
 
 ## First acceptance lesson: Load Balancer
 
 The Load Balancer lesson is our canonical V1 validation.
 
-A creator must be able to produce a lesson with a progression like:
+The AI must be able to produce a lesson from a spec with a progression like:
 
 ```text
 Scene 1
@@ -188,19 +173,7 @@ Scene 6
 One app server fails and the healthy path is emphasized
 ```
 
-While building it, the creator must be able to freely:
-
-- move/resize elements
-- swap icons
-- edit labels
-- reroute connectors
-- alter scene timing
-- change animation timing
-- change camera framing
-- change narration placement
-- export the final video
-
-If any of those require source-code edits, V1 is not finished.
+The human must be able to preview it, leave notes against any moment, and export the final video. Any change (labels, icons, scene timing, reveal timing, camera framing, narration wording) must be achievable by editing the spec and rebuilding, with no source-code edits. The editor remains available for inspection.
 
 ## Product boundaries
 

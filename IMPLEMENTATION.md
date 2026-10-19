@@ -1,5 +1,9 @@
 # Tech Explainer Studio Implementation Plan
 
+> **Status (2026-10-19):** this describes the original manual-authoring plan for the
+> editor. The product is now AI-authored and human-reviewed; see
+> `docs/2026-10-19-AI-AUTHORED-PIVOT.md` and `AGENTS.md`. Kept as background for the editor internals.
+
 ## Purpose
 
 This document defines the implementation order for turning the MotionEditor fork into **Tech Explainer Studio**.

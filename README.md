@@ -1,243 +1,144 @@
 # Tech Explainer Studio
 
-Tech Explainer Studio is a local-first visual editor for creating editable technical education videos, especially software-engineering and system-design explainers. It is built from the MotionEditor foundation and runs as a React/Vite app with a small local Node/Vite middleware backend for JSON storage, asset storage, library storage, AI actions, and Remotion exports.
+Tech Explainer Studio turns a short lesson description into a narrated, animated
+technical explainer video (system design, architecture, how-things-work). It is
+**AI-authored and human-reviewed**: an AI writes a *lesson spec*, a compiler
+builds a normal editable project from it, and you preview the result, leave
+notes, and export an MP4. Everything runs locally.
 
-The goal is to keep authoring direct: create or import a project, add editable layers, manipulate them on the canvas, animate them on the timeline, reuse saved components and animation snippets, and export a video without setting up a hosted backend. The product is manual-first and AI-assisted; it is not a prompt-to-video black box or a general-purpose social-video editor.
+It is built on the [MotionEditor](https://github.com/tomaslachmann/motion-editor)
+foundation (React, Vite, Remotion) and keeps its editor, but the editor is no
+longer the main workflow.
 
-The next editor-scaling milestone introduces a compact Story workspace and a
-focused one-scene-at-a-time editor. See
-[the scene-first editor architecture](docs/SCENE_FIRST_EDITOR.md) for the UX,
-data migration, performance budgets and implementation phases.
+```text
+lesson spec (JSON) -> validate -> narrate (local voice) -> build -> lint -> stills
+                                                                      |
+                              you: preview, leave notes, export  <----+
+```
 
-## Preview
+## The workflow
 
-![MotionEditor map animation timeline](docs/images/motioneditor-map-timeline.png)
+The AI edits `lessons/<name>.lesson.json` and runs:
 
-<video src="docs/videos/remeslobot-voice-demo.mp4" controls muted loop playsinline width="100%"></video>
+```bash
+npm run lesson -- validate lessons/load-balancer.lesson.json
+npm run lesson -- narrate  lessons/load-balancer.lesson.json   # needs the voice worker (below)
+npm run lesson -- build    lessons/load-balancer.lesson.json   # writes data/projects/lesson_<id>.json
+npm run lesson -- lint     lessons/load-balancer.lesson.json   # layout and pacing checks
+npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene, to look at
+npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes you left (--done marks them handled)
+```
 
-[Open the video demo](docs/videos/remeslobot-voice-demo.mp4)
+You open **`http://localhost:3005/review/lesson_<id>`** (start the app with
+`npm run dev`): play the video with sound, jump between scenes, write notes for
+the AI at any moment, and click **Export MP4**. The review screen never writes
+the project, so it cannot overwrite a build. Do not open a project in the editor
+(`/editor/...`) before rebuilding: the editor autosaves its copy over the build.
 
-## What It Can Do
+### The lesson spec
 
-- Manage multiple projects from a home screen with search, sorting, grid/list views, thumbnails, drag/shift multi-selection, import, export, duplicate, rename, and delete.
-- Create projects with common canvas presets for YouTube, Instagram, TikTok, and custom sizes.
-- Edit a canvas with rectangles, ellipses, lines, triangles, custom SVG paths, text, raster images, SVG images, videos, audio, and Lucide icons.
-- Insert a Load Balancer topology as editable components, then connect components using canvas ports.
-- Select any connection to change its source/target, ports, straight/elbow/curved path, label, color, line width, solid/dashed style, arrowheads, and draw timing. Connector changes autosave and support Undo/Redo.
-- Animate a separate video camera with editable pan/zoom keyframes. Focus the selection, fit the architecture, hold or reset framing, and preview the exact movement used by Remotion export.
-- Mark audio as narration, music, a sound effect, or generic audio; edit script-segment timing or align it to scenes; and render readable or technical captions from that same script timing in preview and export.
-- Reuse a local `baseVoice` with Chatterbox to generate the full teaching script from one button; generated WAV clips become editable narration assets and automatically drive scene and caption timing.
-- Keep connections attached through nested 2D group movement, scale, rotation, skew, and animated resizing; connections follow endpoint visibility in preview and export.
-- Import HTML into the reusable library and convert DOM-like structures into editable layer trees with nested layout, text, SVG, fills, strokes, shadows, and common CSS box styles.
-- Organize layers with nested groups, drag-and-drop parenting, multi-selection, locking, visibility, layer ordering, and reusable library insertion.
-- Animate layers with transform keyframes, per-property animation tracks, multi-selected keyframes across layers, timeline resizing, easing controls, value graph support, and direct keyframe editing.
-- Draw line/path layers progressively with editable Draw In and Fade + Draw presets, and apply deterministic hand-drawn outlines to compatible shapes and connectors without export jitter.
-- Build text animations such as typewriter, character pop, fall, rise, spin, blur, word reveal, and line reveal.
-- Build custom motion by entering rotation, skew, scale, opacity, perspective, and other transform/effect values.
-- Style layers with fills, gradients, per-side strokes, per-corner radius, SVG stroke/fill controls, image/video fit options, shadows, blur, brightness, contrast, grayscale, and backdrop blur.
-- Import and reuse local image, video, and audio assets through the local asset backend.
-- Save selected base design elements and reusable animation/keyframe selections into a cross-project library.
-- Export MP4/WebM through the local backend with quality presets, frame-range controls, progress, logs, cancel, and reveal/open-location support.
-- Use light or dark mode and switch the interface language between English and Czech.
-- Auto-save projects and keep manual version history snapshots.
-- Store projects, assets, exports, history, and reusable library items as local files ignored by Git.
+A lesson is components (`nodes`), connections (`edges`) and `scenes`. The
+compiler decides positions, timing, camera and captions; the spec never contains
+pixel coordinates.
 
-## Why It Is Easy To Use
+```json
+{
+  "version": 1,
+  "id": "load-balancer",
+  "title": "How a Load Balancer Works",
+  "nodes": [
+    { "id": "clients", "kind": "client", "label": "Clients" },
+    { "id": "lb", "kind": "load-balancer", "label": "Load Balancer" }
+  ],
+  "edges": [{ "id": "clients-lb", "from": "clients", "to": "lb", "label": "requests" }],
+  "scenes": [
+    {
+      "id": "solution",
+      "title": "Add a load balancer",
+      "narration": "[[lb]]A load balancer sits in front, [[clients-lb]]and receives every request first.",
+      "reveal": ["lb", "clients-lb"]
+    }
+  ]
+}
+```
 
-MotionEditor is designed around familiar editor concepts:
+- **Kinds:** `client`, `load-balancer`, `server`, `database`, `cache`, `queue`,
+  `cdn`, `api-gateway`, `object-storage`, `worker` (labels up to 16 characters;
+  graphs up to five columns wide).
+- **Scene fields:** `reveal` (show nodes/edges), `hide` (remove earlier ones),
+  `focus` (camera framing), `card` (a code/request panel over a dimmed diagram:
+  up to 8 lines, revealed one by one), `durationSeconds` (only until narrated).
+- **Cues:** `[[id]]` in `narration` makes that element appear exactly when the
+  words after it begin; card lines use `[[<card id>.<line number>]]`.
+- Spec types and rules: [src/domains/lesson-spec/](src/domains/lesson-spec/).
+  Plan, decisions and progress log:
+  [docs/2026-10-19-AI-AUTHORED-PIVOT.md](docs/2026-10-19-AI-AUTHORED-PIVOT.md).
 
-- The home screen shows every project clearly, with previews.
-- The center canvas is for direct manipulation.
-- The left panel is for layer structure.
-- The bottom timeline is for timing and animation.
-- The right panel is for design, style, effects, and motion.
-- Most important controls are visual and grouped by intent instead of hidden in menus.
+## Run locally
 
-You can start with a blank project, add a shape or text layer, drag it around, open the Motion tab, and create an animation without writing code.
-
-## Tech Stack
-
-- React 19
-- Vite 8
-- Zustand
-- Remotion and Remotion Player
-- Tailwind CSS
-- Lucide React icons
-- i18next and react-i18next
-- Local Vite middleware for project, asset, library, AI, and export APIs
-
-## Requirements
-
-- Node.js
-- npm
-
-## Run Locally
-
-Install dependencies:
+Requirements: Node.js and npm.
 
 ```bash
 npm install
+npm run dev        # http://localhost:3005
 ```
 
-Start the development server:
+Projects, assets, narration, review notes and exports are local files under
+`data/`, which is ignored by Git (except the tracked seed `data/assets/index.json`).
 
-```bash
-npm run dev
-```
+### Voice (Chatterbox)
 
-Open:
-
-```text
-http://localhost:3005
-```
-
-The app is local-first. Projects are saved by the dev server into:
-
-```text
-data/projects
-```
-
-Each project is a JSON file, and version history is stored next to it as a history JSON file. The whole `data/` folder is ignored by Git.
-
-## Run Local Voice Generation
-
-Local narration uses an optional Chatterbox worker on port `8123`. The project
-currently has a local `baseVoice.wav` reference and an installed Python 3.11
-environment. Start the worker from a second terminal:
+Narration uses a local Chatterbox worker on port `8123` with your `baseVoice.wav`
+reference. Start it from a second terminal:
 
 ```bash
 cd tools/local-tts
 HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123
 ```
 
-The first narration request downloads roughly 2.1 GB of model weights and may
-take 5–20 minutes. An interrupted download resumes from the ignored local cache,
-and later runs reuse the completed files. See
-[docs/LOCAL_TTS.md](docs/LOCAL_TTS.md) for the one-time install command, health
-checks, first-generation command, expected output and stop/restart steps.
+The first run downloads about 2.1 GB of model weights. One-time install, health
+checks and troubleshooting: [docs/LOCAL_TTS.md](docs/LOCAL_TTS.md).
 
-## Build
+## Exporting video
 
-Create a production build:
+Use **Export MP4** on the review screen (or the editor's export dialog). Export
+runs a Remotion job through `/api/exports` with progress, cancel and
+reveal-in-Finder, and writes to `data/exports`. MP4 (H.264) and WebM (VP9) at
+standard, high (2x) or ultra (3x) scale are supported.
 
-```bash
-npm run build
-```
+## The editor (secondary)
 
-Preview the production build:
+The original MotionEditor-based editor is still available at `/editor/<id>` for
+inspecting or hand-tuning a project: layers and groups, keyframes and easing,
+semantic connectors, deterministic sketch/draw-on, a separate video camera,
+narration and captions, a Story/Scene workspace, and a reusable library. It is
+not required for the lesson workflow and may be trimmed further.
 
-```bash
-npm run preview
-```
-
-## Exporting Video
-
-The editor exports through the local backend at `/api/exports`. The export modal lets you choose frame range, format, and quality, then starts a Remotion job from the app instead of asking you to run a copied command manually.
-
-Supported formats:
-
-- MP4 using H.264
-- WebM using VP9
-
-Quality presets:
-
-- Standard: 1x scale
-- High: 2x scale
-- Ultra: 3x scale
-
-Export progress is based on the backend job state and Remotion output. It tracks bundling/preparing/rendering/encoding phases, rendered frames, encoded frames, recent logs, cancel status, and the final output path. Finished exports are written to:
-
-```text
-data/exports
-```
-
-## AI-authored videos
-
-The AI (Claude Code) writes a lesson spec and builds the video; you preview and
-export. See [docs/2026-10-19-AI-AUTHORED-PIVOT.md](docs/2026-10-19-AI-AUTHORED-PIVOT.md).
-
-```bash
-npm run lesson -- validate lessons/load-balancer.lesson.json
-npm run lesson -- narrate  lessons/load-balancer.lesson.json   # needs the Chatterbox worker
-npm run lesson -- build    lessons/load-balancer.lesson.json
-npm run lesson -- lint     lessons/load-balancer.lesson.json
-npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene
-```
-
-Preview, leave notes for the AI, and export at `http://localhost:3005/review/<project id>`.
-
-## Local Backend
+## Local backend
 
 The Vite dev server mounts local JSON/file APIs:
 
-- `/api/projects` stores project JSON and history in `data/projects`.
-- `/api/assets` stores imported image, video, and audio files in `data/assets`.
-- `/api/library` stores reusable design and animation items in `data/library`.
-- `/api/exports` starts, tracks, cancels, and reveals Remotion export jobs in `data/exports`.
-- `/api/reviews` stores review notes in `data/reviews`.
+- `/api/projects` — project JSON and history in `data/projects`
+- `/api/assets` — images and audio in `data/assets` (narration clips are registered here)
+- `/api/library` — reusable design/animation items in `data/library`
+- `/api/exports` — Remotion export jobs, output in `data/exports`
+- `/api/reviews` — review notes in `data/reviews`
+- `/api/tts` — proxy to the local voice worker
 
-This is intentionally local-only. There is no database and no hosted service requirement.
+This is intentionally local-only: no database, no accounts, no hosted service.
+Project files carry a `schemaVersion` and are migrated on load; see
+[docs/PROJECT_SCHEMA.md](docs/PROJECT_SCHEMA.md).
 
-## Project Storage
-
-Projects are saved as JSON through local API endpoints implemented in `server/projectStoragePlugin.ts`.
-
-Stored data includes:
-
-- Project name, id, created/updated dates, and thumbnail
-- Canvas size, fps, duration, and background
-- Full layer tree
-- Text styling, shape styling, SVG data, media source references, and imported asset references
-- Transform keyframes, per-property keyframes, easing, and custom curves
-- Timeline state
-- Video-camera keyframes, centre coordinates, zoom, and easing
-- Audio roles, timed script segments, and caption presentation settings
-- Editor viewport state
-- Manual history snapshots
-
-The home screen also supports importing/exporting `.motionproj` files, backing up all projects as JSON, importing HTML into the reusable library, and selecting multiple projects with click, Shift-click, or drag selection.
-
-## Assets And Library
-
-Imported images, videos, and audio are copied into local asset storage and reused from the asset library. Adding an image/video/audio first opens the existing library, with an import-new action at the top.
-
-Reusable library items are separate from raw assets:
-
-- Design items save selected layers at the current frame as base editable styles.
-- Animation items save selected layers, frame ranges, and keyframes so they can be reused across projects.
-- HTML imports can be saved into the library as editable design elements after previewing and naming them.
-
-## Internationalization
-
-Translations live in:
-
-```text
-src/i18n.ts
-```
-
-Supported languages:
-
-- English
-- Czech
-
-Use the settings button in the app to switch language and theme.
-
-## Useful Scripts
+## Scripts
 
 ```bash
-npm run dev
-npm run build
-npm run preview
+npm run dev          # app on :3005
+npm run lesson -- …  # the lesson workflow above
+npm run build        # production build
 npm run lint
 npm test
 npx tsc --noEmit
 ```
-
-## Notes
-
-This is a local editor, not a hosted collaborative platform. It is meant to be simple to run, easy to inspect, and practical for building technical explainer compositions without setting up a database or cloud backend.
-
-For a production deployment, move the project, asset, library, export, and AI endpoints to a real backend so file access, authentication, rate limits, job isolation, and API keys are handled safely.
 
 ## Attribution and license
 

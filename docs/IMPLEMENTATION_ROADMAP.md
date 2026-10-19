@@ -1,5 +1,12 @@
 # Tech Explainer Studio — Implementation Roadmap
 
+> **Direction update (2026-10-19):** this project is now **AI-authored, human-reviewed**.
+> Claude writes a lesson spec (`lessons/*.lesson.json`) and builds, narrates, lints and
+> renders it with `npm run lesson`; the human previews at `/review/<project id>` and exports.
+> Statements below that call the product "manual-first" or say AI "must never be the only
+> path" are **superseded**. See `docs/2026-10-19-AI-AUTHORED-PIVOT.md` for the plan, the
+> decisions and the progress log.
+
 ## Purpose
 
 This is the execution roadmap for evolving the MotionEditor fork into Tech
@@ -17,7 +24,7 @@ must work in a saved project and in a rendered video.
 
 ## Product boundary
 
-V1 is a local-first, manual-first editor for technical explainers. It must be
+V1 is a local-first, AI-authored, human-reviewed pipeline for technical explainers (the editor is kept as a secondary inspection tool). It must be
 better than generic editors at diagram-based lessons, not broader than them.
 
 In scope:
@@ -32,7 +39,6 @@ Out of scope until after V1:
 
 - accounts, collaboration, hosted projects, billing or a marketplace;
 - broad social-video templates and non-technical editing features;
-- automatic script-to-final-video generation;
 - cloud-provider icon packs before their licenses and trademarks are reviewed.
 
 ## Delivery sequence
@@ -46,9 +52,14 @@ Out of scope until after V1:
 | 4. Explainer motion and sketch style | Complete | Clear progressive draw/reveal behavior | 3 |
 | 5. Video camera | Complete | Editable pan/zoom with preview/export parity | 4 |
 | 6. Narration and captions | Complete | Timed script, narration and captions share one source of truth | 5 |
-| 7. Scene-first editor scaling | In progress (7.1 complete) | Story assembly plus focused editing of one scene at a time | 6 |
-| 8. Acceptance lesson and local release | Planned | The full Load Balancer lesson proves the intended workflow | 7 |
-| 9. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 8 |
+| 7. Scene-first editor scaling | Stopped after 7.4 | Story assembly plus focused editing of one scene at a time; human editing ergonomics, no further work planned | 6 |
+| 8. Acceptance lesson and local release | Superseded | Replaced by phases 10-14: the AI produces the Load Balancer lesson end to end | 7 |
+| 9. Hosted-product readiness | Deferred | Secure multi-user/service operation, only if the product direction changes | 10-14 |
+| 10. Lesson spec, compiler, self-review loop | Complete | Spec -> project, auto-layout, `validate`/`build`/`lint`/`stills` | 6 |
+| 11. Narration-driven timing | Complete | Chatterbox per scene, cached chunks, `[[id]]` cues, real durations | 10 |
+| 12. Review-only screen | Complete | `/review/<id>` preview, notes for the AI, export; never writes the project | 10 |
+| 13. Component kit and explainer blocks | Complete (first cut) | 10 component kinds, `hide`, code/request cards | 10 |
+| 14. Clean-up | Complete | Removed in-app OpenAI chat, HTML import button, video library | 12 |
 
 Phases 2 and 3 may share visual-design preparation, but their persisted data and
 interactive behavior should land in the stated order. Do not start a phase by
@@ -424,7 +435,7 @@ These may be scheduled within the phase that needs them, never as detached UI
 work:
 
 - accessibility and keyboard coverage for every new editor interaction;
-- i18n strings for all new UI (English and Czech are currently supported);
+- i18n strings for all new UI (English only);
 - performance profiling for large diagrams and long timelines;
 - fixture projects for migration and regression testing;
 - design-library documentation and component naming;

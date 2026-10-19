@@ -66,28 +66,52 @@ kit is tiny, and the only AI integration is an in-app OpenAI ChatKit panel.
 
 ## Remove or demote
 
-- In-app OpenAI integration: `AiAssistantModal`, `AiChatPanel`,
-  `server/aiAssistPlugin.ts`, `@openai/chatkit-react`, `ai.config.*`,
-  `public/ai-*.md`. Replaced by the file/CLI interface above.
-- Manual-first principles in `AGENTS.md`, `PRODUCT_VISION.md`, roadmap.
-- Roadmap Phase 7.5 onward (human editing ergonomics). Redefine Phase 8 as: the
-  AI produces the Load Balancer lesson end to end from a script.
-- Generic MotionEditor leftovers (HTML import, video library, speed keyframes,
-  social canvas presets, Czech i18n): hide first, delete later.
+**Done** (2026-10-19):
+
+- In-app OpenAI integration (`AiAssistantModal`, `AiChatPanel`,
+  `server/aiAssistPlugin.ts`, `@openai/chatkit-react`, `ai.config.example.json`,
+  `public/ai-*.md`) — removed.
+- Manual-first principles in `AGENTS.md`, `PRODUCT_VISION.md`, roadmap, README —
+  rewritten.
+- Roadmap Phase 7.5 onward — stopped; Phase 8 superseded by phases 10-14.
+- Home-screen HTML import button, video library and video timeline bars —
+  removed. The app is English-only (the Czech translations were already gone;
+  `src/i18n.ts` stays, with English only). The fork's Czech demo video and
+  screenshot (`docs/videos/`, `docs/images/`) were deleted.
+- Old test projects and test exports in `data/` — deleted.
+
+**Not done, by choice:** speed keyframes and the segment controls (shared with
+narration audio), social canvas presets, the video layer type (old projects
+render), and the rest of the editor, which stays for inspection.
 
 ## Docs to update as work lands
 
-- `AGENTS.md` — project identity and principles.
-- `docs/PRODUCT_VISION.md` — "manual-first" sections.
-- `docs/IMPLEMENTATION_ROADMAP.md` — phases 7.5+, new phases for this plan.
-- `docs/PROJECT_SCHEMA.md` — any persisted-field change needs a schema bump and
-  migration (existing rule still applies).
+All updated on 2026-10-19: `AGENTS.md` (rewritten), `README.md` (rewritten),
+`docs/PRODUCT_VISION.md` and `docs/IMPLEMENTATION_ROADMAP.md` (contradicting
+passages rewritten, phases 10-14 added), `docs/PROJECT_SCHEMA.md` (v13, v14),
+`docs/LOCAL_TTS.md` (lesson CLI section); `IMPLEMENTATION.md` and
+`docs/SCENE_FIRST_EDITOR.md` carry a status note. Any future persisted-field
+change still needs a schema bump and migration.
 
 ## Acceptance
 
 The AI, given only a teaching script for the Load Balancer lesson, produces a
 spec, builds the project, renders and self-reviews it, and delivers a video the
 human can preview and export without opening an editing panel.
+
+## Status at a glance (end of 2026-10-19)
+
+| Item | State |
+| --- | --- |
+| 1 Lesson spec + compiler | Done |
+| 2 Auto-layout | Done (left-to-right layers, up to five columns) |
+| 3 Self-review loop (`validate`/`build`/`lint`/`stills`) | Done |
+| 4 Narration-driven timing | Done (chunk cues; no forced alignment needed) |
+| 5 Component kit | Done (10 kinds) |
+| 6 Explainer blocks | Partly: `hide`, code/request cards. Not yet: sequence diagrams, bullet/comparison cards, title/outro cards, data-flow pulses |
+| 7 Theme file | Not started (colours are constants in `compile.ts`) |
+| 8 Review-only UI | Done (`/review/<id>`) |
+| 9 Patchable specs / stable ids | Not started (ids are stable; no patch tooling) |
 
 ## Progress log
 
