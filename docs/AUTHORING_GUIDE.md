@@ -68,6 +68,20 @@ the phrase. Valid cue ids in a scene: its `reveal`/`hide` ids, its overlay's
 line/message ids, `emphasize:<node>` and `flow:<edge>`. Each cue at most once.
 Changing narration text means re-running narration (`produce` does it).
 
+## Narration for the voice
+
+- Write whole sentences. The voice speaks a sentence at a time, so a `[[cue]]` can sit mid-sentence without breaking the speech.
+- Keep a scene to about 20 to 30 words. Longer scenes are spoken faster and fatigue the viewer; `lint` warns above 45 and the audio check warns above about 4 words per second.
+- Avoid one- and two-word sentences ("Fast."); they are joined to a neighbour or garbled.
+- Spell numbers and symbols as you want them said ("three hundred seconds", "T T L" if you want letters). Captions show your text exactly, so use readable spellings.
+- Captions are generated from the narration, in short phrases. Do not write overlay lines that repeat the caption word for word.
+
+## Teaching accuracy
+
+- Show the mechanism, not a label. A cache miss starts with the cache lookup that failed, then the database query, then saving the result. A hit leaves the database visibly untouched (give it a lane with no arrows).
+- Name which component holds which value ("Database: ... / Cache: ... (old copy)"); never leave it to inference.
+- Overview first, detail second: a short "lookup order" scene before the hit and miss scenes is fine, but do not narrate the same words twice.
+
 ## Quality bar
 
 - Every scene changes something on screen; no scene only repeats the previous one.

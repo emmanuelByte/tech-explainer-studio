@@ -39,8 +39,9 @@ npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json --writ
 You open **`http://localhost:3005/review/lesson_<id>`** (start the app with
 `npm run dev`): play the video with sound, jump between scenes, write notes for
 the AI at any moment, and click **Export MP4**. The review screen never writes
-the project, so it cannot overwrite a build. Do not open a project in the editor
-(`/editor/...`) before rebuilding: the editor autosaves its copy over the build.
+the project. The legacy editor (`/editor/...`) cannot overwrite or delete a lesson
+project either: the server refuses saves and deletes for `lesson_*` projects (HTTP 409),
+so opening one there is harmless but nothing you change in it is kept. Change the spec.
 
 ### The lesson spec
 
@@ -71,7 +72,8 @@ pixel coordinates.
 
 - **Kinds:** `client`, `load-balancer`, `server`, `database`, `cache`, `queue`,
   `cdn`, `api-gateway`, `object-storage`, `worker` (labels up to 16 characters;
-  graphs up to five columns wide).
+  graphs up to five columns deep in 16:9; in 9:16 ranks stack top to bottom with at most
+  three components per row, so depth is not limited by width).
 - **Top-level cards:** `intro` adds a silent title card using `title` and an
   optional `subtitle`; `outro` shows `text` over a dimmed final diagram. Each
   can set `seconds` (1–10; default 3); titles and subtitles are limited to 60
@@ -177,7 +179,7 @@ npm run lesson -- …  # the lesson workflow above
 npm run build        # production build
 npm run lint
 npm test
-npx tsc --noEmit
+npm run typecheck   # src, tools and server
 ```
 
 ## Attribution and license

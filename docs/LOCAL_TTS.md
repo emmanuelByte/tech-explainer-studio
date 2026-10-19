@@ -389,3 +389,16 @@ timeline, resolve timing overflow, reload the project, and export an MP4 with
 matching narration and captions. The same project must still open and export
 when the TTS service is stopped because its generated WAV files are already
 stored as normal local assets.
+
+
+## Caption and cue alignment (added with narration-synchronised captions)
+
+`tools/local-tts/align.py` aligns each spoken sentence to its audio with
+torchaudio's bundled English wav2vec2 model (`WAV2VEC2_ASR_BASE_960H`, about
+360 MB, free). It runs in the same Python environment as Chatterbox, as a
+separate short-lived process started by `lesson narrate`/`produce`, not inside
+the voice worker, so the worker needs no restart. The first run downloads the
+model into `tools/local-tts/.cache/torch` (git-ignored). If the environment or
+download is unavailable, narration still works and caption timing is marked
+`estimated`. Alignment was checked against the audio: first and last word times
+agreed with the waveform's speech onset and offset to within 0.06 s and 0.1 s.

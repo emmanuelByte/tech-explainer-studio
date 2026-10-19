@@ -142,12 +142,12 @@ Renderer bugs found by looking at the stills and fixed:
 
 Findings still open:
 
-- **An open editor tab overwrites rebuilt projects.** The editor autosaves its
-  in-memory copy over `data/projects/<id>.json`, silently reverting a build.
-  Use the review screen (`/review/<id>`, never writes) instead of the editor;
-  close any editor tab before running `build`.
+- **An open editor tab overwrote rebuilt projects.** *(Resolved on
+  `feat/production-pipeline`: the server now answers HTTP 409 to any save or
+  delete of a `lesson_*` project, so the editor can no longer revert a build.
+  Use `/review/<id>` anyway; changes made in the editor are simply not kept.)*
 - Labels are limited to 16 characters.
-- Pre-existing type error in `src/domains/scenes/focus.test.ts` (not touched).
+- Pre-existing type error in `src/domains/scenes/focus.test.ts` *(fixed since; `npm run typecheck` is clean and now also covers `tools/` and `server/`)*.
 
 
 ### 2026-10-19 — Milestone 2: hide, lint, stills
@@ -437,9 +437,8 @@ What was added (all uncommitted work is now committed; see `git log`):
   preview, which does not play audio.
 - `README.md` now documents `intro`, `outro`, `emphasize`, `flow`, their cues,
   and title-card limits.
-- `npm test` passes (25 files, 175 tests). `npx tsc --noEmit` still reports the
-  documented pre-existing error in `src/domains/scenes/focus.test.ts`; this work
-  does not add type errors.
+- `npm test` passes (25 files, 175 tests). `npx tsc --noEmit` then reported the
+  pre-existing error in `src/domains/scenes/focus.test.ts` (since fixed).
 
 ### Voice-speed comparison
 
@@ -460,18 +459,14 @@ What was added (all uncommitted work is now committed; see `git log`):
   the file (it wiped `compile.ts` once; recovered with `git checkout`). Read first,
   then write.
 - Top-level layers stack **first-on-top**; a group's children stack **last-on-top**.
-- Do not open `/editor/<id>` before `build`: autosave overwrites the build.
+- Do not open `/editor/<id>` before `build` *(historical: now harmless, the server refuses to save lesson projects)*.
 - `data/assets/index.json` is local runtime data (lists narration audio): do not commit it.
 - Chatterbox can stretch one- or two-word chunks; `narrate` now re-rolls takes that
   look wrong (3 tries). If it warns "still looks wrong", merge the phrase into a
   longer one in the spec.
 - Pushed history has one non-buildable commit (`e5e726d`); not worth rewriting.
 
-### Remaining roadmap after this task (see "Status at a glance")
-
-9:16 vertical output (layout assumes wide canvas), sequence diagrams and bullet
-lists, adaptive column spacing for graphs deeper than five columns, and a human
-listen to the voice on `page-load`.
+### Remaining roadmap after this task *(superseded: 9:16, sequence diagrams and bullet lists were delivered on `feat/production-pipeline`; what remains is listed at the end of that section and in `docs/PRODUCTION_ACCEPTANCE.md`)*
 
 ## Production pipeline (branch `feat/production-pipeline`, 2026-10-19)
 

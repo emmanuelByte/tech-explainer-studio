@@ -55,8 +55,9 @@ marks it `verified` only once you have looked at the rebuilt output.
 Rules for this workflow:
 
 - **The spec is the source of truth.** Never hand-edit `data/projects/lesson_*.json`.
-- **Do not open a project in the editor (`/editor/...`) before building**: the
-  editor autosaves its in-memory copy over the build. Use `/review/...`.
+- Review at `/review/...`. The legacy editor cannot overwrite or delete a
+  `lesson_*` project (the server answers 409), so opening one there is harmless
+  but changes made there are not saved.
 - Start the voice worker for `narrate`:
   `cd tools/local-tts && HF_HOME="$PWD/.cache" .venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8123`
   (see `docs/LOCAL_TTS.md`).
