@@ -1,6 +1,7 @@
+import { THEME_IDS } from './theme'
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { narrationCueProblems, parseNarration } from './narration'
-import { CARD_LIMITS, COMPARISON_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
+import { BULLET_LIMITS, CARD_LIMITS, COMPARISON_LIMITS, SEQUENCE_LIMITS, SPEC_DEFAULTS, TITLE_LIMITS, type LessonSpec, type SpecIssue } from './types'
 
 const KINDS = new Set<string>(TECHNICAL_COMPONENT_KINDS)
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
@@ -19,6 +20,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   if (typeof input.id !== 'string' || !ID_PATTERN.test(input.id)) add('id', 'Required lowercase slug (a-z, 0-9, - or _).')
   if (typeof input.title !== 'string' || !input.title.trim()) add('title', 'Required.')
 
+  if (input.theme !== undefined && !(THEME_IDS as readonly unknown[]).includes(input.theme)) add('theme', `Must be one of: ${THEME_IDS.join(', ')}.`)
   if (input.canvas !== undefined) {
     if (!isRecord(input.canvas)) add('canvas', 'Must be an object.')
     else {
@@ -166,6 +168,59 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         }
       }
     }
+    if (scene.bullets !== undefined) {
+      if (scene.card !== undefined || scene.comparison !== undefined) add(`${path}.bullets`, 'Use only one overlay: card, comparison or bullets.')
+      const bullets = scene.bullets
+      if (!isRecord(bullets)) add(`${path}.bullets`, 'Must be an object.')
+      else {
+        if (typeof bullets.id !== 'string' || !ID_PATTERN.test(bullets.id)) add(`${path}.bullets.id`, 'Required lowercase slug.')
+        else if (ids.has(bullets.id) || overlayIds.has(bullets.id)) add(`${path}.bullets.id`, `Duplicate id "${bullets.id}".`)
+        else overlayIds.add(bullets.id)
+        if (typeof bullets.title !== 'string' || !bullets.title.trim() || bullets.title.length > BULLET_LIMITS.titleLength) add(`${path}.bullets.title`, `Required text of ${BULLET_LIMITS.titleLength} characters or fewer.`)
+        if (!Array.isArray(bullets.items) || !bullets.items.length || bullets.items.length > BULLET_LIMITS.items) add(`${path}.bullets.items`, `Must be 1 to ${BULLET_LIMITS.items} items.`)
+        else {
+          bullets.items.forEach((item, i) => {
+            if (typeof item !== 'string' || !item.trim() || item.length > BULLET_LIMITS.itemLength) add(`${path}.bullets.items[${i}]`, `Text of ${BULLET_LIMITS.itemLength} characters or fewer.`)
+          })
+          if (typeof bullets.id === 'string') bullets.items.forEach((_, i) => overlayCueIds.push(`${bullets.id}.${i + 1}`))
+        }
+        if (bullets.tone !== undefined && !['neutral', 'positive', 'negative'].includes(String(bullets.tone))) add(`${path}.bullets.tone`, 'Must be neutral, positive or negative.')
+      }
+    }
+    if (scene.sequence !== undefined) {
+      if (scene.card !== undefined || scene.comparison !== undefined || scene.bullets !== undefined) add(`${path}.sequence`, 'Use only one overlay: card, comparison, bullets or sequence.')
+      const sequence = scene.sequence
+      if (!isRecord(sequence)) add(`${path}.sequence`, 'Must be an object.')
+      else {
+        if (typeof sequence.id !== 'string' || !ID_PATTERN.test(sequence.id)) add(`${path}.sequence.id`, 'Required lowercase slug.')
+        else if (ids.has(sequence.id) || overlayIds.has(sequence.id)) add(`${path}.sequence.id`, `Duplicate id "${sequence.id}".`)
+        else overlayIds.add(sequence.id)
+        const participantIds = new Set<string>()
+        if (!Array.isArray(sequence.participants) || sequence.participants.length < 2 || sequence.participants.length > SEQUENCE_LIMITS.participants) add(`${path}.sequence.participants`, `Must contain 2 to ${SEQUENCE_LIMITS.participants} participants.`)
+        else sequence.participants.forEach((participant, participantIndex) => {
+          const participantPath = `${path}.sequence.participants[${participantIndex}]`
+          if (!isRecord(participant)) return add(participantPath, 'Must be an object.')
+          if (typeof participant.id !== 'string' || !ID_PATTERN.test(participant.id)) add(`${participantPath}.id`, 'Required lowercase slug.')
+          else if (participantIds.has(participant.id)) add(`${participantPath}.id`, `Duplicate id "${participant.id}".`)
+          else participantIds.add(participant.id)
+          if (typeof participant.label !== 'string' || !participant.label.trim() || participant.label.length > SEQUENCE_LIMITS.participantLabelLength) add(`${participantPath}.label`, `Required text of ${SEQUENCE_LIMITS.participantLabelLength} characters or fewer.`)
+        })
+        const messageIds = new Set<string>()
+        if (!Array.isArray(sequence.messages) || !sequence.messages.length || sequence.messages.length > SEQUENCE_LIMITS.messages) add(`${path}.sequence.messages`, `Must contain 1 to ${SEQUENCE_LIMITS.messages} messages.`)
+        else sequence.messages.forEach((message, messageIndex) => {
+          const messagePath = `${path}.sequence.messages[${messageIndex}]`
+          if (!isRecord(message)) return add(messagePath, 'Must be an object.')
+          if (typeof message.id !== 'string' || !ID_PATTERN.test(message.id)) add(`${messagePath}.id`, 'Required lowercase slug.')
+          else if (messageIds.has(message.id)) add(`${messagePath}.id`, `Duplicate id "${message.id}".`)
+          else { messageIds.add(message.id); if (typeof sequence.id === 'string') overlayCueIds.push(`${sequence.id}.${message.id}`) }
+          if (typeof message.from !== 'string' || !participantIds.has(message.from)) add(`${messagePath}.from`, 'Must name a sequence participant.')
+          if (typeof message.to !== 'string' || !participantIds.has(message.to)) add(`${messagePath}.to`, 'Must name a sequence participant.')
+          if (message.from === message.to) add(messagePath, 'A message cannot target its sender.')
+          if (typeof message.label !== 'string' || !message.label.trim() || message.label.length > SEQUENCE_LIMITS.messageLabelLength) add(`${messagePath}.label`, `Required text of ${SEQUENCE_LIMITS.messageLabelLength} characters or fewer.`)
+          if (message.kind !== undefined && !['sync', 'async', 'response'].includes(String(message.kind))) add(`${messagePath}.kind`, 'Must be sync, async or response.')
+        })
+      }
+    }
     const extraCueIds: string[] = []
     if (scene.emphasize !== undefined) {
       if (!Array.isArray(scene.emphasize)) add(`${path}.emphasize`, 'Must be an array of node ids.')
@@ -248,12 +303,17 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
     }
   }
 
-  const canvas = isRecord(input.canvas) ? input.canvas : {}
-  const width = typeof canvas.width === 'number' ? canvas.width : SPEC_DEFAULTS.width
   if (nodes && !issues.length) {
+    // Graph validity does not depend on the canvas: a cycle breaks every layout.
     const ranks = rankCount(input as unknown as LessonSpec)
     if (ranks === null) add('edges', 'Edges form a cycle; the layout needs a directed acyclic graph.')
-    else if ((ranks - 1) * 400 + 240 + 80 > width) add('nodes', `The graph is ${ranks} columns deep and will not fit a ${width}px canvas.`)
+    else {
+      // Landscape lays ranks out as columns; portrait stacks them, so only landscape is width-limited.
+      const canvas = isRecord(input.canvas) ? input.canvas : {}
+      const width = typeof canvas.width === 'number' ? canvas.width : SPEC_DEFAULTS.width
+      const height = typeof canvas.height === 'number' ? canvas.height : SPEC_DEFAULTS.height
+      if (width >= height && (ranks - 1) * 400 + 240 + 80 > width) add('nodes', `The graph is ${ranks} columns deep and will not fit a ${width}px canvas.`)
+    }
   }
 
   return issues

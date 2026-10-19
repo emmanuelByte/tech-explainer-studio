@@ -76,3 +76,64 @@ export function resolveCueTimes(
   }
   return times
 }
+
+export interface NarrationWords {
+  words: string[]
+  /** Cue id -> index of the first word after it (words.length = after the last word). */
+  cues: { id: string; wordIndex: number }[]
+}
+
+/** The spoken words of a narration, and where each cue falls among them. */
+export function narrationWords(text: string): NarrationWords {
+  const parsed = parseNarration(text)
+  const words: string[] = []
+  const chunkStart: number[] = []
+  for (const chunk of parsed.chunks) {
+    chunkStart.push(words.length)
+    words.push(...chunk.split(' ').filter(Boolean))
+  }
+  return { words, cues: parsed.cues.map((cue) => ({ id: cue.id, wordIndex: cue.chunkIndex < chunkStart.length ? chunkStart[cue.chunkIndex] : words.length })) }
+}
+
+const ABBREVIATIONS = new Set(['e.g.', 'i.e.', 'vs.', 'etc.', 'mr.', 'mrs.', 'dr.', 'approx.', 'fig.', 'no.'])
+const SENTENCE_END = /[.!?]["')\]]*$/
+const MIN_SENTENCE_WORDS = 4
+const MAX_SENTENCE_CHARS = 210
+
+/**
+ * Groups words into the units the voice speaks in one go. Whole sentences keep
+ * natural intonation (a chunk cut mid-sentence ends on a falling pitch), so cues
+ * no longer split speech: their times come from the aligned words instead.
+ * Very short sentences join their neighbour (the voice garbles one- and
+ * two-word utterances) and very long ones split at a clause boundary.
+ */
+export function splitSentences(words: string[]): { start: number; end: number }[] {
+  const ends = (index: number) => {
+    const word = words[index]
+    if (!SENTENCE_END.test(word) || ABBREVIATIONS.has(word.toLowerCase())) return false
+    const next = words[index + 1]
+    return next === undefined || /^["'([]?[A-Z0-9]/.test(next)
+  }
+  let groups: { start: number; end: number }[] = []
+  let start = 0
+  words.forEach((_, index) => {
+    if (ends(index) || index === words.length - 1) { groups.push({ start, end: index + 1 }); start = index + 1 }
+  })
+  // Split overlong sentences at the clause boundary nearest the middle.
+  groups = groups.flatMap((group) => {
+    const text = words.slice(group.start, group.end).join(' ')
+    if (text.length <= MAX_SENTENCE_CHARS) return [group]
+    const breaks = [...Array(group.end - group.start - 1).keys()].map((i) => group.start + i).filter((i) => /[,;:]$/.test(words[i]))
+    if (!breaks.length) return [group]
+    const middle = (group.start + group.end) / 2
+    const at = breaks.reduce((best, candidate) => (Math.abs(candidate + 1 - middle) < Math.abs(best + 1 - middle) ? candidate : best)) + 1
+    return [{ start: group.start, end: at }, { start: at, end: group.end }]
+  })
+  const merged: { start: number; end: number }[] = []
+  for (const group of groups) {
+    const previous = merged[merged.length - 1]
+    if (previous && (group.end - group.start < MIN_SENTENCE_WORDS || previous.end - previous.start < MIN_SENTENCE_WORDS)) previous.end = group.end
+    else merged.push({ ...group })
+  }
+  return merged
+}

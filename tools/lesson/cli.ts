@@ -1,72 +1,71 @@
-import { spawn } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../src/types'
-import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
+import { compileLessonSpec, LessonSpecError, projectIdFor, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
 import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
-import { loadNarrationManifest, narrateLesson } from './narrate'
+import { checkNarrationAudio } from './audioChecks'
+import { loadArtwork } from './artwork'
+import { renderStills } from './stills'
+import { produceCommand, reportFailure } from './produceCommand'
+import { extractReviewFrames, loadProject } from './reviewFrames'
+import { renderedSince } from './revise'
+import { compareCommand, readProductionState, reviseCommand } from './reviseCommand'
+import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
+import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from '../../src/domains/review/notes'
+import { atomicWriteFile } from '../../server/atomicFile'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
+import { THEME_IDS, type ThemeId } from '../../src/domains/lesson-spec/theme'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const assets = resolve(root, 'src', 'domains', 'technical-components', 'assets')
-
-const ARTWORK_FILES: Record<TechnicalComponentKind, string> = {
-  client: 'clients/client-group.svg',
-  'load-balancer': 'traffic-edge/load-balancer.svg',
-  server: 'compute/application-server.svg',
-  database: 'data-stores/database.svg',
-  cache: 'data-stores/cache.svg',
-  queue: 'messaging/queue.svg',
-  cdn: 'traffic-edge/cdn.svg',
-  'api-gateway': 'traffic-edge/api-gateway.svg',
-  'object-storage': 'data-stores/object-storage.svg',
-  worker: 'compute/worker.svg',
-}
-
-async function loadArtwork(): Promise<ComponentArtwork> {
-  const entries = await Promise.all(
-    TECHNICAL_COMPONENT_KINDS.map(async (kind) => [kind, await readFile(resolve(assets, ARTWORK_FILES[kind]), 'utf-8')] as const),
-  )
-  return Object.fromEntries(entries) as ComponentArtwork
-}
 
 async function readSpec(path: string | undefined) {
   if (!path) throw new Error(USAGE)
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>)'
+const USAGE = 'Usage: lesson <produce|validate|narrate|audio|build|lint|stills|frames|notes|revise|compare|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
+
+/** `--aspect 16:9|9:16` renders the same lesson at the native size of that format. */
+const ASPECTS = { '16:9': { width: 1920, height: 1080 }, '9:16': { width: 1080, height: 1920 } } as const
+
+function requestedCanvas() {
+  const at = process.argv.indexOf('--aspect')
+  if (at < 0) return undefined
+  const value = process.argv[at + 1]
+  if (!(value in ASPECTS)) throw new Error(`--aspect must be one of ${Object.keys(ASPECTS).join(', ')}.`)
+  return ASPECTS[value as keyof typeof ASPECTS]
+}
+
+function requestedTheme(): ThemeId | undefined {
+  const at = process.argv.indexOf('--theme')
+  if (at < 0) return undefined
+  const value = process.argv[at + 1]
+  if (!(THEME_IDS as readonly string[]).includes(value)) throw new Error(`--theme must be one of ${THEME_IDS.join(', ')}.`)
+  return value as ThemeId
+}
 
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
-  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration })
+  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration, canvas: requestedCanvas(), theme: requestedTheme() })
 }
 
 function flag(name: string, fallback: string) {
   const at = process.argv.indexOf(`--${name}`)
-  return at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : fallback
+  const next = process.argv[at + 1]
+  return at >= 0 && next && !next.startsWith('--') ? next : fallback
 }
 
 async function writeProject(project: ReturnType<typeof build>) {
   const out = resolve(root, 'data', 'projects', `${project.id}.json`)
   await mkdir(dirname(out), { recursive: true })
-  await writeFile(out, JSON.stringify(project, null, 2))
+  await atomicWriteFile(out, `${JSON.stringify(project, null, 2)}\n`)
   return out
 }
 
-function renderStill(projectPath: string, frame: number, outPath: string) {
-  const bin = resolve(root, 'node_modules', '.bin', 'remotion')
-  return new Promise<void>((done, fail) => {
-    const child = spawn(bin, ['still', 'src/remotion/index.tsx', 'EditorComposition', outPath, `--frame=${frame}`, `--props=${projectPath}`, '--public-dir=data'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
-    let stderr = ''
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-    child.on('close', (code) => (code === 0 ? done() : fail(new Error(`remotion still failed at frame ${frame}:\n${stderr.trim()}`))))
-  })
-}
-
 async function main() {
+  if (process.argv[2] === 'produce') return produceCommand(root, process.argv.slice(3))
   const [command, specPath, patchPath] = process.argv.slice(2)
   const spec = await readSpec(specPath)
   if (command === 'validate') {
@@ -76,24 +75,64 @@ async function main() {
     return
   }
   if (command === 'notes') {
-    // Review notes left in the review screen; `--done` marks the open ones as handled.
+    // Notes the human left in the review screen. Each one moves pending -> applied -> verified, by id.
     const id = `lesson_${(spec as LessonSpec).id}`
     const path = resolve(root, 'data', 'reviews', `${id}.json`)
-    let notes: { sceneId: string; frame: number; text: string; done?: boolean }[] = []
+    let notes: ReviewNote[] = []
     try {
-      notes = (JSON.parse(await readFile(path, 'utf-8')) as { notes: typeof notes }).notes
+      notes = (JSON.parse(await readFile(path, 'utf-8')) as { notes: ReviewNote[] }).notes
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    const open = notes.filter((note) => !note.done)
-    for (const note of open) console.log(`[${note.sceneId}] ${(note.frame / 30).toFixed(1)}s: ${note.text}`)
-    console.log(open.length ? `${open.length} open note(s).` : 'No open notes.')
-    if (process.argv.includes('--done') && open.length) {
-      await writeFile(path, `${JSON.stringify({ notes: notes.map((note) => ({ ...note, done: true })) }, null, 2)}\n`)
-      console.log('Marked as done.')
+    const now = new Date().toISOString()
+    const specHash = createHash('sha256').update(JSON.stringify(spec)).digest('hex').slice(0, 16)
+    const ids = (name: string) => flag(name, '').split(',').map((value) => value.trim()).filter(Boolean)
+    if (process.argv.includes('--done')) throw new Error('--done was removed because it closed every note at once. Use --apply <id,...> --summary "<what changed>" after editing the spec, then --verify <id,...> --evidence "<what the render shows>".')
+    if (process.argv.includes('--apply')) notes = markApplied(notes, ids('apply'), { summary: flag('summary', ''), specHash, now })
+    if (process.argv.includes('--verify')) {
+      // A correction counts as verified only after it was rebuilt and rendered, not merely written into the spec.
+      const state = await readProductionState(root, (spec as LessonSpec).id)
+      for (const target of ids('verify')) {
+        const note = notes.find((candidate) => candidate.id === target)
+        if (note?.appliedAt && !renderedSince(state, note.appliedAt)) throw new Error(`Note ${target} was applied at ${note.appliedAt} but nothing has been rendered since. Run \`npm run produce -- <spec>\` and look at the new frames first.`)
+      }
     }
+    if (process.argv.includes('--verify')) notes = markVerified(notes, ids('verify'), { evidence: flag('evidence', ''), specHash, now })
+    if (process.argv.includes('--apply') || process.argv.includes('--verify')) {
+      await atomicWriteFile(path, `${JSON.stringify({ notes }, null, 2)}\n`)
+      console.log('Updated.')
+    }
+    for (const note of notes) {
+      const status = noteStatus(note)
+      if (status === 'verified') continue
+      console.log(`${status.toUpperCase().padEnd(7)} ${note.id} [${note.sceneId}] ${(note.frame / 30).toFixed(1)}s: ${note.text}${note.appliedSummary ? `  (applied: ${note.appliedSummary})` : ''}`)
+    }
+    const pending = openNotes(notes).length
+    console.log(`${pending} pending, ${notes.filter((note) => noteStatus(note) === 'applied').length} applied (unverified), ${notes.filter((note) => noteStatus(note) === 'verified').length} verified.`)
     return
   }
+  if (command === 'audio') {
+    const manifest = await loadNarrationManifest(root, (spec as LessonSpec).id)
+    if (!manifest) throw new Error('No narration yet. Run `lesson narrate <spec>` first.')
+    const findings = await checkNarrationAudio(root, spec as LessonSpec, manifest)
+    for (const finding of findings) console.log(`${finding.severity.toUpperCase().padEnd(7)} [${finding.scene}] ${finding.rule}: ${finding.message}`)
+    console.log(findings.length ? `${findings.length} finding(s).` : 'No audio findings.')
+    console.log('These checks measure the signal. They cannot hear pronunciation or naturalness: listen to the narration before approving.')
+    if (findings.some((finding) => finding.severity === 'error')) process.exit(1)
+    return
+  }
+  if (command === 'frames') {
+    // Representative frames from a finished MP4, for review: `lesson frames <spec> --video <mp4> --out <dir> [--aspect 9:16]`
+    const video = flag('video', '')
+    if (!video) throw new Error('Usage: lesson frames <spec> --video <file.mp4> --out <dir> [--aspect 9:16]')
+    const aspect = flag('aspect', '16:9')
+    const project = await loadProject(resolve(root, 'data', 'projects', `${projectIdFor((spec as LessonSpec).id, aspect === '9:16' ? { width: 1080, height: 1920 } : { width: 1920, height: 1080 })}.json`))
+    const files = await extractReviewFrames(resolve(process.cwd(), video), project, resolve(process.cwd(), flag('out', 'frames')), aspect === '9:16' ? 'portrait' : 'landscape', aspect === '9:16' ? 540 : 960)
+    for (const file of files) console.log(file)
+    return
+  }
+  if (command === 'revise') return reviseCommand(root, resolve(process.cwd(), specPath!), spec as LessonSpec, process.argv.slice(4))
+  if (command === 'compare') return compareCommand(root, spec as LessonSpec, process.argv.slice(4))
   if (command === 'patch') {
     if (!patchPath) throw new Error(USAGE)
     const issues = validateLessonSpec(spec)
@@ -106,11 +145,11 @@ async function main() {
       return
     }
     const target = resolve(process.cwd(), specPath!)
-    await writeFile(target, `${JSON.stringify(next, null, 2)}\n`)
+    await atomicWriteFile(target, `${JSON.stringify(next, null, 2)}\n`)
     console.log(`Patched ${target}. Re-run narrate if narration text changed, then build, lint and stills.`)
     return
   }
-  const artwork = await loadArtwork()
+  const artwork = await loadArtwork(root)
   if (command === 'narrate') {
     const issues = validateLessonSpec(spec)
     if (issues.length) throw new LessonSpecError(issues)
@@ -120,6 +159,7 @@ async function main() {
       voice: flag('voice', 'baseVoice'),
       exaggeration: Number(flag('exaggeration', '0.5')),
       cfgWeight: Number(flag('cfg', '0.5')),
+      pace: Number(flag('pace', '3')),
       log: (line) => console.log(line),
     })
     const total = Object.values(manifest.scenes).reduce((sum, scene) => sum + scene.durationSeconds, 0)
@@ -128,6 +168,7 @@ async function main() {
   }
   // Real narration audio, when it exists, sets scene lengths and reveal times.
   const narration = await loadNarrationManifest(root, (spec as LessonSpec).id)
+  if (narration) await assertNarrationAssets(root, narration)
   const project = build(spec, artwork, narration)
   if (command === 'build') {
     const out = await writeProject(project)
@@ -143,22 +184,14 @@ async function main() {
     return
   }
   if (command === 'stills') {
-    // One frame per scene, just before it ends, when its reveals and camera move have finished.
     const projectPath = await writeProject(project)
-    const dir = resolve(root, 'data', 'exports', 'stills', project.id)
-    await rm(dir, { recursive: true, force: true }) // stale stills from an older scene order would mislead
-    await mkdir(dir, { recursive: true })
-    for (const [index, scene] of (project.scenes ?? []).entries()) {
-      const out = resolve(dir, `${String(index + 1).padStart(2, '0')}-${scene.id.replace(/^scene_/, '')}.png`)
-      await renderStill(projectPath, scene.endFrame - 8, out)
-      console.log(out)
-    }
+    await renderStills(root, projectPath, project, (line) => console.log(line))
     return
   }
   throw new Error(USAGE)
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error)
+  reportFailure(error)
   process.exit(1)
 })

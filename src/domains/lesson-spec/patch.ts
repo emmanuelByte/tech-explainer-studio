@@ -21,7 +21,7 @@ export class LessonSpecPatchError extends Error {
 }
 
 const LESSON_FIELDS = new Set(['title', 'intro', 'outro'])
-const SCENE_FIELDS = new Set(['title', 'narration', 'durationSeconds', 'reveal', 'hide', 'emphasize', 'flow', 'card', 'comparison', 'focus'])
+const SCENE_FIELDS = new Set(['title', 'narration', 'durationSeconds', 'reveal', 'hide', 'emphasize', 'flow', 'card', 'comparison', 'bullets', 'sequence', 'focus'])
 const NODE_FIELDS = new Set(['kind', 'label'])
 const EDGE_FIELDS = new Set(['from', 'to', 'label', 'style'])
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chunkLooksWrong, narrationCueProblems, parseNarration, resolveCueTimes } from './narration'
+import { chunkLooksWrong, narrationCueProblems, narrationWords, parseNarration, resolveCueTimes, splitSentences } from './narration'
 
 describe('parseNarration', () => {
   it('returns one chunk and no cues for plain text', () => {
@@ -55,5 +55,41 @@ describe('chunkLooksWrong', () => {
     expect(chunkLooksWrong('storage,', 2.72)).toBe(true)
     expect(chunkLooksWrong('storage,', 0.7)).toBe(false)
     expect(chunkLooksWrong('Instead of doing the work itself, the app drops a job onto', 3.56)).toBe(false)
+  })
+})
+
+describe('narrationWords and splitSentences', () => {
+  it('lists spoken words with each cue at the word that follows it', () => {
+    const { words, cues } = narrationWords('Every time you open a page, [[browser]]your browser asks [[app]]the app. [[end]]')
+    expect(words.slice(0, 3)).toEqual(['Every', 'time', 'you'])
+    expect(cues).toEqual([{ id: 'browser', wordIndex: 6 }, { id: 'app', wordIndex: 9 }, { id: 'end', wordIndex: words.length }])
+    expect(words[6]).toBe('your')
+  })
+
+  const sentences = (text: string) => {
+    const { words } = narrationWords(text)
+    return splitSentences(words).map((range) => words.slice(range.start, range.end).join(' '))
+  }
+
+  it('speaks whole sentences, so a cue in the middle of one does not split it', () => {
+    expect(sentences('The app asks [[db]]the database for that profile. It is slow when busy today.')).toEqual([
+      'The app asks the database for that profile.',
+      'It is slow when busy today.',
+    ])
+  })
+
+  it('does not split at abbreviations, decimals or endpoints', () => {
+    expect(sentences('Use a cache, e.g. Redis, with a TTL of 0.5 seconds for GET /api/v1.2/users today.')).toHaveLength(1)
+  })
+
+  it('joins very short sentences to a neighbour, since the voice garbles tiny utterances', () => {
+    expect(sentences('That is a cache hit. Fast. The answer comes straight back to the user.')).toHaveLength(2)
+  })
+
+  it('splits an overlong sentence at a clause boundary', () => {
+    const long = `${'The request travels through many layers of the system, '.repeat(3)}and finally reaches the database server that holds the data, which then answers.`
+    const parts = sentences(long)
+    expect(parts.length).toBeGreaterThan(1)
+    expect(parts.join(' ')).toBe(long)
   })
 })

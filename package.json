@@ -13,7 +13,9 @@
     "remotion:compositions": "remotion compositions src/remotion/index.tsx",
     "preview": "vite preview",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "test:watch": "vitest",
+    "produce": "npm run -s lesson -- produce",
     "lesson": "esbuild tools/lesson/cli.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/lesson-cli.mjs --log-level=warning && node node_modules/.cache/lesson-cli.mjs"
   },
   "dependencies": {
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@remotion/cli": "4.0.463",
+    "@types/node": "25.9.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

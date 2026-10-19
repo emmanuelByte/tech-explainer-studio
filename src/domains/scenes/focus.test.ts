@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { Layer, Scene, ScriptSegment } from '../../types'
+import { DEFAULT_TRANSFORM, type Layer, type Scene, type ScriptSegment } from '../../types'
 import { adjacentScene, layerOverlapsScene, layersForScene, sceneHasNarration, sceneHasWarning, visibleSceneLayerIds } from './focus'
 
 const scene: Scene = { id: 'scene-2', title: 'Scene 2', startFrame: 30, endFrame: 60, scriptSegmentIds: [] }
 
 function layer(id: string, startFrame: number, endFrame: number, parentId?: string): Layer {
-  return { id, name: id, type: 'rectangle', startFrame, endFrame, parentId, visible: true, locked: false, keyframes: [] } as Layer
+  return {
+    id, name: id, type: 'rectangle', startFrame, endFrame, parentId,
+    visible: true, locked: false, width: 200, height: 140,
+    fillType: 'solid', fillColor: '#000000', gradientStops: [], gradientAngle: 0,
+    strokeEnabled: false, strokeColor: '#000000', strokeWidth: 0,
+    borderRadius: 0, shadowEnabled: false, shadowColor: 'transparent',
+    text: '', fontFamily: 'Inter', fontSize: 16, fontWeight: '400',
+    textAlign: 'left', letterSpacing: 0, lineHeight: 1, textColor: '#ffffff',
+    keyframes: [{ frame: startFrame, easing: 'linear', props: { ...DEFAULT_TRANSFORM } }],
+  }
 }
 
 describe('scene focus', () => {

@@ -21,12 +21,17 @@ lesson spec (JSON) -> validate -> narrate (local voice) -> build -> lint -> stil
 The AI edits `lessons/<name>.lesson.json` and runs:
 
 ```bash
+# One command for the whole chain, 16:9 and 9:16, resumable (docs/PRODUCTION_PIPELINE.md):
+npm run produce -- lessons/load-balancer.lesson.json --aspect both
+npm run produce -- --script lessons/how-caching-works.script.md --aspect both   # an agent authors the spec first
+
+# Or step by step:
 npm run lesson -- validate lessons/load-balancer.lesson.json
 npm run lesson -- narrate  lessons/load-balancer.lesson.json   # needs the voice worker (below)
 npm run lesson -- build    lessons/load-balancer.lesson.json   # writes data/projects/lesson_<id>.json
 npm run lesson -- lint     lessons/load-balancer.lesson.json   # layout and pacing checks
 npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene, to look at
-npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes you left (--done marks them handled)
+npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes (resolve one id at a time: --apply / --verify)
 npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json  # preview a stable-id patch
 npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json --write  # apply it to the spec
 ```
@@ -34,8 +39,9 @@ npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json --writ
 You open **`http://localhost:3005/review/lesson_<id>`** (start the app with
 `npm run dev`): play the video with sound, jump between scenes, write notes for
 the AI at any moment, and click **Export MP4**. The review screen never writes
-the project, so it cannot overwrite a build. Do not open a project in the editor
-(`/editor/...`) before rebuilding: the editor autosaves its copy over the build.
+the project. The legacy editor (`/editor/...`) cannot overwrite or delete a lesson
+project either: the server refuses saves and deletes for `lesson_*` projects (HTTP 409),
+so opening one there is harmless but nothing you change in it is kept. Change the spec.
 
 ### The lesson spec
 
@@ -66,7 +72,8 @@ pixel coordinates.
 
 - **Kinds:** `client`, `load-balancer`, `server`, `database`, `cache`, `queue`,
   `cdn`, `api-gateway`, `object-storage`, `worker` (labels up to 16 characters;
-  graphs up to five columns wide).
+  graphs up to five columns deep in 16:9; in 9:16 ranks stack top to bottom with at most
+  three components per row, so depth is not limited by width).
 - **Top-level cards:** `intro` adds a silent title card using `title` and an
   optional `subtitle`; `outro` shows `text` over a dimmed final diagram. Each
   can set `seconds` (1–10; default 3); titles and subtitles are limited to 60
@@ -76,11 +83,15 @@ pixel coordinates.
   nodes), `flow` (travelling dots on revealed edges), `card` (a code/request
   panel over a dimmed diagram: up to 8 lines, revealed one by one),
   `comparison` (two titled, dimmed-diagram panels: up to 6 lines per side),
+  `bullets` (a titled progressive takeaway/definition/recap card), and
+  `sequence` (participants plus request/response messages with lifelines),
   and `durationSeconds` (only until narrated). A scene uses either `card` or
-  `comparison`.
+  another overlay block.
 - **Cues:** `[[id]]` in `narration` makes that element appear exactly when the
   words after it begin; card lines use `[[<card id>.<line number>]]` and
   comparison lines use `[[<comparison id>.<left|right>.<line number>]]`.
+  Bullet cues are `[[<bullet id>.<line number>]]`; sequence message cues are
+  `[[<sequence id>.<message id>]]`.
   `[[emphasize:<node id>]]` and `[[flow:<edge id>]]` defer those effects to
   the words immediately after the cue.
 - **Theme:** [theme.ts](src/domains/lesson-spec/theme.ts) is the single visual
@@ -112,7 +123,8 @@ npm run dev        # http://localhost:3005
 ```
 
 Projects, assets, narration, review notes and exports are local files under
-`data/`, which is ignored by Git (except the tracked seed `data/assets/index.json`).
+`data/`, which is ignored by Git. Asset storage creates its empty index on first
+use, so a clean clone never needs generated narration metadata checked in.
 
 ### Voice (Chatterbox)
 
@@ -137,10 +149,12 @@ standard, high (2x) or ultra (3x) scale are supported.
 ## The editor (secondary)
 
 The original MotionEditor-based editor is still available at `/editor/<id>` for
-inspecting or hand-tuning a project: layers and groups, keyframes and easing,
+inspecting or hand-tuning a manual project: layers and groups, keyframes and easing,
 semantic connectors, deterministic sketch/draw-on, a separate video camera,
 narration and captions, a Story/Scene workspace, and a reusable library. It is
-not required for the lesson workflow and may be trimmed further.
+not required for the lesson workflow and may be trimmed further. AI-authored
+`lesson_*` projects are deliberately write-protected there; revise the lesson
+spec and rebuild instead.
 
 ## Local backend
 
@@ -165,7 +179,7 @@ npm run lesson -- …  # the lesson workflow above
 npm run build        # production build
 npm run lint
 npm test
-npx tsc --noEmit
+npm run typecheck   # src, tools and server
 ```
 
 ## Attribution and license

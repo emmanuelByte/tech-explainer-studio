@@ -1,4 +1,5 @@
 import type { TechnicalComponentKind } from '../../types'
+import type { ThemeId } from './theme'
 
 /**
  * The lesson spec is the AI-authored source of truth for a video
@@ -12,6 +13,8 @@ export interface LessonSpec {
   id: string
   title: string
   canvas?: { width?: number; height?: number; fps?: number }
+  /** Visual preset (see theme.ts). Overridden by `lesson build --theme`. Defaults to `dark-sketch`. */
+  theme?: ThemeId
   /** A silent title card before the first scene (shows `title` and an optional subtitle). */
   intro?: { subtitle?: string; seconds?: number }
   /** A silent closing card over the dimmed final diagram. */
@@ -59,10 +62,43 @@ export interface SpecComparison {
   right: SpecComparisonSide
 }
 
+/** A concise progressive explanation, takeaway, definition or recap. */
+export interface SpecBullets {
+  /** Unique across overlays; cue ids are `<id>.<line number>`. */
+  id: string
+  title: string
+  /** One to six short points, revealed in narration order. */
+  items: string[]
+  tone?: 'neutral' | 'positive' | 'negative'
+}
+
+export interface SpecSequenceParticipant {
+  id: string
+  label: string
+}
+
+export interface SpecSequenceMessage {
+  /** Stable within its sequence; cue id is `<sequence id>.<message id>`. */
+  id: string
+  from: string
+  to: string
+  label: string
+  kind?: 'sync' | 'async' | 'response'
+}
+
+/** Declarative interactions rendered as a conventional participant/lifeline diagram. */
+export interface SpecSequence {
+  id: string
+  participants: SpecSequenceParticipant[]
+  messages: SpecSequenceMessage[]
+}
+
 export const TITLE_LIMITS = { title: 60, subtitle: 60, seconds: [1, 10] } as const
 
 export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
 export const COMPARISON_LIMITS = { lines: 6, lineLength: 60, titleLength: 32 } as const
+export const BULLET_LIMITS = { items: 6, itemLength: 72, titleLength: 48 } as const
+export const SEQUENCE_LIMITS = { participants: 5, participantLabelLength: 20, messages: 8, messageLabelLength: 56 } as const
 
 export interface SpecScene {
   /** Unique slug; stable so later spec patches can address the scene. */
@@ -83,6 +119,10 @@ export interface SpecScene {
   card?: SpecCard
   /** Two concise columns shown over the dimmed diagram for this scene only. */
   comparison?: SpecComparison
+  /** A progressive bullet/explanation card over the current diagram. */
+  bullets?: SpecBullets
+  /** A semantic request/response interaction diagram over the current lesson context. */
+  sequence?: SpecSequence
   /** Node ids the camera frames. Defaults to everything revealed so far. */
   focus?: string[]
 }
@@ -92,6 +132,10 @@ export interface NarrationManifest {
   voiceId: string
   exaggeration: number
   cfgWeight: number
+  /** Words per second above which sentences were slowed when this audio was made. */
+  pace?: number
+  /** Version of the audio finishing (loudness and limiting) applied; older audio is regenerated. */
+  mastering?: number
   scenes: Record<string, SceneNarration>
 }
 
@@ -103,6 +147,8 @@ export interface SceneNarration {
   cues: Record<string, number>
   /** The exact `narration` text this audio was made from, cues included; detects stale audio. */
   source: string
+  /** Every spoken word with its time. Absent in manifests made before captions were synchronised. */
+  words?: NarrationWord[]
 }
 
 export const SPEC_DEFAULTS = {
@@ -114,4 +160,14 @@ export const SPEC_DEFAULTS = {
 export interface SpecIssue {
   path: string
   message: string
+}
+
+/** One spoken word with its time in the scene's audio, for captions and cues. */
+export interface NarrationWord {
+  text: string
+  /** Seconds from the start of the scene's audio. */
+  start: number
+  end: number
+  /** `aligned`: found in the audio by forced alignment. `estimated`: spread over the speech by letter count. */
+  timing: 'aligned' | 'estimated'
 }

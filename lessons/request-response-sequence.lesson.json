@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "id": "request-response-sequence",
+  "title": "A Request and Response",
+  "intro": { "subtitle": "Sequence diagrams, explained", "seconds": 2 },
+  "nodes": [
+    { "id": "client", "kind": "client", "label": "Client" },
+    { "id": "service", "kind": "server", "label": "Service" }
+  ],
+  "edges": [
+    { "id": "client-service", "from": "client", "to": "service", "label": "HTTP" }
+  ],
+  "scenes": [
+    {
+      "id": "context",
+      "title": "The two participants",
+      "narration": "A client talks to a service over HTTP.",
+      "durationSeconds": 5,
+      "reveal": ["client", "service", "client-service"]
+    },
+    {
+      "id": "interaction",
+      "title": "Request then response",
+      "narration": "[[checkout.request]]First, the client sends a request. [[checkout.response]]Then the service returns a response.",
+      "durationSeconds": 8,
+      "sequence": {
+        "id": "checkout",
+        "participants": [
+          { "id": "client", "label": "Client" },
+          { "id": "service", "label": "Service" }
+        ],
+        "messages": [
+          { "id": "request", "from": "client", "to": "service", "label": "POST /checkout", "kind": "sync" },
+          { "id": "response", "from": "service", "to": "client", "label": "201 Created", "kind": "response" }
+        ]
+      }
+    }
+  ],
+  "outro": { "text": "Requests move forward. Responses come back.", "seconds": 2 }
+}

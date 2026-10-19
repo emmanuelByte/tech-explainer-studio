@@ -40,6 +40,22 @@ export function segmentAtFrame(segments: ScriptSegment[], frame: number) {
   )) ?? null
 }
 
+const CAPTION_FADE_FRAMES = 4
+
+/**
+ * Opacity of a caption at `frame`: a short fade in, and a short fade out only
+ * when the next caption does not follow straight away, so phrases that run on
+ * switch directly instead of flickering.
+ */
+export function captionOpacity(segments: ScriptSegment[], segment: ScriptSegment, frame: number) {
+  const start = segment.startFrame ?? 0
+  const end = segment.endFrame ?? start + 1
+  const fadeIn = Math.min(1, (frame - start + 1) / CAPTION_FADE_FRAMES)
+  const continues = segments.some((other) => other !== segment && Number.isFinite(other.startFrame) && other.startFrame! >= end - 1 && other.startFrame! <= end + 2)
+  const fadeOut = continues ? 1 : Math.min(1, (end - frame) / CAPTION_FADE_FRAMES)
+  return Math.max(0, Math.min(fadeIn, fadeOut))
+}
+
 export function normalizeSegmentRange(startFrame: number, endFrame: number, totalFrames: number) {
   const start = Math.max(0, Math.min(Math.max(0, totalFrames - 1), Math.round(Number.isFinite(startFrame) ? startFrame : 0)))
   const end = Math.max(start + 1, Math.min(totalFrames, Math.round(Number.isFinite(endFrame) ? endFrame : start + 1)))

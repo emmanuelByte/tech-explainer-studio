@@ -13,9 +13,10 @@ import { pointAtDistance } from '../domains/connectors/geometry'
 import { sketchPathVariants, sketchPolylineVariants, sketchPrimitiveVariants, type SketchPrimitive } from '../domains/sketch/geometry'
 import { normalizedDrawStroke } from '../domains/sketch/draw'
 import { cameraTransform, resolveCamera } from '../domains/camera/model'
-import { segmentAtFrame } from '../domains/narration/model'
+import { captionOpacity, segmentAtFrame } from '../domains/narration/model'
 import { isEffectivelyMuted } from '../domains/audio/mixing'
 import { speedAtFrame } from './videoSegments'
+import { captionMetrics } from '../domains/lesson-spec/frame'
 
 function getBackground(fillType: FillType, fillColor: string, stops: GradientStop[], angle: number): string {
   if (fillType === 'none') return 'transparent'
@@ -1072,21 +1073,23 @@ function CaptionOverlay({ script, settings, frame, canvasWidth, canvasHeight }: 
   const segment = segmentAtFrame(script?.segments ?? [], frame)
   if (!segment?.text.trim()) return null
   const technical = settings.style === 'technical'
+  const metrics = captionMetrics(canvasWidth, canvasHeight, technical ? 'technical' : 'readable')
   return (
     <div
       data-caption-overlay
       style={{
-        position: 'absolute', left: '50%', bottom: technical ? canvasHeight * 0.1 : canvasHeight * 0.13,
-        transform: 'translateX(-50%)', width: 'max-content', maxWidth: canvasWidth * 0.82,
-        padding: technical ? `${canvasHeight * 0.012}px ${canvasWidth * 0.018}px` : `${canvasHeight * 0.017}px ${canvasWidth * 0.025}px`,
-        borderRadius: technical ? 5 : 14,
+        position: 'absolute', left: '50%', bottom: metrics.bottom,
+        transform: 'translateX(-50%)', width: 'max-content', maxWidth: metrics.maxWidth,
+        padding: `${metrics.paddingY}px ${metrics.paddingX}px`,
+        borderRadius: metrics.radius,
         background: technical ? 'rgba(2, 6, 23, 0.86)' : 'rgba(2, 6, 23, 0.76)',
         border: technical ? `${Math.max(1, canvasHeight / 540)}px solid rgba(56, 189, 248, 0.7)` : 'none',
         boxShadow: '0 8px 30px rgba(0,0,0,0.32)', color: technical ? '#bae6fd' : '#ffffff',
         fontFamily: technical ? '"Space Grotesk", monospace' : 'Inter, sans-serif',
-        fontSize: technical ? canvasHeight * 0.034 : canvasHeight * 0.042,
-        fontWeight: technical ? 600 : 700, lineHeight: 1.28, letterSpacing: technical ? '0.01em' : '-0.01em',
+        fontSize: metrics.fontSize,
+        fontWeight: technical ? 600 : 700, lineHeight: metrics.lineHeight, letterSpacing: technical ? '0.01em' : '-0.01em',
         textAlign: 'center', zIndex: 1000, pointerEvents: 'none', whiteSpace: 'pre-wrap',
+        opacity: captionOpacity(script?.segments ?? [], segment, frame),
       }}
     >
       {segment.text}

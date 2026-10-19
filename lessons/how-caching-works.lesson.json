@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "id": "how-caching-works",
+  "title": "How Caching Works",
+  "theme": "dark-sketch",
+  "intro": {
+    "subtitle": "Fast answers, fewer database reads",
+    "seconds": 3
+  },
+  "outro": {
+    "text": "Fast pages, fewer reads, controlled staleness.",
+    "seconds": 3
+  },
+  "nodes": [
+    {
+      "id": "browser",
+      "kind": "client",
+      "label": "Browser"
+    },
+    {
+      "id": "app",
+      "kind": "server",
+      "label": "App Server"
+    },
+    {
+      "id": "cache",
+      "kind": "cache",
+      "label": "Fast Cache"
+    },
+    {
+      "id": "database",
+      "kind": "database",
+      "label": "Database"
+    }
+  ],
+  "edges": [
+    {
+      "id": "browser-app",
+      "from": "browser",
+      "to": "app",
+      "label": "profile request",
+      "style": "solid"
+    },
+    {
+      "id": "app-cache",
+      "from": "app",
+      "to": "cache",
+      "label": "check cache",
+      "style": "solid"
+    },
+    {
+      "id": "app-database",
+      "from": "app",
+      "to": "database",
+      "label": "read profile",
+      "style": "solid"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "profile-request",
+      "title": "A familiar request",
+      "narration": "[[browser]]Every time you open a profile page, your browser asks [[app]]the app for your data. [[browser-app]]That request begins the same way for every visitor.",
+      "reveal": [
+        "browser",
+        "app",
+        "browser-app"
+      ],
+      "emphasize": [
+        "app"
+      ]
+    },
+    {
+      "id": "database-pressure",
+      "title": "Repeated database work",
+      "narration": "The app usually asks [[database]]the database for that profile. [[app-database]]Databases are reliable, but memory is faster, and a busy site can repeat this question thousands of times a minute.",
+      "reveal": [
+        "database",
+        "app-database"
+      ],
+      "flow": [
+        "app-database"
+      ],
+      "emphasize": [
+        "database"
+      ]
+    },
+    {
+      "id": "cache-between",
+      "title": "Add a fast store",
+      "narration": "A cache fixes the repeated work. [[cache]]It is a small, very fast store between the app and database, keeping recent answers ready to reuse. [[app-cache]]The app asks it first.",
+      "reveal": [
+        "cache",
+        "app-cache"
+      ],
+      "emphasize": [
+        "cache"
+      ]
+    },
+    {
+      "id": "lookup-order",
+      "title": "The lookup order",
+      "narration": "[[lookup.1]]For every profile request, the app checks the cache first. [[lookup.2]]If the answer is there, it returns it. [[lookup.3]]If not, it asks the database and saves a copy.",
+      "bullets": {
+        "id": "lookup",
+        "title": "For each request",
+        "items": [
+          "Ask the cache first",
+          "Found it? Return it",
+          "Missing? Ask the database, then save a copy"
+        ]
+      }
+    },
+    {
+      "id": "cache-hit",
+      "title": "The fast path",
+      "narration": "If the cache already has the profile, that is [[hit.answer]]a cache hit. [[hit.return]]The answer comes straight back, often in a fraction of a millisecond, and the database is never asked.",
+      "sequence": {
+        "id": "hit",
+        "participants": [
+          {
+            "id": "app",
+            "label": "App Server"
+          },
+          {
+            "id": "cache",
+            "label": "Fast Cache"
+          },
+          {
+            "id": "database",
+            "label": "Database"
+          }
+        ],
+        "messages": [
+          {
+            "id": "answer",
+            "from": "app",
+            "to": "cache",
+            "label": "Get profile",
+            "kind": "sync"
+          },
+          {
+            "id": "return",
+            "from": "cache",
+            "to": "app",
+            "label": "Hit: profile",
+            "kind": "response"
+          }
+        ]
+      }
+    },
+    {
+      "id": "cache-miss",
+      "title": "The slow path",
+      "narration": "[[miss.ask-cache]]The app asks the cache, [[miss.not-found]]but it has nothing: a cache miss. [[miss.ask-database]]So it asks the database, [[miss.return-profile]]gets the profile, and [[miss.store-copy]]saves a copy for next time.",
+      "sequence": {
+        "id": "miss",
+        "participants": [
+          {
+            "id": "app",
+            "label": "App Server"
+          },
+          {
+            "id": "cache",
+            "label": "Fast Cache"
+          },
+          {
+            "id": "database",
+            "label": "Database"
+          }
+        ],
+        "messages": [
+          {
+            "id": "ask-cache",
+            "from": "app",
+            "to": "cache",
+            "label": "Get profile",
+            "kind": "sync"
+          },
+          {
+            "id": "not-found",
+            "from": "cache",
+            "to": "app",
+            "label": "Miss: not found",
+            "kind": "response"
+          },
+          {
+            "id": "ask-database",
+            "from": "app",
+            "to": "database",
+            "label": "Query profile",
+            "kind": "sync"
+          },
+          {
+            "id": "return-profile",
+            "from": "database",
+            "to": "app",
+            "label": "Profile",
+            "kind": "response"
+          },
+          {
+            "id": "store-copy",
+            "from": "app",
+            "to": "cache",
+            "label": "Save copy",
+            "kind": "async"
+          }
+        ]
+      }
+    },
+    {
+      "id": "stale-copy",
+      "title": "The trade-off",
+      "narration": "There is one catch: [[stale.1]]a cached copy can go stale. If you change your name, [[stale.2]]the cache may still hold the old value for a little while.",
+      "card": {
+        "id": "stale",
+        "title": "After you change your name",
+        "lines": [
+          "Database: name = Alex Chen    (updated)",
+          "Cache:    name = Alex Rivera  (old copy)"
+        ]
+      }
+    },
+    {
+      "id": "time-to-live",
+      "title": "Expire old answers",
+      "narration": "To control staleness, [[ttl.1]]each cached item gets an expiry time, called a time to live. [[ttl.2]]When that time runs out, the cache drops the item, [[ttl.3]]and the next request fetches a fresh copy.",
+      "card": {
+        "id": "ttl",
+        "title": "Cache entry",
+        "lines": [
+          "profile:42 = Alex Rivera",
+          "TTL: 5 minutes (300 seconds)",
+          "Expired -> next request reloads it from the database"
+        ]
+      }
+    },
+    {
+      "id": "outcome",
+      "title": "A controlled trade",
+      "narration": "The result is [[outcome.left.1]]a faster site and fewer database reads, in exchange for [[outcome.right.1]]a small amount of staleness that you choose and control.",
+      "comparison": {
+        "id": "outcome",
+        "left": {
+          "title": "With a cache",
+          "lines": [
+            "Fast repeated reads",
+            "Calmer database"
+          ]
+        },
+        "right": {
+          "title": "The cost",
+          "lines": [
+            "Answers can be stale",
+            "Set the expiry time"
+          ]
+        }
+      },
+      "emphasize": [
+        "cache"
+      ]
+    }
+  ]
+}

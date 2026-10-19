@@ -108,7 +108,7 @@ human can preview and export without opening an editing panel.
 | 3 Self-review loop (`validate`/`build`/`lint`/`stills`) | Done |
 | 4 Narration-driven timing | Done (chunk cues; no forced alignment needed) |
 | 5 Component kit | Done (10 kinds) |
-| 6 Explainer blocks | Partly: `hide`, code/request and comparison cards, title/outro cards, emphasis and data-flow pulses. Not yet: sequence diagrams and bullet lists |
+| 6 Explainer blocks | Done: `hide`, code/request, comparison and bullet cards, sequence diagrams, title/outro cards, emphasis and data-flow pulses |
 | 7 Theme file | Done (`src/domains/lesson-spec/theme.ts`) |
 | 8 Review-only UI | Done (`/review/<id>`) |
 | 9 Patchable specs / stable ids | Done (stable-id patch CLI with validation and explicit write) |
@@ -142,12 +142,12 @@ Renderer bugs found by looking at the stills and fixed:
 
 Findings still open:
 
-- **An open editor tab overwrites rebuilt projects.** The editor autosaves its
-  in-memory copy over `data/projects/<id>.json`, silently reverting a build.
-  Use the review screen (`/review/<id>`, never writes) instead of the editor;
-  close any editor tab before running `build`.
+- **An open editor tab overwrote rebuilt projects.** *(Resolved on
+  `feat/production-pipeline`: the server now answers HTTP 409 to any save or
+  delete of a `lesson_*` project, so the editor can no longer revert a build.
+  Use `/review/<id>` anyway; changes made in the editor are simply not kept.)*
 - Labels are limited to 16 characters.
-- Pre-existing type error in `src/domains/scenes/focus.test.ts` (not touched).
+- Pre-existing type error in `src/domains/scenes/focus.test.ts` *(fixed since; `npm run typecheck` is clean and now also covers `tools/` and `server/`)*.
 
 
 ### 2026-10-19 — Milestone 2: hide, lint, stills
@@ -357,6 +357,31 @@ sequence diagrams).
   It validates and lints cleanly, and its rendered comparison still was checked
   at video scale for legibility and layout.
 
+### 2026-10-19 — Production pipeline: reliability baseline
+
+- Generated `lesson_*` project files are now atomically written by the lesson
+  CLI, and the local project API refuses legacy-editor saves over them. Manual
+  projects retain ordinary editor persistence; lesson changes continue to flow
+  through the source spec and rebuild command.
+- Runtime asset indexes are no longer tracked. A clean clone creates an empty
+  ignored index on first use; missing asset files return an actionable 404, and
+  the lesson CLI rejects a narration manifest whose WAV files are unavailable.
+- Project histories and review notes use the same atomic replacement pattern.
+  The previously failing `focus.test.ts` fixture was made structurally valid,
+  restoring a clean TypeScript baseline.
+
+### 2026-10-19 — Production pipeline: semantic teaching overlays
+
+- `bullets` provides cue-driven explanation, definition, takeaway and recap
+  cards, including neutral/positive/negative emphasis. It deliberately reuses
+  the established compiler overlay geometry and animation.
+- `sequence` describes participants and synchronous, asynchronous or response
+  messages—without coordinates. The compiler positions participant labels and
+  lifelines, then reveals directional message rows from narration cues.
+- `lessons/request-response-sequence.lesson.json` is the representative source
+  example. Its validated/linted, rendered sequence frame was inspected at
+  video scale.
+
 ## Milestone 8 handoff and implementation notes (written 2026-10-19)
 
 The following was written as a handoff when the implementation was complete but
@@ -412,9 +437,8 @@ What was added (all uncommitted work is now committed; see `git log`):
   preview, which does not play audio.
 - `README.md` now documents `intro`, `outro`, `emphasize`, `flow`, their cues,
   and title-card limits.
-- `npm test` passes (25 files, 175 tests). `npx tsc --noEmit` still reports the
-  documented pre-existing error in `src/domains/scenes/focus.test.ts`; this work
-  does not add type errors.
+- `npm test` passes (25 files, 175 tests). `npx tsc --noEmit` then reported the
+  pre-existing error in `src/domains/scenes/focus.test.ts` (since fixed).
 
 ### Voice-speed comparison
 
@@ -435,15 +459,85 @@ What was added (all uncommitted work is now committed; see `git log`):
   the file (it wiped `compile.ts` once; recovered with `git checkout`). Read first,
   then write.
 - Top-level layers stack **first-on-top**; a group's children stack **last-on-top**.
-- Do not open `/editor/<id>` before `build`: autosave overwrites the build.
+- Do not open `/editor/<id>` before `build` *(historical: now harmless, the server refuses to save lesson projects)*.
 - `data/assets/index.json` is local runtime data (lists narration audio): do not commit it.
 - Chatterbox can stretch one- or two-word chunks; `narrate` now re-rolls takes that
   look wrong (3 tries). If it warns "still looks wrong", merge the phrase into a
   longer one in the spec.
 - Pushed history has one non-buildable commit (`e5e726d`); not worth rewriting.
 
-### Remaining roadmap after this task (see "Status at a glance")
+### Remaining roadmap after this task *(superseded: 9:16, sequence diagrams and bullet lists were delivered on `feat/production-pipeline`; what remains is listed at the end of that section and in `docs/PRODUCTION_ACCEPTANCE.md`)*
 
-9:16 vertical output (layout assumes wide canvas), sequence diagrams and bullet
-lists, adaptive column spacing for graphs deeper than five columns, and a human
-listen to the voice on `page-load`.
+## Production pipeline (branch `feat/production-pipeline`, 2026-10-19)
+
+Done, in order: atomic narration commits and scoped review-note resolution;
+orientation-independent cycle validation; real sequence diagrams (lifelines,
+sync/async/response arrows); native 9:16 (`frame.ts`, responsive `overlays.ts`,
+portrait node layout, camera zoom-out); `dark-sketch` and `clean-technical`
+themes (`theme.ts`, `spec.theme` / `--theme`); `npm run produce` (resumable,
+fingerprinted, ffprobe-verified, 16:9/9:16/both; `docs/PRODUCTION_PIPELINE.md`);
+agent authoring from a plain script (`--script`, `docs/AUTHORING_GUIDE.md`);
+review/revise/compare/verify cycle; GitHub Actions (`.github/workflows/ci.yml`).
+
+Decisions worth keeping:
+
+- Portrait output is a different **project id** (`lesson_<id>-9x16`), not a mode of
+  the landscape project, so both can be reviewed and exported side by side.
+- Narration depends only on narration text and voice settings, so theme, aspect
+  and quality changes never re-speak anything.
+- Verification is evidence-gated: `notes --verify` refuses until something was
+  rendered after the correction; deleting a review note needs an explicit id and
+  only works while it is pending.
+- Sketch distortion is applied to component bodies and connectors only.
+
+Gotchas learned:
+
+- `tsconfig.json` used to include only `src`; `tools/` and `server/` were never
+  type-checked. It now covers all three (`npm run typecheck`).
+- A fresh clone has no `data/assets/index.json`, which the Remotion entry imports;
+  render paths create the empty list (`ensureAssetIndex`).
+- Remotion's default colour output is full-range `yuvj420p`; renders use
+  `--color-space=bt709` (yuv420p, limited range).
+- ffmpeg prints tiny differences in exponent form (`4.8e-07`); parse it.
+- Stills are taken 16 frames before a scene ends so overlays are not mid fade-out.
+
+Not done / limits: GitHub Actions has not been observed running (written and
+exercised locally on a clean clone only); captions show a whole scene's narration
+at once (long scenes make tall captions, lint warns); the voice worker is
+required for narrated output and is slow (about 10 minutes for a 100-second
+lesson the first time, near-instant from cache).
+
+## Final production quality pass (branch `feat/production-pipeline`, 2026-10-19)
+
+Report with measurements and the defect list: `docs/PRODUCTION_ACCEPTANCE.md`.
+How to run it: `docs/PRODUCTION_PIPELINE.md`. How to write a spec: `docs/AUTHORING_GUIDE.md`.
+
+What changed in behaviour:
+
+- Narration is spoken a **sentence** at a time; every sentence is **forced-aligned**
+  (`tools/local-tts/align.py`, torchaudio wav2vec2, free, local). Cue times and
+  caption times come from the aligned words. The manifest stores `words`,
+  `pace` and `mastering`; manifests without them are regenerated (cheaply, from
+  the take cache).
+- Captions are per-phrase `script.segments` with frame ranges, split per format
+  (`captions.ts`, `frame.ts: captionPhraseChars`). Words are marked aligned or estimated.
+- The voice averaged 219 wpm; sentences above 3.0 w/s are slowed up to 20%
+  (`--pace`). Narration is mastered to about -16 LUFS with a peak limiter.
+- New checks: audio (`audioChecks.ts`, `lesson audio`), lint rules for overlay
+  collisions, text overflow, late reveals, blank starts and caption timing, and
+  decoded-frame inspection plus a contact sheet in `produce`.
+
+Gotchas learned:
+
+- Chain checks with `&&`, never `;`, before `git commit`: a `;` twice let a failing
+  test or typecheck into a commit.
+- `gh` run from this clone targets the **upstream** repo; pass `-R emmanuelByte/tech-explainer-studio`.
+- ffmpeg prints tiny values in exponent form (`4.8e-07`).
+- A "blank" decoded frame check must scale its crop to the video size (draft renders are half size).
+- Agent-authored specs can teach the wrong mechanism (the first caching draft's
+  cache-miss diagram skipped the lookup that missed). Review them for accuracy,
+  not just validity.
+
+Open: listen to the caching narration (pronunciation of "TTL", naturalness of
+slowed sentences); regenerate the four older lessons with the new narration
+pipeline; larger portrait overlays if short panels in a tall frame look sparse.
