@@ -4,7 +4,6 @@ import {
   type Connector,
   type Keyframe,
   type Layer,
-  type LayerType,
   type MotionProject,
   type PropertyKeyframe,
   type Scene,
@@ -18,7 +17,7 @@ import { captionPhraseChars, contentCentreOffset, contentHeight, frameFor, type 
 import { baseLayer, staticKeyframe, svgDataUrl, type BuildContext } from './layerKit'
 import { bulletLayers, cardLayers, comparisonLayers, sequenceLayers, titleCardLayers } from './overlays'
 import { LESSON_THEMES, resolveTheme, type LessonTheme, type ThemeId } from './theme'
-import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecBullets, type SpecCard, type SpecComparison, type SpecNode, type SpecScene, type SpecSequence } from './types'
+import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecNode, type SpecScene } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
 
 /** Raw SVG source per component kind; injected so this module stays free of Vite/Node imports. */

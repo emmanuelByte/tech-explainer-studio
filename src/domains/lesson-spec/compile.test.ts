@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { TECHNICAL_COMPONENT_KINDS } from '../../types'
-import { migrateProject } from '../project/migrations'
 import { compileLessonSpec, layoutNodes, type ComponentArtwork } from './compile'
 import { LESSON_THEMES, THEME_IDS } from './theme'
 import type { LessonSpec } from './types'

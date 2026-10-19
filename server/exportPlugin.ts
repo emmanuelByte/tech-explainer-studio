@@ -65,6 +65,8 @@ function remotionBin(root: string) {
 function sanitizeBaseName(value: unknown, fallback: string) {
   const base = String(value || fallback)
     .replace(/\.[a-z0-9]+$/i, '')
+    // Control characters are deliberately matched: they are not allowed in file names.
+    // eslint-disable-next-line no-control-regex
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
@@ -155,6 +157,7 @@ function appendLog(job: ExportJob, chunk: Buffer | string) {
     .toString()
     .replace(/\r/g, '\n')
     .split('\n')
+    // eslint-disable-next-line no-control-regex -- strips ANSI colour codes (ESC) from Remotion's output
     .map((line) => line.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '').trim())
     .filter(Boolean)
     .forEach((line) => {

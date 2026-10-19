@@ -1,5 +1,5 @@
 import type { ViteDevServer } from 'vite'
-import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, rm, stat } from 'node:fs/promises'
 import { createReadStream } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'

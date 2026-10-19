@@ -107,7 +107,11 @@ function isReasonableNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= MAX_REASONABLE_TRANSFORM_VALUE
 }
 
-function nearestReasonableTransformValue(layer: any, frameIndex: number, key: string) {
+/** Persisted layers may predate current fields, so they are read defensively rather than as `Layer`. */
+interface LooseKeyframe { props?: Record<string, unknown>; value?: unknown; [field: string]: unknown }
+interface LooseLayer { type?: string; keyframes?: LooseKeyframe[]; propertyKeyframes?: Record<string, LooseKeyframe[]>; [field: string]: unknown }
+
+function nearestReasonableTransformValue(layer: LooseLayer, frameIndex: number, key: string) {
   for (let index = frameIndex - 1; index >= 0; index -= 1) {
     const value = layer.keyframes?.[index]?.props?.[key]
     if (isReasonableNumber(value)) return value
@@ -122,10 +126,10 @@ function nearestReasonableTransformValue(layer: any, frameIndex: number, key: st
 function sanitizeProject(project: MotionProjectLike) {
   return {
     ...project,
-    layers: (project.layers ?? []).map((layer: any) => ({
+    layers: ((project.layers ?? []) as LooseLayer[]).map((layer) => ({
       ...layer,
-      keyframes: (layer.keyframes ?? []).map((kf: any, frameIndex: number) => {
-        const props = { ...DEFAULT_TRANSFORM, ...(kf.props ?? {}) }
+      keyframes: (layer.keyframes ?? []).map((kf, frameIndex: number) => {
+        const props: Record<string, unknown> = { ...DEFAULT_TRANSFORM, ...(kf.props ?? {}) }
         Object.keys(DEFAULT_TRANSFORM).forEach((key) => {
           if (!isReasonableNumber(props[key])) props[key] = nearestReasonableTransformValue(layer, frameIndex, key)
         })
@@ -134,7 +138,7 @@ function sanitizeProject(project: MotionProjectLike) {
       propertyKeyframes: layer.propertyKeyframes
         ? Object.fromEntries(Object.entries(layer.propertyKeyframes).map(([key, frames]) => [
           key,
-          (frames as any[] ?? []).map((kf) => ({
+          ((frames as LooseKeyframe[] | undefined) ?? []).map((kf) => ({
             ...kf,
             value: typeof kf.value === 'number' && !isReasonableNumber(kf.value)
               ? DEFAULT_TRANSFORM[key as keyof typeof DEFAULT_TRANSFORM] ?? 0

@@ -112,7 +112,7 @@ export function splitSentences(words: string[]): { start: number; end: number }[
     const word = words[index]
     if (!SENTENCE_END.test(word) || ABBREVIATIONS.has(word.toLowerCase())) return false
     const next = words[index + 1]
-    return next === undefined || /^["'(\[]?[A-Z0-9]/.test(next)
+    return next === undefined || /^["'([]?[A-Z0-9]/.test(next)
   }
   let groups: { start: number; end: number }[] = []
   let start = 0
