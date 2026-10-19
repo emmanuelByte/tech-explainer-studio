@@ -51,7 +51,8 @@ function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationMa
 
 function flag(name: string, fallback: string) {
   const at = process.argv.indexOf(`--${name}`)
-  return at >= 0 && process.argv[at + 1] ? process.argv[at + 1] : fallback
+  const next = process.argv[at + 1]
+  return at >= 0 && next && !next.startsWith('--') ? next : fallback
 }
 
 async function writeProject(project: ReturnType<typeof build>) {

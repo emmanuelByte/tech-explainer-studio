@@ -26,7 +26,7 @@ export function reviewPlugin() {
             }
           }
           if (req.method === 'PUT') {
-            const body = JSON.parse(await readBody(req) || '{}') as { notes?: unknown }
+            const body = JSON.parse(await readBody(req) || '{}') as { notes?: unknown; deleted?: unknown }
             if (!Array.isArray(body.notes)) return sendError(res, 400, 'Expected { notes: [] }.')
             let onDisk: ReviewNote[] = []
             try {
@@ -34,7 +34,7 @@ export function reviewPlugin() {
             } catch (error) {
               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
             }
-            const notes = mergeReviewNotes(onDisk, body.notes as ReviewNote[])
+            const notes = mergeReviewNotes(onDisk, body.notes as ReviewNote[], Array.isArray(body.deleted) ? body.deleted.map(String) : [])
             await mkdir(resolve(path, '..'), { recursive: true })
             await atomicWriteFile(path, `${JSON.stringify({ notes }, null, 2)}\n`)
             return sendJson(res, 200, { notes })

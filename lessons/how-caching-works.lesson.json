@@ -125,7 +125,7 @@
             "id": "reply-cache",
             "from": "cache",
             "to": "app",
-            "label": "Cached profile?",
+            "label": "Hit or miss",
             "kind": "response"
           }
         ]

@@ -84,7 +84,12 @@ function ffmpeg(args: string[]) {
 /** Mean absolute pixel difference between two same-size images, 0 (identical) to 255. */
 export async function imageDifference(a: string, b: string): Promise<number> {
   const out = await ffmpeg(['-i', a, '-i', b, '-filter_complex', '[0:v][1:v]blend=all_mode=difference,format=gray,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-', '-f', 'null', '-'])
-  const match = out.match(/lavfi\.signalstats\.YAVG=([\d.]+)/)
+  return parseYavg(out)
+}
+
+/** Reads ffmpeg's signalstats output; the value may be in exponent form (e.g. 4.8e-07 for a one-pixel difference). */
+export function parseYavg(output: string): number {
+  const match = output.match(/lavfi\.signalstats\.YAVG=([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)/)
   if (!match) throw new Error('Could not measure the difference between the images.')
   return Number(match[1])
 }

@@ -31,7 +31,7 @@ export async function readProductionState(root: string, lessonId: string): Promi
 
 const list = (argv: string[], name: string) => {
   const at = argv.indexOf(`--${name}`)
-  return at >= 0 && argv[at + 1] ? argv[at + 1].split(',').map((value) => value.trim()).filter(Boolean) : []
+  return at >= 0 && argv[at + 1] && !argv[at + 1].startsWith('--') ? argv[at + 1].split(',').map((value) => value.trim()).filter(Boolean) : []
 }
 const value = (argv: string[], name: string) => list(argv, name).join(',')
 

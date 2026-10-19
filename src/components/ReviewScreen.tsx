@@ -65,13 +65,13 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
     return () => player.removeEventListener('frameupdate', onFrame)
   }, [project])
 
-  const saveNotes = useCallback(async (next: ReviewNote[]) => {
+  const saveNotes = useCallback(async (next: ReviewNote[], deleted: string[] = []) => {
     setNotes(next)
     // The server merges with what the AI has since done to the notes and returns the result.
     const saved = await api<{ notes: ReviewNote[] }>(`/api/reviews/${encodeURIComponent(projectId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes: next }),
+      body: JSON.stringify({ notes: next, deleted }),
     })
     setNotes(saved.notes)
   }, [projectId])
@@ -214,7 +214,7 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
                 {noteStatus(note) === 'applied' && <span title={`Changed, not yet checked: ${note.appliedSummary ?? ''}`} style={{ fontSize: 11, color: '#f59e0b' }}>applied</span>}
                 {noteStatus(note) === 'verified' && <span title={`Checked: ${note.verification ?? ''}`} style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, color: '#22c55e' }}><Check size={14} />verified</span>}
                 {noteStatus(note) === 'pending' && (
-                  <button className="icon-btn" title="Delete note" onClick={() => void saveNotes(notes.filter((n) => n.id !== note.id)).catch((e: Error) => setError(e.message))}>
+                  <button className="icon-btn" title="Delete note" onClick={() => void saveNotes(notes.filter((n) => n.id !== note.id), [note.id]).catch((e: Error) => setError(e.message))}>
                     <Trash2 size={13} />
                   </button>
                 )}

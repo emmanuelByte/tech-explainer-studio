@@ -43,8 +43,12 @@ describe('mergeReviewNotes', () => {
     expect(merged[0].appliedSummary).toBe('fix')
   })
 
-  it('lets the user delete a pending note but never a handled one', () => {
-    expect(mergeReviewNotes([applied, note('b')], []).map((n) => n.id)).toEqual(['a'])
+  it('never deletes a note just because the client did not send it', () => {
+    expect(mergeReviewNotes([applied, note('b')], []).map((n) => n.id)).toEqual(['a', 'b'])
+  })
+
+  it('deletes only notes that are named and still pending', () => {
+    expect(mergeReviewNotes([applied, note('b'), note('c')], [], ['a', 'b']).map((n) => n.id)).toEqual(['a', 'c'])
   })
 
   it('never lets a client create a note that is already applied or verified', () => {

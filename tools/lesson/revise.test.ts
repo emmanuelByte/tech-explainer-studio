@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { LessonSpec } from '../../src/domains/lesson-spec/types'
-import { changedParts, imageDifference, renderedSince, scopeProblems, VISIBLE_CHANGE_THRESHOLD } from './revise'
+import { changedParts, imageDifference, parseYavg, renderedSince, scopeProblems, VISIBLE_CHANGE_THRESHOLD } from './revise'
 
 const base = (): LessonSpec => ({
   version: 1, id: 'x', title: 'X',
@@ -63,5 +63,14 @@ describe.skipIf(!hasFfmpeg)('imageDifference', () => {
       expect(await imageDifference(resolve(dir, 'a.png'), resolve(dir, 'b.png'))).toBe(0)
       expect(await imageDifference(resolve(dir, 'a.png'), resolve(dir, 'c.png'))).toBeGreaterThan(VISIBLE_CHANGE_THRESHOLD)
     } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+})
+
+describe('parseYavg', () => {
+  it('reads plain and exponent notation (a one-pixel difference prints as 4.8e-07, not 4.8)', () => {
+    expect(parseYavg('frame:0 pts:0\nlavfi.signalstats.YAVG=0.135')).toBe(0.135)
+    expect(parseYavg('lavfi.signalstats.YAVG=4.82253e-07')).toBeCloseTo(4.82253e-7, 12)
+    expect(parseYavg('lavfi.signalstats.YAVG=0')).toBe(0)
+    expect(() => parseYavg('nothing')).toThrow('Could not measure')
   })
 })
