@@ -25,6 +25,7 @@ const ROW_PADDING = 30
 const ARROW_BAND = 22
 const LABEL_FONT_MAX = 24
 const LABEL_FONT_MIN = 18
+const HEADER_FONT_MAX = 22
 const LABEL_LINE_HEIGHT = 1.25
 const LABEL_MAX_LINES = 3
 
@@ -86,7 +87,7 @@ export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): Sequen
     const span = Math.abs(toX - fromX)
     // Prefer to sit between the two lifelines; a long label may wrap, shrink, or (last resort) widen up to the panel.
     const room = Math.max(span - 24, headerWidth)
-    const { lines, font } = fitText(message.label, Math.min(room, usable), LABEL_FONT_MAX, LABEL_FONT_MIN, LABEL_MAX_LINES)
+    const { lines, font } = fitText(message.label, Math.min(room, usable), LABEL_FONT_MAX * frame.overlayTextScale, LABEL_FONT_MIN, LABEL_MAX_LINES)
     const labelHeight = lines.length * font * LABEL_LINE_HEIGHT
     const labelWidth = Math.max(...lines.map((line) => line.length)) * font * GLYPH_WIDTH + 16
     const rowHeight = labelHeight + ROW_PADDING + ARROW_BAND
@@ -114,7 +115,7 @@ export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): Sequen
   const bottom = cursor + PADDING / 2
   const height = bottom + PADDING / 2
   const participants = sequence.participants.map((participant, index): SequenceParticipantGeometry => {
-    const { lines, font } = fitText(participant.label, headerWidth - 16, 22, 15, 2)
+    const { lines, font } = fitText(participant.label, headerWidth - 16, HEADER_FONT_MAX * frame.overlayTextScale, 15, 2)
     return {
       id: participant.id,
       x: centreX(index),

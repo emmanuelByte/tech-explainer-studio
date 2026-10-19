@@ -55,7 +55,7 @@ export async function produceCommand(root: string, argv: string[]) {
   let specPath: string
   const script = values.get('script')
   if (script) {
-    const slug = basename(script).replace(/\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    const slug = basename(script).replace(/(\.script)?\.[^.]+$/, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
     specPath = resolve(process.cwd(), values.get('spec') ?? `lessons/${slug}.lesson.json`)
     await authorFromScript({ root, scriptPath: resolve(process.cwd(), script), specPath, agent: values.get('author') ?? 'codex', maxAttempts: 3, log })
   } else if (positional[0]) {

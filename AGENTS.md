@@ -34,6 +34,24 @@ Loop: edit spec -> `validate` -> `narrate` (only changed phrases are re-spoken)
 -> `build` -> `lint` -> `stills` -> read the PNGs -> fix -> repeat. When the
 human leaves notes, apply them **to the spec**, never to a generated project.
 
+**One command does the whole chain** (validate, narrate, build, lint, stills,
+render, ffprobe verify), resumable and incremental, in 16:9 and/or 9:16:
+
+```bash
+npm run produce -- lessons/x.lesson.json --aspect both          # from a spec
+npm run produce -- --script scripts/x.script.md --aspect both   # an agent authors the spec first
+```
+
+See `docs/PRODUCTION_PIPELINE.md` (options, restart rules) and
+`docs/AUTHORING_GUIDE.md` (how to turn a script into a spec). Add `--aspect 9:16`
+to `build`/`lint`/`stills` to check portrait, and `--theme dark-sketch|clean-technical`.
+
+Review notes are resolved one id at a time, never in bulk:
+`notes <spec>` lists pending ones; `revise <spec> --patch p.json --notes id --summary "..."`
+applies a scoped semantic patch (status `applied`); after `produce`,
+`compare <spec> --scene <id>` shows before | after; `notes <spec> --verify id --evidence "..."`
+marks it `verified` only once you have looked at the rebuilt output.
+
 Rules for this workflow:
 
 - **The spec is the source of truth.** Never hand-edit `data/projects/lesson_*.json`.
@@ -52,8 +70,11 @@ Rules for this workflow:
 
 ```text
 lessons/                         lesson specs (tracked, the source of truth)
-src/domains/lesson-spec/         spec types, validate, compile, lint, narration cues
-tools/lesson/                    CLI (cli.ts), voice + audio registration (narrate.ts), WAV helpers
+src/domains/lesson-spec/         spec types, validate, compile, lint, narration cues, theme presets (theme.ts),
+                                 output-format frame model (frame.ts), responsive overlays (overlays.ts), sequence geometry
+src/domains/review/              review-note lifecycle (pending/applied/verified) and merge rules
+tools/lesson/                    CLI (cli.ts), `produce` pipeline (pipeline.ts, render.ts, stills.ts, author.ts, revise*.ts),
+                                 voice + audio registration (narrate.ts), WAV helpers
 src/components/ReviewScreen.tsx  review-only screen (never writes projects)
 server/                          Vite middleware: projects, assets, exports, reviews, tts, library
 src/remotion/                    the renderer shared by preview and export
@@ -65,7 +86,7 @@ docs/                            vision, roadmap, schema, TTS, pivot plan
 
 To add a component kind: add the name to `TECHNICAL_COMPONENT_KINDS`, an SVG
 under the assets folder, a colour pair in `PALETTE` (`compile.ts`) and a path in
-`ARTWORK_FILES` (`tools/lesson/cli.ts`). The compiler's types enforce completeness.
+`ARTWORK_FILES` (`tools/lesson/artwork.ts`). The compiler's types enforce completeness.
 
 ## Engineering principles
 
@@ -75,7 +96,8 @@ under the assets folder, a colour pair in `PALETTE` (`compile.ts`) and a path in
 4. **Semantic connectors.** Arrows attach to component layers and follow them.
 5. **Domain modules.** Put new logic in `src/domains/<domain>/`; do not grow `store.ts`, `CanvasOverlay.tsx` or `Timeline.tsx`.
 6. **Renderer facts.** Top-level layers stack first-on-top, a group's children last-on-top. Layers carry per-side border widths and per-corner radii that override plain `strokeWidth` / `borderRadius` (the compiler's `baseLayer` sets all of them). Renders need `--public-dir=data` to find audio.
-7. **Testing sweet spot.** Test non-trivial pure logic where a bug would be silent and costly (timing, migrations, cue parsing, file formats). Do not write a test per error message, add validation only after a real mistake, and check visuals with one render per change.
+7. **Formats and themes.** Output format differences live in `frame.ts` (caption style, safe regions, overlay limits) and node layout in `compile.ts`; look differences live in `theme.ts`. Never branch on aspect ratio or theme elsewhere. Sketch distortion applies only to component bodies and connectors.
+8. **Testing sweet spot.** Test non-trivial pure logic where a bug would be silent and costly (timing, migrations, cue parsing, file formats). Do not write a test per error message, add validation only after a real mistake, and check visuals with one render per change.
 
 ## Security and configuration
 

@@ -21,12 +21,17 @@ lesson spec (JSON) -> validate -> narrate (local voice) -> build -> lint -> stil
 The AI edits `lessons/<name>.lesson.json` and runs:
 
 ```bash
+# One command for the whole chain, 16:9 and 9:16, resumable (docs/PRODUCTION_PIPELINE.md):
+npm run produce -- lessons/load-balancer.lesson.json --aspect both
+npm run produce -- --script scripts/how-caching-works.script.md --aspect both   # an agent authors the spec first
+
+# Or step by step:
 npm run lesson -- validate lessons/load-balancer.lesson.json
 npm run lesson -- narrate  lessons/load-balancer.lesson.json   # needs the voice worker (below)
 npm run lesson -- build    lessons/load-balancer.lesson.json   # writes data/projects/lesson_<id>.json
 npm run lesson -- lint     lessons/load-balancer.lesson.json   # layout and pacing checks
 npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene, to look at
-npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes you left (--done marks them handled)
+npm run lesson -- notes    lessons/load-balancer.lesson.json   # review notes (resolve one id at a time: --apply / --verify)
 npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json  # preview a stable-id patch
 npm run lesson -- patch    lessons/load-balancer.lesson.json changes.json --write  # apply it to the spec
 ```

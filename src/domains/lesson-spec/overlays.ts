@@ -119,10 +119,10 @@ function textPanel(
   const { spacing: SPACE, colors: COLORS, typography: TYPE } = theme
   const unit = frame.unit
   const padding = SPACE.cardPadding * unit
-  const titleHeight = options.title ? SPACE.cardTitleHeight * unit : 0
+  const titleHeight = options.title ? SPACE.cardTitleHeight * unit * frame.overlayTextScale : 0
   const innerWidth = options.width - 2 * padding
   const glyph = options.font === 'mono' ? GLYPH_WIDTH.mono : GLYPH_WIDTH.sans
-  const fitted = fitRows(options.rows, innerWidth, glyph, MAX_FONT * unit)
+  const fitted = fitRows(options.rows, innerWidth, glyph, MAX_FONT * unit * frame.overlayTextScale)
   const lineHeight = fitted.font * LINE_HEIGHT_RATIO
   const rows: WrappedRow[] = fitted.wrapped.map((lines, index) => ({
     lines: lines.map((line, lineIndex) => (lineIndex > 0 && options.hangingIndent ? `${options.hangingIndent}${line}` : line)),
@@ -146,7 +146,7 @@ function textPanel(
   if (options.title) {
     layers.push(s.child('title', 'text', 0, top + padding + titleHeight / 2, {
       name: 'Title', text: options.title, width: innerWidth, height: titleHeight,
-      fontSize: 32 * unit, fontWeight: '700', textColor: options.accent === COLORS.accent ? COLORS.mutedText : options.accent, textAlign: 'left', htmlText: true, htmlWhiteSpace: 'pre',
+      fontSize: 32 * unit * frame.overlayTextScale, fontWeight: '700', textColor: options.accent === COLORS.accent ? COLORS.mutedText : options.accent, textAlign: 'left', htmlText: true, htmlWhiteSpace: 'pre',
     }))
   }
   let cursor = top + padding + titleHeight
@@ -203,7 +203,7 @@ export function comparisonLayers(
   const stacked = frame.orientation === 'portrait'
   const gap = SPACE.comparisonGap * unit
   const padding = SPACE.cardPadding * unit
-  const titleHeight = SPACE.cardTitleHeight * unit
+  const titleHeight = SPACE.cardTitleHeight * unit * frame.overlayTextScale
   const panelWidth = stacked ? Math.min(frame.overlayMaxWidth, SPACE.comparisonPanelWidth * 2 * unit) : Math.min(SPACE.comparisonPanelWidth * unit, (frame.overlayMaxWidth - gap) / 2)
   const innerWidth = panelWidth - 2 * padding
   const sides = (['left', 'right'] as const).map((side) => ({
@@ -215,7 +215,7 @@ export function comparisonLayers(
   }))
   // Both sides share one font so the columns look like a pair.
   const rowsOf = (data: SpecComparison['left']) => data.lines.map((line) => `• ${line}`)
-  const fitted = fitRows(sides.flatMap(({ data }) => rowsOf(data)), innerWidth, GLYPH_WIDTH.sans, MAX_FONT * unit)
+  const fitted = fitRows(sides.flatMap(({ data }) => rowsOf(data)), innerWidth, GLYPH_WIDTH.sans, MAX_FONT * unit * frame.overlayTextScale)
   const lineHeight = fitted.font * LINE_HEIGHT_RATIO
   const wrapRows = (data: SpecComparison['left']) => rowsOf(data).map((row) => wrapWords(row, Math.max(1, Math.floor(innerWidth / (GLYPH_WIDTH.sans * fitted.font)))).map((line, i) => (i > 0 ? `  ${line}` : line)))
   const built = sides.map((side) => {
@@ -243,7 +243,7 @@ export function comparisonLayers(
       }),
       s.child(`${side.side}-title`, 'text', centreX, top + padding + titleHeight / 2, {
         name: `${side.data.title} title`, text: side.data.title, width: innerWidth, height: titleHeight,
-        fontSize: 32 * unit, fontWeight: '700', textColor: side.accent, textAlign: 'left',
+        fontSize: 32 * unit * frame.overlayTextScale, fontWeight: '700', textColor: side.accent, textAlign: 'left',
       }),
     )
     let cursor = top + padding + titleHeight

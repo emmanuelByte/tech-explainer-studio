@@ -34,6 +34,8 @@ export interface FrameSpec {
   cameraMarginY: number
   /** Widest an overlay panel may be, on screen. */
   overlayMaxWidth: number
+  /** Multiplier on overlay text sizes: a phone-sized portrait frame needs larger type than 16:9 for the same legibility. */
+  overlayTextScale: number
 }
 
 export function frameFor(width: number, height: number): FrameSpec {
@@ -48,6 +50,7 @@ export function frameFor(width: number, height: number): FrameSpec {
       cameraMarginX: Math.round(60 * unit),
       cameraMarginY: Math.round(60 * unit),
       overlayMaxWidth: width - Math.round(80 * unit),
+      overlayTextScale: 1.3,
     }
     : {
       width, height, orientation: 'landscape', unit,
@@ -56,6 +59,7 @@ export function frameFor(width: number, height: number): FrameSpec {
       cameraMarginX: Math.round(160 * unit),
       cameraMarginY: Math.round(80 * unit),
       overlayMaxWidth: Math.round(1200 * unit),
+      overlayTextScale: 1,
     }
 }
 
