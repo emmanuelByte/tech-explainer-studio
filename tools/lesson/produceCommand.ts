@@ -11,6 +11,7 @@ export const PRODUCE_USAGE = `Usage: npm run produce -- <lessons/x.lesson.json |
   --theme dark-sketch|clean-technical   override the spec's theme
   --quality draft|standard|high         draft is half size, for checking  (default standard)
   --voice <id>  --exaggeration <n>  --cfg <n>  --worker <url>   voice settings
+  --pace <words/s>          slow sentences spoken faster than this (default 3.0, about 180 wpm)
   --narration local|none    "none" makes a silent video, no voice worker needed
   --out <path>              .mp4 file (one aspect) or directory (default data/exports/)
   --no-stills               skip the per-scene frames
@@ -25,7 +26,7 @@ function parse(argv: string[]) {
   const values = new Map<string, string>()
   const flags = new Set<string>()
   const positional: string[] = []
-  const withValue = new Set(['aspect', 'theme', 'quality', 'voice', 'exaggeration', 'cfg', 'worker', 'narration', 'out', 'script', 'author', 'spec'])
+  const withValue = new Set(['aspect', 'theme', 'quality', 'voice', 'exaggeration', 'cfg', 'pace', 'worker', 'narration', 'out', 'script', 'author', 'spec'])
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     if (!arg.startsWith('--')) { positional.push(arg); continue }
@@ -75,6 +76,7 @@ export async function produceCommand(root: string, argv: string[]) {
     voice: values.get('voice') ?? 'baseVoice',
     exaggeration: Number(values.get('exaggeration') ?? 0.5),
     cfgWeight: Number(values.get('cfg') ?? 0.5),
+    pace: values.has('pace') ? Number(values.get('pace')) : undefined,
     workerUrl: values.get('worker') ?? 'http://127.0.0.1:8123',
     narration: choice('narration', values.get('narration'), ['local', 'none'] as const, 'local'),
     quality: choice<Quality>('quality', values.get('quality'), ['draft', 'standard', 'high'], 'standard'),

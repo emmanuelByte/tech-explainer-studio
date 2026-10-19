@@ -63,7 +63,7 @@ function scaffold(
 
 /** Largest scale (<= 1) at which a panel fits the content area above the captions. */
 function fitScale(ctx: BuildContext, width: number, height: number) {
-  const margin = 40 * ctx.frame.unit
+  const margin = 72 * ctx.frame.unit
   return Math.min(1, (contentHeight(ctx.frame) - margin) / height, (ctx.frame.width - margin) / width)
 }
 
@@ -402,8 +402,11 @@ export function titleCardLayers(
   const headingHeight = heading.lines.length * heading.fontSize * 1.2
   const sub = subtitle ? fitText(subtitle, boxWidth, 40 * unit, 26 * unit, 2, GLYPH_WIDTH.sans) : undefined
   const subHeight = sub ? sub.lines.length * sub.fontSize * 1.3 : 0
-  const gap = sub ? 28 * unit : 0
-  const blockHeight = headingHeight + gap + subHeight
+  // A short accent rule under the title: it draws in once, giving the opening a little identity without noise.
+  const ruleGap = (sub ? 44 : 40) * unit
+  const gap = sub ? ruleGap : 0
+  const ruleSpace = sub ? 0 : ruleGap + 4 * unit
+  const blockHeight = headingHeight + gap + subHeight + ruleSpace
   const child = (name: string, type: LayerType, offsetY: number, overrides: LayerOverrides) => baseLayer(theme, type, {
     id: `${groupId}__${name}`, parentId: groupId, name, ...timing, keyframes: staticKeyframe(start, 0, offsetY), ...overrides,
   } as Parameters<typeof baseLayer>[2])
@@ -415,6 +418,16 @@ export function titleCardLayers(
       lineHeight: 1.2, textColor: COLORS.text, htmlText: true, htmlWhiteSpace: 'pre',
     }),
   ]
+  const ruleY = sub ? -blockHeight / 2 + headingHeight + gap / 2 : -blockHeight / 2 + headingHeight + ruleGap / 2 + 2 * unit
+  const ruleShown = { ...DEFAULT_TRANSFORM, x: 0, y: ruleY }
+  layers.push(child('rule', 'rectangle', ruleY, {
+    width: 140 * unit, height: 4 * unit, fillColor: COLORS.accent, borderRadius: 2 * unit,
+    keyframes: [
+      { frame: start, easing: 'linear', props: { ...ruleShown, scaleX: 0 } },
+      { frame: start + 10, easing: 'linear', props: { ...ruleShown, scaleX: 0 } },
+      { frame: start + 10 + theme.motion.cardFadeFrames * 2, easing: 'ease-out', props: ruleShown },
+    ],
+  }))
   if (sub) {
     layers.push(child('subtitle', 'text', blockHeight / 2 - subHeight / 2, {
       text: sub.lines.join('\n'), width: boxWidth, height: subHeight, fontSize: sub.fontSize, fontWeight: '500',

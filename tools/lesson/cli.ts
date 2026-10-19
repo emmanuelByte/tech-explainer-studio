@@ -148,6 +148,7 @@ async function main() {
       voice: flag('voice', 'baseVoice'),
       exaggeration: Number(flag('exaggeration', '0.5')),
       cfgWeight: Number(flag('cfg', '0.5')),
+      pace: Number(flag('pace', '3')),
       log: (line) => console.log(line),
     })
     const total = Object.values(manifest.scenes).reduce((sum, scene) => sum + scene.durationSeconds, 0)

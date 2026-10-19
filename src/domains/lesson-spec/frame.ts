@@ -59,7 +59,8 @@ export function frameFor(width: number, height: number): FrameSpec {
       cameraMarginX: Math.round(160 * unit),
       cameraMarginY: Math.round(80 * unit),
       overlayMaxWidth: Math.round(1200 * unit),
-      overlayTextScale: 1,
+      // 16:9 has the room for larger type than the authored 28px: auto-fit shrinks it again wherever a line would not fit.
+      overlayTextScale: 1.3,
     }
 }
 

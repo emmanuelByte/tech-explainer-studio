@@ -16,7 +16,7 @@ const fitText = (text: string, width: number, maxFont: number, minFont: number, 
 
 const PANEL_MAX_WIDTH = 1180
 /** Breathing room kept between a panel and the edge of its content area. */
-const PANEL_SIDE_MARGIN = 40
+const PANEL_SIDE_MARGIN = 80
 const PADDING = 40
 const HEADER_HEIGHT = 76
 const HEADER_GAP = 28

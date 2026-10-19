@@ -67,8 +67,10 @@ function run(args: string[]) {
   })
 }
 
-export async function measureFrame(video: string, probe: FrameProbe): Promise<FrameStats> {
-  const crop = probe.region ? `crop=${probe.region.width}:${probe.region.height}:${probe.region.x}:${probe.region.y},` : ''
+/** `scale` is the video's size relative to the project canvas (0.5 for a draft render). */
+export async function measureFrame(video: string, probe: FrameProbe, scale = 1): Promise<FrameStats> {
+  const r = probe.region
+  const crop = r ? `crop=${Math.round(r.width * scale)}:${Math.round(r.height * scale)}:${Math.round(r.x * scale)}:${Math.round(r.y * scale)},` : ''
   const out = await run(['-ss', probe.time.toFixed(3), '-i', video, '-frames:v', '1', '-vf', `${crop}signalstats,metadata=print:file=-`, '-f', 'null', '-'])
   const read = (key: string) => Number(out.match(new RegExp(`lavfi\\.signalstats\\.${key}=([-+]?\\d*\\.?\\d+(?:[eE][-+]?\\d+)?)`))?.[1])
   const stats = { ymin: read('YMIN'), ymax: read('YMAX'), yavg: read('YAVG') }
@@ -77,10 +79,10 @@ export async function measureFrame(video: string, probe: FrameProbe): Promise<Fr
 }
 
 /** Samples the video and returns the problems found. */
-export async function inspectVideo(video: string, project: MotionProject): Promise<string[]> {
+export async function inspectVideo(video: string, project: MotionProject, scale = 1): Promise<string[]> {
   const problems: string[] = []
   for (const probe of planProbes(project)) {
-    const problem = judgeFrame(probe, await measureFrame(video, probe))
+    const problem = judgeFrame(probe, await measureFrame(video, probe, scale))
     if (problem) problems.push(problem)
   }
   return problems

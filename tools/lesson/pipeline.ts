@@ -11,7 +11,7 @@ import { loadArtwork } from './artwork'
 import { fingerprint, sourceFingerprint } from './fingerprint'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationInputs, narrationIsCurrent, type NarrateOptions } from './narrate'
 import { checkNarrationAudio, checkProjectAudio, type AudioFinding } from './audioChecks'
-import { checkProbe, expectedVideo, probeVideo, renderVideo, type Probe, type Quality } from './render'
+import { checkProbe, expectedVideo, probeVideo, QUALITY_PRESETS, renderVideo, type Probe, type Quality } from './render'
 import { contactSheet, inspectVideo } from './outputChecks'
 import { renderStills, stillsDir } from './stills'
 
@@ -30,6 +30,8 @@ export interface ProduceOptions {
   voice: string
   exaggeration: number
   cfgWeight: number
+  /** Words per second above which a sentence is slowed (default 3.0). */
+  pace?: number
   workerUrl: string
   /** `none` makes a silent video with placeholder timing; it needs no voice worker. */
   narration: 'local' | 'none'
@@ -52,7 +54,7 @@ export interface ProduceDeps {
   renderStills: typeof renderStills
   renderVideo: typeof renderVideo
   probeVideo: (root: string, file: string) => Promise<Probe>
-  inspectVideo: (file: string, project: MotionProject) => Promise<string[]>
+  inspectVideo: (file: string, project: MotionProject, scale: number) => Promise<string[]>
   contactSheet: (root: string, project: MotionProject) => Promise<string | undefined>
 }
 
@@ -158,7 +160,7 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
   const rendererPrint = await sourceFingerprint(root, RENDERER_SOURCES)
 
   // --- narrate: independent of theme and aspect, so those never redo the voice ---
-  const voice = { voice: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight }
+  const voice = { voice: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, pace: options.pace }
   let manifest: NarrationManifest | undefined
   const ranNarration: string[] = []
   const reusedNarration: string[] = []
@@ -313,7 +315,7 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
     }
     // Look inside the decoded video: blank scenes and captions that never render.
     let visual: string[]
-    try { visual = await deps.inspectVideo(videoPath, project) } catch (error) {
+    try { visual = await deps.inspectVideo(videoPath, project, QUALITY_PRESETS[options.quality].scale) } catch (error) {
       return fail('inspect', (error as Error).message, 'Is ffmpeg installed? The video itself was written.')
     }
     if (visual.length) fail('inspect', `The rendered video has problems:\n${visual.map((problem) => `    ${problem}`).join('\n')}`, 'Look at the stills and contact sheet, fix the spec, and run again (--force re-renders).')

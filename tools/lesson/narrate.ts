@@ -6,6 +6,7 @@ import { chunkLooksWrong, narrationWords, splitSentences } from '../../src/domai
 import type { LessonSpec, NarrationManifest, NarrationWord } from '../../src/domains/lesson-spec/types'
 import { atomicWriteFile } from '../../server/atomicFile'
 import { localAligner, type AlignFn, type AlignResult } from './align'
+import { ffmpegStretch, type StretchFn } from './stretch'
 import { normalizeLoudness, speechRegion, trimSilence } from './audio'
 import { encodeWav, joinWavsWithGaps, parseWav, wavSeconds, type Wav } from './wav'
 
@@ -14,6 +15,9 @@ const EDGE_SECONDS = 0.05
 /** Pause between spoken sentences; shorter where a long sentence was split at a comma. */
 const SENTENCE_GAP_SECONDS = 0.34
 const CLAUSE_GAP_SECONDS = 0.16
+/** Sentences are never slowed by more than this, so speech keeps its character. */
+export const MIN_TEMPO = 0.8
+export const DEFAULT_PACE = 3.0
 /** Below this mean confidence a clip's alignment is not trusted. */
 const MIN_ALIGNMENT_SCORE = 0.35
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
@@ -29,6 +33,10 @@ export interface NarrateOptions {
   generate?: (text: string) => Promise<Buffer>
   /** Replaces the forced aligner; used by tests. */
   align?: AlignFn
+  /** Words per second above which a sentence is slowed down (the voice has no reliable speed control). Default 3.0 (about 180 words per minute). */
+  pace?: number
+  /** Replaces the time-stretcher; used by tests. */
+  stretch?: StretchFn
 }
 
 const sha = (value: string | Buffer, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length)
@@ -47,13 +55,14 @@ export async function loadNarrationManifest(root: string, specId: string): Promi
 }
 
 /** The inputs that determine what the voice says; theme and aspect ratio are deliberately absent, so changing them reuses the audio. */
-export function narrationInputs(spec: LessonSpec, params: { voice: string; exaggeration: number; cfgWeight: number }) {
-  return { voice: params.voice, exaggeration: params.exaggeration, cfgWeight: params.cfgWeight, scenes: spec.scenes.map((scene) => [scene.id, scene.narration]) }
+export function narrationInputs(spec: LessonSpec, params: { voice: string; exaggeration: number; cfgWeight: number; pace?: number }) {
+  return { voice: params.voice, exaggeration: params.exaggeration, cfgWeight: params.cfgWeight, pace: params.pace ?? DEFAULT_PACE, scenes: spec.scenes.map((scene) => [scene.id, scene.narration]) }
 }
 
 /** True when a manifest was made from exactly this spec's narration with these voice settings. */
-export function narrationIsCurrent(spec: LessonSpec, manifest: NarrationManifest | undefined, params: { voice: string; exaggeration: number; cfgWeight: number }) {
+export function narrationIsCurrent(spec: LessonSpec, manifest: NarrationManifest | undefined, params: { voice: string; exaggeration: number; cfgWeight: number; pace?: number }) {
   if (!manifest) return false
+  if (manifest.pace !== (params.pace ?? DEFAULT_PACE)) return false
   if (manifest.voiceId !== params.voice || manifest.exaggeration !== params.exaggeration || manifest.cfgWeight !== params.cfgWeight) return false
   return spec.scenes.every((scene) => manifest.scenes[scene.id]?.source === scene.narration && (manifest.scenes[scene.id]?.words?.length ?? 0) > 0)
     && Object.keys(manifest.scenes).length === spec.scenes.length
@@ -195,6 +204,25 @@ async function assertManifestConsistent(root: string, manifest: NarrationManifes
   await assertNarrationAssets(root, manifest)
 }
 
+/**
+ * Slows a sentence that is spoken faster than the target pace, without changing
+ * pitch. Never speeds speech up and never slows it past MIN_TEMPO. If stretching
+ * is unavailable the sentence is used as spoken and the pace check will say so.
+ */
+async function slowIfRushed(options: NarrateOptions, wav: Wav, wordCount: number): Promise<{ wav: Wav; tempo: number }> {
+  const region = speechRegion(wav)
+  const spoken = region.end - region.start
+  if (spoken <= 0.3 || wordCount < 3) return { wav, tempo: 1 }
+  const tempo = Math.max(MIN_TEMPO, Math.min(1, (options.pace ?? DEFAULT_PACE) / (wordCount / spoken)))
+  if (tempo > 0.97) return { wav, tempo: 1 }
+  try {
+    return { wav: await (options.stretch ?? ffmpegStretch)(wav, tempo), tempo }
+  } catch (error) {
+    options.log(`  (could not slow a rushed sentence: ${(error as Error).message})`)
+    return { wav, tempo: 1 }
+  }
+}
+
 interface SpokenClip {
   /** First and last word of the narration this sentence covers. */
   wordStart: number
@@ -204,6 +232,8 @@ interface SpokenClip {
   wav: Wav
   /** Seconds removed from the start of the cached take; alignment times are relative to the untrimmed take. */
   trimmed: number
+  /** Playback speed applied to this sentence (1 = as spoken, 0.9 = 10% slower). */
+  tempo: number
   path: string
   key: string
   endsSentence: boolean
@@ -255,8 +285,8 @@ function clipWords(clip: SpokenClip, result: AlignResult | undefined): Narration
   if (!placed.length || placed.reduce((sum, word) => sum + word.score, 0) / placed.length < MIN_ALIGNMENT_SCORE) return estimated()
   const out = result.words.map((word, index) => ({
     text: words[index],
-    start: word.start === null ? NaN : word.start - clip.trimmed,
-    end: word.end === null ? NaN : word.end - clip.trimmed,
+    start: word.start === null ? NaN : (word.start - clip.trimmed) / clip.tempo,
+    end: word.end === null ? NaN : (word.end - clip.trimmed) / clip.tempo,
     timing: 'aligned' as const,
   }))
   for (let i = 0; i < out.length; i += 1) {
@@ -286,7 +316,7 @@ function clipWords(clip: SpokenClip, result: AlignResult | undefined): Narration
  */
 export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): Promise<NarrationManifest> {
   await pruneNarrationAssets(options.root, spec.id) // recover from an interrupted earlier run
-  const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, scenes: {} }
+  const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, pace: options.pace ?? DEFAULT_PACE, scenes: {} }
   for (const scene of spec.scenes) {
     const { words, cues } = narrationWords(scene.narration)
     const clips: SpokenClip[] = []
@@ -295,9 +325,10 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
       const started = Date.now()
       const { bytes, note, key, path } = await synthesise(options, text)
       const raw = parseWav(bytes)
-      const { wav, offset } = trimSilence(raw, EDGE_SECONDS)
-      clips.push({ wordStart: group.start, wordEnd: group.end, text, wav, trimmed: offset, path, key, endsSentence: /[.!?]["')\]]*$/.test(text) })
-      options.log(`  ${scene.id} sentence ${index + 1}: ${note || `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${text.slice(0, 56)}`)
+      const trimmedClip = trimSilence(raw, EDGE_SECONDS)
+      const { wav, tempo } = await slowIfRushed(options, trimmedClip.wav, group.end - group.start)
+      clips.push({ wordStart: group.start, wordEnd: group.end, text, wav, trimmed: trimmedClip.offset, tempo, path, key, endsSentence: /[.!?]["')\]]*$/.test(text) })
+      options.log(`  ${scene.id} sentence ${index + 1}: ${note || `${((Date.now() - started) / 1000).toFixed(1)}s`}${tempo < 1 ? ` (slowed to ${(tempo * 100).toFixed(0)}%)` : ''}: ${text.slice(0, 56)}`)
     }
     const alignments = await alignClips(options, clips)
     // Join with a pause that fits each sentence ending, and note where each clip starts.

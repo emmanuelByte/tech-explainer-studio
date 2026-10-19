@@ -66,6 +66,11 @@ describe.skipIf(!hasFfmpeg)('inspectVideo on a real file', () => {
       // A bright bar where the caption sits, plus content elsewhere.
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'color=c=0x0d0f14:s=1920x1080:d=11:r=30', '-vf', 'drawbox=x=300:y=300:w=400:h=200:color=white:t=fill,drawbox=x=500:y=820:w=900:h=40:color=white:t=fill', '-pix_fmt', 'yuv420p', lit])
       expect(await inspectVideo(lit, project(1920, 1080))).toEqual([])
+
+      // A half-size draft render is measured at half-size coordinates, not cropped off the frame.
+      const draft = resolve(dir, 'draft.mp4')
+      execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', lit, '-vf', 'scale=960:540', '-pix_fmt', 'yuv420p', draft])
+      expect(await inspectVideo(draft, project(1920, 1080), 0.5)).toEqual([])
     } finally { await rm(dir, { recursive: true, force: true }) }
   })
 })

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { LessonSpec } from '../../src/domains/lesson-spec/types'
-import { assertNarrationAssets, loadNarrationManifest, narrateLesson, pruneNarrationAssets, type NarrateOptions } from './narrate'
+import { assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationIsCurrent, pruneNarrationAssets, type NarrateOptions } from './narrate'
 import { encodeWav } from './wav'
 
 let root: string
@@ -73,6 +73,65 @@ describe('narration timing', () => {
     const words = manifest.scenes.one.words!
     const firstEnd = words.findIndex((word) => word.text === 'today.')
     expect(words[firstEnd + 1].start - words[firstEnd].end).toBeGreaterThan(0.25)
+  })
+})
+
+describe('narration pace', () => {
+  /** Speech at `wordsPerSecond`: a tone whose length follows the word count. */
+  const rushed = (wordsPerSecond: number): NarrateOptions['generate'] => async (text) => {
+    const seconds = text.split(' ').length / wordsPerSecond
+    const samples = Math.round(seconds * 8000)
+    const data = Buffer.alloc(samples * 2)
+    for (let i = 0; i < samples; i += 1) data.writeInt16LE(Math.round(Math.sin(i / 9) * 9000), i * 2)
+    return encodeWav({ format: 1, channels: 1, sampleRate: 8000, bitsPerSample: 16, data })
+  }
+  /** Nearest-neighbour resample standing in for ffmpeg: duration becomes duration / tempo. */
+  const calls: number[] = []
+  const fakeStretch: NarrateOptions['stretch'] = async (wav, tempo) => {
+    calls.push(tempo)
+    const frames = wav.data.length / 2
+    const out = Buffer.alloc(Math.round(frames / tempo) * 2)
+    for (let i = 0; i < out.length / 2; i += 1) out.writeInt16LE(wav.data.readInt16LE(Math.min(frames - 1, Math.floor(i * tempo)) * 2), i * 2)
+    return { ...wav, data: out }
+  }
+  const uniform: NarrateOptions['align'] = async (items) => items.map((item) => ({ error: null, words: item.text.split(' ').map((text, i, all) => ({ text, start: 0.05 + (i * 2.0) / all.length, end: 0.05 + ((i + 0.8) * 2.0) / all.length, score: 0.9 })) }))
+  const text = 'The client sends a request to the server now. The server answers it back very quickly.'
+
+  it('slows sentences spoken faster than the target, by at most 20%, and records the pace', async () => {
+    calls.length = 0
+    const manifest = await narrateLesson(lesson('p1', text, 'A short second scene to say.'), { ...options(rushed(5)), align: uniform, stretch: fakeStretch, pace: 3 })
+    expect(calls.length).toBeGreaterThan(0)
+    for (const tempo of calls) { expect(tempo).toBeGreaterThanOrEqual(0.8); expect(tempo).toBeLessThanOrEqual(1) }
+    expect(manifest.pace).toBe(3)
+    const words = manifest.scenes.one.words!
+    expect(words[words.length - 1].end).toBeLessThanOrEqual(manifest.scenes.one.durationSeconds + 0.01)
+  })
+
+  it('never speeds up, and leaves speech at or below the target alone', async () => {
+    calls.length = 0
+    await narrateLesson(lesson('p2', text, 'A short second scene to say.'), { ...options(rushed(2)), align: uniform, stretch: fakeStretch, pace: 3 })
+    expect(calls).toEqual([])
+  })
+
+  it('rescales word times to the slowed audio', async () => {
+    const plain = await narrateLesson(lesson('p3', text, 'A short second scene to say.'), { ...options(rushed(5)), align: uniform, stretch: fakeStretch, pace: 10 })
+    const slowed = await narrateLesson(lesson('p4', text, 'A short second scene to say.'), { ...options(rushed(5)), align: uniform, stretch: fakeStretch, pace: 3 })
+    expect(slowed.scenes.one.durationSeconds).toBeGreaterThan(plain.scenes.one.durationSeconds * 1.1)
+    expect(slowed.scenes.one.words![3].start).toBeGreaterThan(plain.scenes.one.words![3].start)
+  })
+
+  it('carries on with the unstretched sentence if stretching fails', async () => {
+    const logs: string[] = []
+    const manifest = await narrateLesson(lesson('p5', text, 'A short second scene to say.'), { ...options(rushed(5)), log: (line) => logs.push(line), align: uniform, stretch: async () => { throw new Error('no ffmpeg') }, pace: 3 })
+    expect(manifest.scenes.one.words!.length).toBeGreaterThan(0)
+    expect(logs.some((line) => line.includes('could not slow'))).toBe(true)
+  })
+
+  it('treats narration made at a different pace as out of date', () => {
+    const spec = lesson('p6', text, 'A short second scene to say.')
+    const manifest = { voiceId: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 3, scenes: Object.fromEntries(spec.scenes.map((scene) => [scene.id, { assetId: 'a', durationSeconds: 1, cues: {}, source: scene.narration, words: [{ text: 'x', start: 0, end: 1, timing: 'aligned' as const }] }])) }
+    expect(narrationIsCurrent(spec, manifest, { voice: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 3 })).toBe(true)
+    expect(narrationIsCurrent(spec, manifest, { voice: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 2.6 })).toBe(false)
   })
 })
 

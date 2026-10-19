@@ -105,9 +105,9 @@
         "id": "lookup",
         "title": "For each request",
         "items": [
-          "1. Ask the cache first",
-          "2. Found it? Return it",
-          "3. Missing? Ask the database, then save a copy"
+          "Ask the cache first",
+          "Found it? Return it",
+          "Missing? Ask the database, then save a copy"
         ]
       }
     },
@@ -152,7 +152,7 @@
     {
       "id": "cache-miss",
       "title": "The slow path",
-      "narration": "[[miss.ask-cache]]The app asks the cache, [[miss.not-found]]but it has nothing: that is a cache miss. [[miss.ask-database]]So the app asks the database, [[miss.return-profile]]gets the profile, and [[miss.store-copy]]saves a copy in the cache for next time.",
+      "narration": "[[miss.ask-cache]]The app asks the cache, [[miss.not-found]]but it has nothing: a cache miss. [[miss.ask-database]]So it asks the database, [[miss.return-profile]]gets the profile, and [[miss.store-copy]]saves a copy for next time.",
       "sequence": {
         "id": "miss",
         "participants": [

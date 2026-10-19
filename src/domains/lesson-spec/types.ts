@@ -132,6 +132,8 @@ export interface NarrationManifest {
   voiceId: string
   exaggeration: number
   cfgWeight: number
+  /** Words per second above which sentences were slowed when this audio was made. */
+  pace?: number
   scenes: Record<string, SceneNarration>
 }
 
