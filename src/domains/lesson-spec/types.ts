@@ -59,10 +59,43 @@ export interface SpecComparison {
   right: SpecComparisonSide
 }
 
+/** A concise progressive explanation, takeaway, definition or recap. */
+export interface SpecBullets {
+  /** Unique across overlays; cue ids are `<id>.<line number>`. */
+  id: string
+  title: string
+  /** One to six short points, revealed in narration order. */
+  items: string[]
+  tone?: 'neutral' | 'positive' | 'negative'
+}
+
+export interface SpecSequenceParticipant {
+  id: string
+  label: string
+}
+
+export interface SpecSequenceMessage {
+  /** Stable within its sequence; cue id is `<sequence id>.<message id>`. */
+  id: string
+  from: string
+  to: string
+  label: string
+  kind?: 'sync' | 'async' | 'response'
+}
+
+/** Declarative interactions rendered as a conventional participant/lifeline diagram. */
+export interface SpecSequence {
+  id: string
+  participants: SpecSequenceParticipant[]
+  messages: SpecSequenceMessage[]
+}
+
 export const TITLE_LIMITS = { title: 60, subtitle: 60, seconds: [1, 10] } as const
 
 export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
 export const COMPARISON_LIMITS = { lines: 6, lineLength: 60, titleLength: 32 } as const
+export const BULLET_LIMITS = { items: 6, itemLength: 72, titleLength: 48 } as const
+export const SEQUENCE_LIMITS = { participants: 5, participantLabelLength: 20, messages: 8, messageLabelLength: 56 } as const
 
 export interface SpecScene {
   /** Unique slug; stable so later spec patches can address the scene. */
@@ -83,6 +116,10 @@ export interface SpecScene {
   card?: SpecCard
   /** Two concise columns shown over the dimmed diagram for this scene only. */
   comparison?: SpecComparison
+  /** A progressive bullet/explanation card over the current diagram. */
+  bullets?: SpecBullets
+  /** A semantic request/response interaction diagram over the current lesson context. */
+  sequence?: SpecSequence
   /** Node ids the camera frames. Defaults to everything revealed so far. */
   focus?: string[]
 }

@@ -76,11 +76,15 @@ pixel coordinates.
   nodes), `flow` (travelling dots on revealed edges), `card` (a code/request
   panel over a dimmed diagram: up to 8 lines, revealed one by one),
   `comparison` (two titled, dimmed-diagram panels: up to 6 lines per side),
+  `bullets` (a titled progressive takeaway/definition/recap card), and
+  `sequence` (participants plus request/response messages with lifelines),
   and `durationSeconds` (only until narrated). A scene uses either `card` or
-  `comparison`.
+  another overlay block.
 - **Cues:** `[[id]]` in `narration` makes that element appear exactly when the
   words after it begin; card lines use `[[<card id>.<line number>]]` and
   comparison lines use `[[<comparison id>.<left|right>.<line number>]]`.
+  Bullet cues are `[[<bullet id>.<line number>]]`; sequence message cues are
+  `[[<sequence id>.<message id>]]`.
   `[[emphasize:<node id>]]` and `[[flow:<edge id>]]` defer those effects to
   the words immediately after the cue.
 - **Theme:** [theme.ts](src/domains/lesson-spec/theme.ts) is the single visual

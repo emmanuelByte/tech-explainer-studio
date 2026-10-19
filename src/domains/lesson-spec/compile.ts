@@ -14,7 +14,7 @@ import {
 import { CURRENT_PROJECT_SCHEMA_VERSION } from '../project/migrations'
 import { parseNarration } from './narration'
 import { LESSON_THEME } from './theme'
-import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecCard, type SpecComparison, type SpecNode, type SpecScene } from './types'
+import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecBullets, type SpecCard, type SpecComparison, type SpecNode, type SpecScene, type SpecSequence } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
 
 /** Raw SVG source per component kind; injected so this module stays free of Vite/Node imports. */
@@ -281,6 +281,8 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const narrationLayers: Layer[] = []
   const cardLayerSets: Layer[] = []
   const comparisonLayerSets: Layer[] = []
+  const bulletLayerSets: Layer[] = []
+  const sequenceLayerSets: Layer[] = []
   const titleLayerSets: Layer[] = []
   const emphasis = new Map<string, { start: number; end: number }[]>()
   const flowRange = new Map<string, { start: number; end: number }>()
@@ -354,6 +356,20 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       )
       comparisonLayerSets.push(...comparisonLayers(comparison, framing, { width, height }, start, end, comparisonStart, lineFrames('left'), lineFrames('right')))
     }
+    if (specScene.bullets) {
+      const bullets = specScene.bullets
+      const bulletStart = start + CAMERA_MOVE_FRAMES
+      const spread = Math.max(0, Math.floor((end - bulletStart) * 0.7) - 8)
+      const lineFrames = bullets.items.map((_, index) => cueFrame(`${bullets.id}.${index + 1}`) ?? bulletStart + 8 + Math.floor((index * spread) / Math.max(1, bullets.items.length)))
+      bulletLayerSets.push(...bulletLayers(bullets, framing, { width, height }, start, end, bulletStart, lineFrames))
+    }
+    if (specScene.sequence) {
+      const sequence = specScene.sequence
+      const sequenceStart = start + CAMERA_MOVE_FRAMES
+      const spread = Math.max(0, Math.floor((end - sequenceStart) * 0.72) - 8)
+      const messageFrames = sequence.messages.map((message, index) => cueFrame(`${sequence.id}.${message.id}`) ?? sequenceStart + 8 + Math.floor((index * spread) / Math.max(1, sequence.messages.length)))
+      sequenceLayerSets.push(...sequenceLayers(sequence, framing, { width, height }, start, end, sequenceStart, messageFrames))
+    }
 
     const sceneId = `scene_${specScene.id}`
     const segmentId = `segment_${specScene.id}`
@@ -419,7 +435,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     layers.push(...nodeLayers(node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), emphasis.get(node.id) ?? [], totalFrames, options.artwork))
   }
   // Top-level layers stack first-on-top (a group's children stack last-on-top), so cards go first.
-  layers.unshift(...titleLayerSets, ...cardLayerSets, ...comparisonLayerSets)
+  layers.unshift(...titleLayerSets, ...cardLayerSets, ...comparisonLayerSets, ...bulletLayerSets, ...sequenceLayerSets)
   layers.push(...narrationLayers)
 
   const connectors: Connector[] = spec.edges.map((edge) => {
@@ -587,6 +603,102 @@ function cardLayers(
       name: `Line ${index + 1}`, text: line, width: CARD_WIDTH - 2 * CARD_PADDING, height: CARD_LINE_HEIGHT,
       fontFamily: TYPE.mono, fontSize: 28, fontWeight: '500', textColor: COLORS.cardText, textAlign: 'left',
       htmlText: true, htmlWhiteSpace: 'pre',
+    }, [
+      { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
+      { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },
+      { frame: frame + CARD_FADE_FRAMES, easing: 'ease-out', props: shown },
+    ]))
+  })
+  return layers
+}
+
+/** Bullet/explanation cards deliberately reuse the normal overlay geometry and animation. */
+function bulletLayers(
+  bullets: SpecBullets,
+  framing: CameraKeyframe,
+  canvas: { width: number; height: number },
+  start: number,
+  end: number,
+  bulletStart: number,
+  lineFrames: number[],
+): Layer[] {
+  const accent = bullets.tone === 'positive' ? '#4ade80' : bullets.tone === 'negative' ? '#fda4af' : COLORS.accent
+  const layers = cardLayers(
+    { id: `bullets_${bullets.id}`, title: bullets.title, lines: bullets.items.map((item) => `• ${item}`) },
+    framing, canvas, start, end, bulletStart, lineFrames,
+  )
+  const groupId = `card_bullets_${bullets.id}`
+  for (const layer of layers) {
+    if (layer.id === `${groupId}__panel`) {
+      layer.strokeColor = accent
+    } else if (layer.id === `${groupId}__title`) {
+      layer.textColor = accent
+    }
+  }
+  return layers
+}
+
+/** A conventional, source-order sequence diagram assembled from normal layers. */
+function sequenceLayers(
+  sequence: SpecSequence,
+  framing: CameraKeyframe,
+  canvas: { width: number; height: number },
+  start: number,
+  end: number,
+  sequenceStart: number,
+  messageFrames: number[],
+): Layer[] {
+  const x = framing.x - canvas.width / 2
+  const y = framing.y - canvas.height / 2 - CAPTION_RESERVE / (2 * framing.zoom)
+  const scale = 1 / framing.zoom
+  const width = 1180
+  const headerHeight = 86
+  const rowHeight = 58
+  const height = 80 + headerHeight + sequence.messages.length * rowHeight + 48
+  const top = -height / 2
+  const groupId = `sequence_${sequence.id}`
+  const timing = { startFrame: start, endFrame: end }
+  const at = (opacity: number) => ({ ...DEFAULT_TRANSFORM, x, y, scale, opacity })
+  const group = baseLayer('group', {
+    id: groupId, name: 'Sequence diagram', width, height, ...timing,
+    keyframes: [
+      { frame: start, easing: 'linear', props: at(0) },
+      { frame: sequenceStart, easing: 'ease-out', props: at(0) },
+      { frame: sequenceStart + CARD_FADE_FRAMES, easing: 'linear', props: at(1) },
+      { frame: end - CARD_FADE_FRAMES, easing: 'ease-in', props: at(1) },
+      { frame: end, easing: 'linear', props: at(0) },
+    ],
+  })
+  const child = (id: string, type: LayerType, offsetX: number, offsetY: number, overrides: Partial<Layer>, keyframes?: Keyframe[]) => baseLayer(type, {
+    id: `${groupId}__${id}`, parentId: groupId, ...timing,
+    keyframes: keyframes ?? staticKeyframe(start, offsetX, offsetY), ...overrides,
+  } as Parameters<typeof baseLayer>[1])
+  const layers: Layer[] = [
+    group,
+    child('backdrop', 'rectangle', 0, 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: COLORS.cardBackdrop }),
+    child('panel', 'rectangle', 0, 0, { name: 'Sequence panel', width, height, fillColor: COLORS.panel, strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 20 }),
+  ]
+  const participantStep = sequence.participants.length === 1 ? 0 : (width - 180) / (sequence.participants.length - 1)
+  const participantX = new Map(sequence.participants.map((participant, index) => [participant.id, -width / 2 + 90 + index * participantStep]))
+  sequence.participants.forEach((participant, index) => {
+    const px = participantX.get(participant.id)!
+    layers.push(
+      child(`participant-${participant.id}`, 'rectangle', px, top + 58, { name: `${participant.label} participant`, width: 160, height: 52, fillColor: PALETTE[Object.keys(PALETTE)[index % Object.keys(PALETTE).length] as keyof typeof PALETTE].fill, strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 12 }),
+      child(`participant-${participant.id}-label`, 'text', px, top + 58, { name: `${participant.label} label`, text: participant.label, width: 146, height: 40, fontSize: 22, fontWeight: '700' }),
+      child(`lifeline-${participant.id}`, 'rectangle', px, top + 58 + headerHeight / 2 + (height - headerHeight) / 2, { name: `${participant.label} lifeline`, width: 2, height: height - headerHeight - 44, fillColor: COLORS.mutedText, strokeEnabled: false }),
+    )
+  })
+  sequence.messages.forEach((message, index) => {
+    const frame = messageFrames[index]
+    const source = participantX.get(message.from) ?? 0
+    const target = participantX.get(message.to) ?? 0
+    const direction = target >= source ? (message.kind === 'async' ? '⇢' : '→') : (message.kind === 'async' ? '⇠' : '←')
+    const marker = message.kind === 'response' ? '↩' : direction
+    const rowY = top + 80 + headerHeight + index * rowHeight + rowHeight / 2
+    const shown = { ...DEFAULT_TRANSFORM, x: 0, y: rowY }
+    layers.push(child(`message-${message.id}`, 'text', 0, rowY, {
+      name: `${message.from} ${marker} ${message.to}`, text: `${message.from} ${marker} ${message.to}  ·  ${message.label}`,
+      width: width - 120, height: rowHeight, fontFamily: TYPE.mono, fontSize: 23, fontWeight: '600', textColor: message.kind === 'response' ? COLORS.mutedText : COLORS.cardText,
     }, [
       { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
       { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },

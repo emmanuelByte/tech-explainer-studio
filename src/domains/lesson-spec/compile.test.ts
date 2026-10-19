@@ -215,3 +215,35 @@ describe('comparison cards', () => {
     expect(right.keyframes[1].frame).toBe(audioStart + 45)
   })
 })
+
+describe('bullet cards', () => {
+  it('reveals items on cues and keeps the established overlay renderer', () => {
+    const value = spec()
+    value.scenes[1].narration = '[[takeaways.1]]First point, [[takeaways.2]]then the second point.'
+    value.scenes[1].bullets = { id: 'takeaways', title: 'Key takeaways', tone: 'positive', items: ['First point', 'Second point'] }
+    const project = compileLessonSpec(value, options)
+    expect(validateLessonSpec(value)).toEqual([])
+    expect(project.layers.some((layer) => layer.id === 'card_bullets_takeaways')).toBe(true)
+    expect(project.layers.find((layer) => layer.id === 'card_bullets_takeaways__line1')?.text).toBe('• First point')
+  })
+})
+
+describe('sequence diagrams', () => {
+  it('renders semantic participants and cue-addressable messages', () => {
+    const value = spec()
+    value.scenes[1].narration = '[[checkout.request]]The client sends a request, [[checkout.response]]and the service responds.'
+    value.scenes[1].sequence = {
+      id: 'checkout',
+      participants: [{ id: 'client', label: 'Client' }, { id: 'service', label: 'Service' }],
+      messages: [
+        { id: 'request', from: 'client', to: 'service', label: 'POST /checkout', kind: 'sync' },
+        { id: 'response', from: 'service', to: 'client', label: '201 Created', kind: 'response' },
+      ],
+    }
+    expect(validateLessonSpec(value)).toEqual([])
+    const project = compileLessonSpec(value, options)
+    expect(project.layers.some((layer) => layer.id === 'sequence_checkout')).toBe(true)
+    expect(project.layers.find((layer) => layer.id === 'sequence_checkout__message-request')?.text).toContain('POST /checkout')
+    expect(project.layers.find((layer) => layer.id === 'sequence_checkout__message-response')?.text).toContain('↩')
+  })
+})

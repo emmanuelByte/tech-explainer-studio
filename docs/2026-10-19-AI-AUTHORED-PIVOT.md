@@ -108,7 +108,7 @@ human can preview and export without opening an editing panel.
 | 3 Self-review loop (`validate`/`build`/`lint`/`stills`) | Done |
 | 4 Narration-driven timing | Done (chunk cues; no forced alignment needed) |
 | 5 Component kit | Done (10 kinds) |
-| 6 Explainer blocks | Partly: `hide`, code/request and comparison cards, title/outro cards, emphasis and data-flow pulses. Not yet: sequence diagrams and bullet lists |
+| 6 Explainer blocks | Done: `hide`, code/request, comparison and bullet cards, sequence diagrams, title/outro cards, emphasis and data-flow pulses |
 | 7 Theme file | Done (`src/domains/lesson-spec/theme.ts`) |
 | 8 Review-only UI | Done (`/review/<id>`) |
 | 9 Patchable specs / stable ids | Done (stable-id patch CLI with validation and explicit write) |
@@ -369,6 +369,18 @@ sequence diagrams).
 - Project histories and review notes use the same atomic replacement pattern.
   The previously failing `focus.test.ts` fixture was made structurally valid,
   restoring a clean TypeScript baseline.
+
+### 2026-10-19 — Production pipeline: semantic teaching overlays
+
+- `bullets` provides cue-driven explanation, definition, takeaway and recap
+  cards, including neutral/positive/negative emphasis. It deliberately reuses
+  the established compiler overlay geometry and animation.
+- `sequence` describes participants and synchronous, asynchronous or response
+  messages—without coordinates. The compiler positions participant labels and
+  lifelines, then reveals directional message rows from narration cues.
+- `lessons/request-response-sequence.lesson.json` is the representative source
+  example. Its validated/linted, rendered sequence frame was inspected at
+  video scale.
 
 ## Milestone 8 handoff and implementation notes (written 2026-10-19)
 
