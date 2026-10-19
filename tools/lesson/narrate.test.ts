@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { LessonSpec } from '../../src/domains/lesson-spec/types'
-import { assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationIsCurrent, pruneNarrationAssets, type NarrateOptions } from './narrate'
+import { MASTER_VERSION, assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationIsCurrent, pruneNarrationAssets, type NarrateOptions } from './narrate'
 import { encodeWav } from './wav'
 
 let root: string
@@ -129,7 +129,7 @@ describe('narration pace', () => {
 
   it('treats narration made at a different pace as out of date', () => {
     const spec = lesson('p6', text, 'A short second scene to say.')
-    const manifest = { voiceId: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 3, scenes: Object.fromEntries(spec.scenes.map((scene) => [scene.id, { assetId: 'a', durationSeconds: 1, cues: {}, source: scene.narration, words: [{ text: 'x', start: 0, end: 1, timing: 'aligned' as const }] }])) }
+    const manifest = { voiceId: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 3, mastering: MASTER_VERSION, scenes: Object.fromEntries(spec.scenes.map((scene) => [scene.id, { assetId: 'a', durationSeconds: 1, cues: {}, source: scene.narration, words: [{ text: 'x', start: 0, end: 1, timing: 'aligned' as const }] }])) }
     expect(narrationIsCurrent(spec, manifest, { voice: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 3 })).toBe(true)
     expect(narrationIsCurrent(spec, manifest, { voice: 'v', exaggeration: 0.5, cfgWeight: 0.5, pace: 2.6 })).toBe(false)
   })

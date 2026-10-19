@@ -134,6 +134,8 @@ export interface NarrationManifest {
   cfgWeight: number
   /** Words per second above which sentences were slowed when this audio was made. */
   pace?: number
+  /** Version of the audio finishing (loudness and limiting) applied; older audio is regenerated. */
+  mastering?: number
   scenes: Record<string, SceneNarration>
 }
 

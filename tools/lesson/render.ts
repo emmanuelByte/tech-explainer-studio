@@ -52,7 +52,6 @@ export function renderArgs(input: RenderInput): string[] {
     // HD video is bt709 limited-range; Remotion's default (bt601, full range) is flagged yuvj420p and can look washed out or fail in some players.
     '--color-space=bt709',
     '--audio-codec=aac',
-    '--log=error',
   ]
 }
 

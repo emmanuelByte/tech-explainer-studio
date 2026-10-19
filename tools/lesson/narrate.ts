@@ -6,8 +6,8 @@ import { chunkLooksWrong, narrationWords, splitSentences } from '../../src/domai
 import type { LessonSpec, NarrationManifest, NarrationWord } from '../../src/domains/lesson-spec/types'
 import { atomicWriteFile } from '../../server/atomicFile'
 import { localAligner, type AlignFn, type AlignResult } from './align'
-import { ffmpegStretch, type StretchFn } from './stretch'
-import { normalizeLoudness, speechRegion, trimSilence } from './audio'
+import { ffmpegMaster, ffmpegStretch, type MasterFn, type StretchFn } from './stretch'
+import { activeRmsDb, normalizeLoudness, speechRegion, trimSilence } from './audio'
 import { encodeWav, joinWavsWithGaps, parseWav, wavSeconds, type Wav } from './wav'
 
 /** Silence kept on each side of a trimmed sentence so no word is clipped. */
@@ -18,6 +18,28 @@ const CLAUSE_GAP_SECONDS = 0.16
 /** Sentences are never slowed by more than this, so speech keeps its character. */
 export const MIN_TEMPO = 0.8
 export const DEFAULT_PACE = 3.0
+/**
+ * Level of the speech (RMS over spoken parts) the narration is brought to.
+ * About -14.5 dBFS lands near -16 LUFS integrated, the usual target for
+ * short-form video; the limiter keeps peaks under -1 dBFS.
+ */
+export const MASTER_SPEECH_DB = -14.5
+const MAX_MASTER_GAIN_DB = 14
+/** Bump when the finishing changes, so audio made the old way is spoken (from cache) and finished again. */
+export const MASTER_VERSION = 3
+
+/** Brings a scene's speech to the publishing level; falls back to plain normalisation if ffmpeg is unavailable. */
+async function masterScene(options: NarrateOptions, wav: Wav): Promise<Wav> {
+  const level = activeRmsDb(wav)
+  if (level <= -100) return wav
+  const gain = Math.max(-12, Math.min(MAX_MASTER_GAIN_DB, MASTER_SPEECH_DB - level))
+  try {
+    return await (options.master ?? ffmpegMaster)(wav, gain)
+  } catch (error) {
+    options.log(`  (could not limit-master a scene: ${(error as Error).message}; using plain normalisation)`)
+    return normalizeLoudness(wav, MASTER_SPEECH_DB)
+  }
+}
 /** Below this mean confidence a clip's alignment is not trusted. */
 const MIN_ALIGNMENT_SCORE = 0.35
 const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
@@ -37,6 +59,8 @@ export interface NarrateOptions {
   pace?: number
   /** Replaces the time-stretcher; used by tests. */
   stretch?: StretchFn
+  /** Replaces the gain-and-limit step; used by tests. */
+  master?: MasterFn
 }
 
 const sha = (value: string | Buffer, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length)
@@ -62,7 +86,7 @@ export function narrationInputs(spec: LessonSpec, params: { voice: string; exagg
 /** True when a manifest was made from exactly this spec's narration with these voice settings. */
 export function narrationIsCurrent(spec: LessonSpec, manifest: NarrationManifest | undefined, params: { voice: string; exaggeration: number; cfgWeight: number; pace?: number }) {
   if (!manifest) return false
-  if (manifest.pace !== (params.pace ?? DEFAULT_PACE)) return false
+  if (manifest.pace !== (params.pace ?? DEFAULT_PACE) || manifest.mastering !== MASTER_VERSION) return false
   if (manifest.voiceId !== params.voice || manifest.exaggeration !== params.exaggeration || manifest.cfgWeight !== params.cfgWeight) return false
   return spec.scenes.every((scene) => manifest.scenes[scene.id]?.source === scene.narration && (manifest.scenes[scene.id]?.words?.length ?? 0) > 0)
     && Object.keys(manifest.scenes).length === spec.scenes.length
@@ -316,7 +340,7 @@ function clipWords(clip: SpokenClip, result: AlignResult | undefined): Narration
  */
 export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): Promise<NarrationManifest> {
   await pruneNarrationAssets(options.root, spec.id) // recover from an interrupted earlier run
-  const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, pace: options.pace ?? DEFAULT_PACE, scenes: {} }
+  const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, pace: options.pace ?? DEFAULT_PACE, mastering: MASTER_VERSION, scenes: {} }
   for (const scene of spec.scenes) {
     const { words, cues } = narrationWords(scene.narration)
     const clips: SpokenClip[] = []
@@ -339,7 +363,7 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
       starts.push(cursor)
       cursor += wavSeconds(clip.wav) + (index < clips.length - 1 ? gaps[index] : 0)
     })
-    const joined = normalizeLoudness(joinWavsWithGaps(clips.map((clip) => clip.wav), gaps))
+    const joined = await masterScene(options, joinWavsWithGaps(clips.map((clip) => clip.wav), gaps))
     const seconds = wavSeconds(joined)
     const spoken: NarrationWord[] = clips.flatMap((clip, index) =>
       clipWords(clip, alignments.get(clip.key)).map((word) => ({ ...word, start: round(starts[index] + word.start), end: round(starts[index] + word.end) })))

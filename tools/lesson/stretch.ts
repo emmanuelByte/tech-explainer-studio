@@ -40,3 +40,29 @@ export const ffmpegStretch: StretchFn = async (wav, tempo) => {
     child.stdin.end(encodeWav(wav))
   })
 }
+
+export type MasterFn = (wav: Wav, gainDb: number) => Promise<Wav>
+
+/**
+ * Applies gain and then a peak limiter, so speech can be brought to a
+ * publishing loudness without clipping its peaks (a plain gain cannot: speech
+ * peaks are about 13 dB above its average level).
+ */
+export const ffmpegMaster: MasterFn = async (wav, gainDb) => {
+  const codec = wav.format === 3 ? 'pcm_f32le' : 'pcm_s16le'
+  return new Promise<Wav>((done, fail) => {
+    const filter = `volume=${gainDb.toFixed(2)}dB,alimiter=limit=0.89:attack=5:release=60:level=disabled`
+    const child = spawn('ffmpeg', ['-v', 'error', '-f', 'wav', '-i', 'pipe:0', '-af', filter, '-c:a', codec, '-ar', String(wav.sampleRate), '-ac', String(wav.channels), '-f', 'wav', 'pipe:1'], { stdio: ['pipe', 'pipe', 'pipe'] })
+    const out: Buffer[] = []
+    let err = ''
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk))
+    child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString() })
+    child.on('error', (error) => fail(new Error(`Could not start ffmpeg: ${error.message}`)))
+    child.on('close', (code) => {
+      if (code !== 0) return fail(new Error(`ffmpeg limiter failed: ${err.trim().split('\n').slice(-2).join(' ')}`))
+      try { done(parseWav(Buffer.concat(out))) } catch (error) { fail(error as Error) }
+    })
+    child.stdin.on('error', () => undefined)
+    child.stdin.end(encodeWav(wav))
+  })
+}

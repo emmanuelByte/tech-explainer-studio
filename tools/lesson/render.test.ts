@@ -18,6 +18,10 @@ describe('renderArgs', () => {
     expect(args).toContain('--public-dir=data')
   })
 
+  it('leaves Remotion\'s progress lines on so the pipeline can report percentages', () => {
+    expect(renderArgs({ projectPath: 'p', outPath: 'o', quality: 'standard', durationFrames: 10 }).some((arg) => arg.startsWith('--log'))).toBe(false)
+  })
+
   it('never produces an empty frame range', () => {
     expect(renderArgs({ projectPath: 'p', outPath: 'o', quality: 'draft', durationFrames: 0 })).toContain('--frames=0-0')
   })
