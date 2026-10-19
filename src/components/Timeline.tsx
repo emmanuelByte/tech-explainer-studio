@@ -8,7 +8,6 @@ import { TrackFilterBar } from './timeline/TrackFilterBar'
 import { filterLayerRows } from '../domains/timeline/filters'
 import { visibleItemIndices } from '../domains/timeline/virtualization'
 import { AnimatableProperty, Connector, KeyframeSelection, Layer, PairEasingType, Scene, ScriptSegment, TimelineMarker, LAYER_TYPE_COLOR, TransformProps, DEFAULT_TRANSFORM } from '../types'
-import { VideoSegmentBars } from './VideoSegmentBars'
 import { interpolateProps } from '../remotion/interpolateProps'
 import {
   DndContext, closestCenter, DragEndEvent,
@@ -799,25 +798,11 @@ function TrackRow({
   // Video layers with materialised segments render per-segment bars instead
   // of one continuous bar; everything else (keyframes, group bracket, etc.)
   // stays identical.
-  const isVideoWithSegments = layer.type === 'video' && (layer.videoSegments?.length ?? 0) > 0
-
   return (
     <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', width: contentWidth, borderBottom: '1px solid var(--border2)', background: selected ? 'var(--hover)' : 'transparent', cursor: 'pointer' }}>
       {/* Main bar row */}
       <div style={{ height: rowH, position: 'relative' }}>
-        {isVideoWithSegments ? (
-          <div data-timeline-interactive>
-            <VideoSegmentBars
-              layer={layer}
-              fpx={fpx}
-              timelineOffset={timelineOffset}
-              rowH={rowH}
-              currentFrame={currentFrame}
-              color={color}
-              onClickLayer={onClick}
-            />
-          </div>
-        ) : (
+        {(
           /* Layer time bar */
           <div
             data-timeline-interactive

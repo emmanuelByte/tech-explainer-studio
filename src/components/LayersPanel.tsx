@@ -29,11 +29,10 @@ import { filterLayerRows } from '../domains/timeline/filters'
 import { IconPickerModal } from './IconPickerModal'
 import type { IconPick } from './IconPickerModal'
 import { ImageLibraryModal } from './ImageLibraryModal'
-import { VideoLibraryModal } from './VideoLibraryModal'
 import { AudioLibraryModal } from './AudioLibraryModal'
 import { LibraryModal } from './LibraryModal'
 import { ColorPicker } from './ColorPicker'
-import type { AudioAsset, ImageAsset, VideoAsset } from '../assetStorage'
+import type { AudioAsset, ImageAsset } from '../assetStorage'
 import { useToast } from './Toast'
 import { LayerOrderAction, reorderLayersForStack } from '../layerOrdering'
 
@@ -275,8 +274,8 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const toast = useToast()
   const {
     layers: rawLayers, scenes, editorWorkspace, activeSceneId, selectedLayerIds, currentFrame, fps,
-    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addVideo, addTechnicalComponent, addLoadBalancerTopology,
-    replaceImageSource, replaceVideoSource, replaceAudioSource,
+    selectLayer, selectLayers, addLayer, addGeneratedLayer, addImage, addTechnicalComponent, addLoadBalancerTopology,
+    replaceImageSource, replaceAudioSource,
     reorderLayersById, moveLayerToParent, groupSelected, ungroupLayer,
     selectChildren, selectSiblings, collapseAllGroups, expandAllGroups, setTool, addConnector, applySequentialReveal, applyHighlightPulse, animateSelectedConnectors,
     script, trackSearchQuery, activeTrackFilters, activeSceneExpandedGroupIds,
@@ -293,11 +292,9 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
   const [convertModal, setConvertModal] = useState<ConvertGroupModal | null>(null)
   const [showIcons, setShowIcons] = useState(false)
   const [showImages, setShowImages] = useState(false)
-  const [showVideos, setShowVideos] = useState(false)
   const [showAudios, setShowAudios] = useState(false)
   const [showLibrary, setShowLibrary] = useState(false)
   const [replaceImageLayerId, setReplaceImageLayerId] = useState<string | null>(null)
-  const [replaceVideoLayerId, setReplaceVideoLayerId] = useState<string | null>(null)
   const [replaceAudioLayerId, setReplaceAudioLayerId] = useState<string | null>(null)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [shapeMenuOpen, setShapeMenuOpen] = useState(false)
@@ -484,32 +481,6 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
       })
     }
     setShowImages(false)
-  }
-
-  function addVideoAsset(asset: VideoAsset) {
-    if (replaceVideoLayerId) {
-      replaceVideoSource(replaceVideoLayerId, asset.url, asset.naturalWidth, asset.naturalHeight, asset.duration)
-      setReplaceVideoLayerId(null)
-    } else {
-      const maxW = 420
-      const maxH = 280
-      const aspect = asset.naturalWidth && asset.naturalHeight ? asset.naturalWidth / asset.naturalHeight : 16 / 9
-      const scale = asset.naturalWidth && asset.naturalHeight ? Math.min(1, maxW / asset.naturalWidth, maxH / asset.naturalHeight) : 1
-      const width = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(asset.naturalWidth * scale)) : 320
-      const height = asset.naturalWidth && asset.naturalHeight ? Math.max(1, Math.round(width / aspect)) : 180
-      addGeneratedLayer('video', {
-        parentId: insertionParentId(),
-        name: asset.name,
-        src: asset.url,
-        imageFit: 'contain',
-        videoNaturalWidth: asset.naturalWidth,
-        videoNaturalHeight: asset.naturalHeight,
-        videoDuration: asset.duration,
-        width,
-        height,
-      })
-    }
-    setShowVideos(false)
   }
 
   function addAudioAsset(asset: AudioAsset) {
@@ -699,7 +670,6 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             <AddMenuItem label={t('layers.addLoadBalancer')} icon={Server} onClick={() => { addTechnicalComponent('load-balancer'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.addServer')} icon={Server} onClick={() => { addTechnicalComponent('server'); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.image')} icon={ImageIcon} onClick={() => { setShowImages(true); setAddMenuOpen(false) }} />
-            <AddMenuItem label={t('layers.video')} icon={Film} onClick={() => { setShowVideos(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.audio')} icon={Music} onClick={() => { setShowAudios(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.icons')} icon={Sparkles} onClick={() => { setShowIcons(true); setAddMenuOpen(false) }} />
             <AddMenuItem label={t('layers.library')} icon={Library} onClick={() => { setShowLibrary(true); setAddMenuOpen(false) }} />
@@ -862,13 +832,6 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
                 setShowImages(true)
               },
             }] : []),
-            ...(menu.layer.type === 'video' ? [{
-              label: t('layers.replaceVideo'),
-              action: () => {
-                setReplaceVideoLayerId(menu.layer.id)
-                setShowVideos(true)
-              },
-            }] : []),
             { label: t('common.delete'), danger: true, action: () => { if (childCount(menu.layer.id) === 0 || confirm(t('layers.deleteChildrenConfirm'))) useStore.getState().deleteLayer(menu.layer.id) } },
             { label: t('layers.selectChildren'), action: () => selectChildren(menu.layer.id) },
             { label: t('layers.selectSiblings'), action: () => selectSiblings(menu.layer.id) },
@@ -933,15 +896,6 @@ export function LayersPanel({ width = 220 }: { width?: number }) {
             setReplaceImageLayerId(null)
           }}
           onPick={addImageAsset}
-        />
-      )}
-      {showVideos && (
-        <VideoLibraryModal
-          onClose={() => {
-            setShowVideos(false)
-            setReplaceVideoLayerId(null)
-          }}
-          onPick={addVideoAsset}
         />
       )}
       {showAudios && (
