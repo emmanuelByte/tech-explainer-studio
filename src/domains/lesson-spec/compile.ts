@@ -13,6 +13,7 @@ import {
 } from '../../types'
 import { CURRENT_PROJECT_SCHEMA_VERSION } from '../project/migrations'
 import { parseNarration } from './narration'
+import { arrowPath, layoutSequence } from './sequence'
 import { LESSON_THEME } from './theme'
 import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecBullets, type SpecCard, type SpecComparison, type SpecNode, type SpecScene, type SpecSequence } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
@@ -641,7 +642,16 @@ function bulletLayers(
   return layers
 }
 
-/** A conventional, source-order sequence diagram assembled from normal layers. */
+/** Frames a message arrow takes to draw from sender to receiver. */
+const ARROW_DRAW_FRAMES = 14
+
+/**
+ * A conventional sequence diagram assembled from normal layers: participant
+ * headers, dashed lifelines, and real arrows (filled head = synchronous request,
+ * open head = asynchronous message, dashed line = response) that draw in on
+ * their narration cue. The panel is scaled to fit the canvas, so the same
+ * semantic sequence serves 16:9 and 9:16.
+ */
 function sequenceLayers(
   sequence: SpecSequence,
   framing: CameraKeyframe,
@@ -651,19 +661,15 @@ function sequenceLayers(
   sequenceStart: number,
   messageFrames: number[],
 ): Layer[] {
+  const geometry = layoutSequence(sequence, canvas, CAPTION_RESERVE)
   const x = framing.x - canvas.width / 2
   const y = framing.y - canvas.height / 2 - CAPTION_RESERVE / (2 * framing.zoom)
-  const scale = 1 / framing.zoom
-  const width = 1180
-  const headerHeight = 86
-  const rowHeight = 58
-  const height = 80 + headerHeight + sequence.messages.length * rowHeight + 48
-  const top = -height / 2
+  const scale = geometry.fit / framing.zoom
   const groupId = `sequence_${sequence.id}`
   const timing = { startFrame: start, endFrame: end }
   const at = (opacity: number) => ({ ...DEFAULT_TRANSFORM, x, y, scale, opacity })
   const group = baseLayer('group', {
-    id: groupId, name: 'Sequence diagram', width, height, ...timing,
+    id: groupId, name: 'Sequence diagram', width: geometry.width, height: geometry.height, ...timing,
     keyframes: [
       { frame: start, easing: 'linear', props: at(0) },
       { frame: sequenceStart, easing: 'ease-out', props: at(0) },
@@ -672,43 +678,96 @@ function sequenceLayers(
       { frame: end, easing: 'linear', props: at(0) },
     ],
   })
+  const fadeIn = (frame: number, offsetX: number, offsetY: number): Keyframe[] => {
+    const shown = { ...DEFAULT_TRANSFORM, x: offsetX, y: offsetY }
+    return [
+      { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
+      { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },
+      { frame: frame + CARD_FADE_FRAMES, easing: 'ease-out', props: shown },
+    ]
+  }
   const child = (id: string, type: LayerType, offsetX: number, offsetY: number, overrides: Partial<Layer>, keyframes?: Keyframe[]) => baseLayer(type, {
     id: `${groupId}__${id}`, parentId: groupId, ...timing,
     keyframes: keyframes ?? staticKeyframe(start, offsetX, offsetY), ...overrides,
   } as Parameters<typeof baseLayer>[1])
+  const draw = (id: string, frame: number): Layer['propertyKeyframes'] => ({
+    drawProgress: [
+      { id: `${id}_d0`, frame: start, value: 0, easing: 'linear' },
+      { id: `${id}_d1`, frame, value: 0, easing: 'ease-out' },
+      { id: `${id}_d2`, frame: frame + ARROW_DRAW_FRAMES, value: 1, easing: 'linear' },
+    ],
+  })
+  const palette = Object.values(PALETTE)
   const layers: Layer[] = [
     group,
     child('backdrop', 'rectangle', 0, 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: COLORS.cardBackdrop }),
-    child('panel', 'rectangle', 0, 0, { name: 'Sequence panel', width, height, fillColor: COLORS.panel, strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 20 }),
+    child('panel', 'rectangle', 0, 0, { name: 'Sequence panel', width: geometry.width, height: geometry.height, fillColor: COLORS.panel, strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 20 }),
   ]
-  const participantStep = sequence.participants.length === 1 ? 0 : (width - 180) / (sequence.participants.length - 1)
-  const participantX = new Map(sequence.participants.map((participant, index) => [participant.id, -width / 2 + 90 + index * participantStep]))
-  sequence.participants.forEach((participant, index) => {
-    const px = participantX.get(participant.id)!
+  // Lifelines sit under everything else in the panel; children stack last-on-top.
+  for (const participant of geometry.participants) {
+    const length = participant.lifelineBottom - participant.lifelineTop
+    layers.push(child(`lifeline-${participant.id}`, 'path', participant.x, participant.lifelineTop + length / 2, {
+      name: `${participant.id} lifeline`, width: 4, height: length, pathData: dashedVertical(length, 4), strokeEnabled: true,
+      strokeColor: COLORS.lifeline, strokeWidth: 3, fillType: 'none', sketchEnabled: false,
+      propertyKeyframes: draw(`${groupId}_${participant.id}`, sequenceStart),
+    }, fadeIn(sequenceStart, participant.x, participant.lifelineTop + length / 2)))
+  }
+  const labelLayers: Layer[] = []
+  sequence.messages.forEach((_, index) => {
+    const message = geometry.messages[index]
+    const frame = messageFrames[index]
+    const colour = message.kind === 'async' ? COLORS.messageAsync : message.kind === 'response' ? COLORS.messageResponse : COLORS.messageSync
+    const arrow = arrowPath(message.kind, message.fromX, message.toX)
+    const centreX = (message.fromX + message.toX) / 2
+    const arrowFrames = (offsetX: number, offsetY: number): Keyframe[] => {
+      const shown = { ...DEFAULT_TRANSFORM, x: offsetX, y: offsetY }
+      return [
+        { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
+        { frame, easing: 'linear', props: { ...shown, opacity: 0 } },
+        { frame: frame + 1, easing: 'linear', props: shown },
+      ]
+    }
     layers.push(
-      child(`participant-${participant.id}`, 'rectangle', px, top + 58, { name: `${participant.label} participant`, width: 160, height: 52, fillColor: PALETTE[Object.keys(PALETTE)[index % Object.keys(PALETTE).length] as keyof typeof PALETTE].fill, strokeEnabled: true, strokeColor: COLORS.accent, strokeWidth: 2, borderRadius: 12 }),
-      child(`participant-${participant.id}-label`, 'text', px, top + 58, { name: `${participant.label} label`, text: participant.label, width: 146, height: 40, fontSize: 22, fontWeight: '700' }),
-      child(`lifeline-${participant.id}`, 'rectangle', px, top + 58 + headerHeight / 2 + (height - headerHeight) / 2, { name: `${participant.label} lifeline`, width: 2, height: height - headerHeight - 44, fillColor: COLORS.mutedText, strokeEnabled: false }),
+      // A panel-coloured patch behind the label keeps lifelines from striking through the text.
+      child(`message-${message.id}-knockout`, 'rectangle', message.labelX, message.labelY, {
+        name: `${message.id} label background`, width: message.labelWidth, height: message.labelHeight, fillColor: COLORS.panel, borderRadius: 6,
+      }, fadeIn(frame, message.labelX, message.labelY)),
+      child(`message-${message.id}-arrow`, 'path', centreX, message.y, {
+        name: `${message.id} arrow`, width: arrow.width, height: arrow.height, pathData: arrow.d, strokeEnabled: true,
+        strokeColor: colour, strokeWidth: 4, fillType: message.kind === 'sync' ? 'solid' : 'none', fillColor: colour, sketchEnabled: false,
+        propertyKeyframes: draw(`${groupId}_${message.id}`, frame),
+      }, arrowFrames(centreX, message.y)),
+    )
+    labelLayers.push(child(`message-${message.id}-label`, 'text', message.labelX, message.labelY, {
+      name: `${message.id} label`, text: message.labelLines.join('\n'), width: message.labelWidth, height: message.labelHeight,
+      fontFamily: TYPE.mono, fontSize: message.labelFontSize, fontWeight: '600', lineHeight: 1.25,
+      textColor: message.kind === 'response' ? COLORS.messageResponse : COLORS.cardText, htmlText: true, htmlWhiteSpace: 'pre',
+    }, fadeIn(frame, message.labelX, message.labelY)))
+  })
+  layers.push(...labelLayers)
+  geometry.participants.forEach((participant, index) => {
+    const header = sequence.participants[index]
+    layers.push(
+      child(`participant-${participant.id}`, 'rectangle', participant.x, participant.headerY, {
+        name: `${header.label} participant`, width: participant.headerWidth, height: participant.headerHeight,
+        fillColor: palette[index % palette.length].fill, strokeEnabled: true, strokeColor: palette[index % palette.length].stroke, strokeWidth: 2, borderRadius: 12,
+      }, fadeIn(sequenceStart, participant.x, participant.headerY)),
+      child(`participant-${participant.id}-label`, 'text', participant.x, participant.headerY, {
+        name: `${header.label} label`, text: participant.labelLines.join('\n'), width: participant.headerWidth - 12, height: Math.ceil(participant.labelLines.length * participant.labelFontSize * 1.15),
+        fontSize: participant.labelFontSize, fontWeight: '700', lineHeight: 1.15, htmlText: true, htmlWhiteSpace: 'pre',
+      }, fadeIn(sequenceStart, participant.x, participant.headerY)),
     )
   })
-  sequence.messages.forEach((message, index) => {
-    const frame = messageFrames[index]
-    const source = participantX.get(message.from) ?? 0
-    const target = participantX.get(message.to) ?? 0
-    const direction = target >= source ? (message.kind === 'async' ? '⇢' : '→') : (message.kind === 'async' ? '⇠' : '←')
-    const marker = message.kind === 'response' ? '↩' : direction
-    const rowY = top + 80 + headerHeight + index * rowHeight + rowHeight / 2
-    const shown = { ...DEFAULT_TRANSFORM, x: 0, y: rowY }
-    layers.push(child(`message-${message.id}`, 'text', 0, rowY, {
-      name: `${message.from} ${marker} ${message.to}`, text: `${message.from} ${marker} ${message.to}  ·  ${message.label}`,
-      width: width - 120, height: rowHeight, fontFamily: TYPE.mono, fontSize: 23, fontWeight: '600', textColor: message.kind === 'response' ? COLORS.mutedText : COLORS.cardText,
-    }, [
-      { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
-      { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },
-      { frame: frame + CARD_FADE_FRAMES, easing: 'ease-out', props: shown },
-    ]))
-  })
   return layers
+}
+
+/** A vertical dashed line of the given length, drawn in a layer of the given width. */
+function dashedVertical(length: number, width: number) {
+  const dash = 12
+  const gap = 8
+  const parts: string[] = []
+  for (let at = 0; at < length; at += dash + gap) parts.push(`M ${width / 2} ${at} L ${width / 2} ${Math.min(length, at + dash)}`)
+  return parts.join(' ')
 }
 
 /** A two-column teaching card, centred over a dimmed diagram like a code card. */

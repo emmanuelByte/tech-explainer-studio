@@ -41,6 +41,9 @@ async function readSpec(path: string | undefined) {
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
+/** Overlays fade out over the last 12 frames of a scene; stay clear of that. */
+const STILL_OFFSET_FRAMES = 16
+
 const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
@@ -157,14 +160,14 @@ async function main() {
     return
   }
   if (command === 'stills') {
-    // One frame per scene, just before it ends, when its reveals and camera move have finished.
+    // One frame per scene, late enough that reveals and the camera move have finished but before overlays start fading out.
     const projectPath = await writeProject(project)
     const dir = resolve(root, 'data', 'exports', 'stills', project.id)
     await rm(dir, { recursive: true, force: true }) // stale stills from an older scene order would mislead
     await mkdir(dir, { recursive: true })
     for (const [index, scene] of (project.scenes ?? []).entries()) {
       const out = resolve(dir, `${String(index + 1).padStart(2, '0')}-${scene.id.replace(/^scene_/, '')}.png`)
-      await renderStill(projectPath, scene.endFrame - 8, out)
+      await renderStill(projectPath, scene.endFrame - STILL_OFFSET_FRAMES, out)
       console.log(out)
     }
     return

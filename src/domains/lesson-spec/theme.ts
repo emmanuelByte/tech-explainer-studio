@@ -25,6 +25,10 @@ export const LESSON_THEME: {
     comparisonRightAccent: string
     introBackdrop: string
     outroBackdrop: string
+    lifeline: string
+    messageSync: string
+    messageAsync: string
+    messageResponse: string
   }
   typography: {
     sans: string
@@ -80,6 +84,10 @@ export const LESSON_THEME: {
     comparisonRightAccent: '#5eead4',
     introBackdrop: '#0b1020',
     outroBackdrop: 'rgba(11,16,32,0.88)',
+    lifeline: '#64748b',
+    messageSync: '#60a5fa',
+    messageAsync: '#fbbf24',
+    messageResponse: '#4ade80',
   },
   typography: {
     sans: 'Inter',
