@@ -301,12 +301,17 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
     }
   }
 
-  const canvas = isRecord(input.canvas) ? input.canvas : {}
-  const width = typeof canvas.width === 'number' ? canvas.width : SPEC_DEFAULTS.width
-  if (nodes && !issues.length && width >= (typeof canvas.height === 'number' ? canvas.height : SPEC_DEFAULTS.height)) {
+  if (nodes && !issues.length) {
+    // Graph validity does not depend on the canvas: a cycle breaks every layout.
     const ranks = rankCount(input as unknown as LessonSpec)
     if (ranks === null) add('edges', 'Edges form a cycle; the layout needs a directed acyclic graph.')
-    else if ((ranks - 1) * 400 + 240 + 80 > width) add('nodes', `The graph is ${ranks} columns deep and will not fit a ${width}px canvas.`)
+    else {
+      // Landscape lays ranks out as columns; portrait stacks them, so only landscape is width-limited.
+      const canvas = isRecord(input.canvas) ? input.canvas : {}
+      const width = typeof canvas.width === 'number' ? canvas.width : SPEC_DEFAULTS.width
+      const height = typeof canvas.height === 'number' ? canvas.height : SPEC_DEFAULTS.height
+      if (width >= height && (ranks - 1) * 400 + 240 + 80 > width) add('nodes', `The graph is ${ranks} columns deep and will not fit a ${width}px canvas.`)
+    }
   }
 
   return issues

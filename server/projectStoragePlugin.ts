@@ -249,6 +249,10 @@ export function projectStoragePlugin() {
               return
             }
             if (req.method === 'DELETE') {
+              if (id.startsWith('lesson_')) {
+                sendError(res, 409, 'AI-authored lesson projects keep their history.')
+                return
+              }
               await rm(historyPath(root, id), { force: true })
               sendJson(res, 200, { ok: true })
               return
@@ -283,6 +287,10 @@ export function projectStoragePlugin() {
           }
 
           if (req.method === 'DELETE') {
+            if (id.startsWith('lesson_')) {
+              sendError(res, 409, 'This is an AI-authored lesson project; delete its spec and build output from the command line, not the legacy editor.')
+              return
+            }
             await deleteProject(root, id)
             sendJson(res, 200, { ok: true })
             return

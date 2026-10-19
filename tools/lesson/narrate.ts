@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, readdir, readFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { chunkLooksWrong, parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
+import { atomicWriteFile } from '../../server/atomicFile'
 import { encodeWav, joinWavs, parseWav, wavSeconds } from './wav'
 
 const GAP_SECONDS = 0.18
@@ -15,6 +16,8 @@ export interface NarrateOptions {
   exaggeration: number
   cfgWeight: number
   log: (line: string) => void
+  /** Replaces the Chatterbox request; used by tests. */
+  generate?: (text: string) => Promise<Buffer>
 }
 
 const sha = (value: string | Buffer, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length)
@@ -71,36 +74,41 @@ async function synthesise(options: NarrateOptions, text: string) {
   let best: Buffer | null = null
   let bestSeconds = Infinity
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const bytes = await generate(options, text)
+    const bytes = await (options.generate ?? ((value) => generate(options, value)))(text)
     const seconds = wavSeconds(parseWav(bytes))
     if (seconds < bestSeconds) { best = bytes; bestSeconds = seconds }
     if (!chunkLooksWrong(text, seconds)) break
     options.log(`  attempt ${attempt}: ${seconds.toFixed(1)}s for ${text.length} characters looks wrong`)
   }
   if (chunkLooksWrong(text, bestSeconds)) options.log(`  WARNING: "${text}" still looks wrong; merge it into a longer phrase`)
-  await mkdir(resolve(cached, '..'), { recursive: true })
-  await writeFile(cached, best!)
+  await atomicWriteFile(cached, best!)
   return { bytes: best!, note: '' }
 }
 
 interface StoredAsset { id: string; name: string; fileName: string; [key: string]: unknown }
 
-/** Registers a scene's joined narration in the editor's asset store so projects and renders can reference it. */
+const assetIndexPath = (root: string) => resolve(root, 'data', 'assets', 'index.json')
+const assetFilesDir = (root: string) => resolve(root, 'data', 'assets', 'files')
+const lessonAssetPrefix = (specId: string) => `lesson:${specId}:`
+
+async function readAssetIndex(root: string): Promise<StoredAsset[]> {
+  try {
+    return JSON.parse(await readFile(assetIndexPath(root), 'utf-8')) as StoredAsset[]
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+}
+
+/**
+ * Writes a scene's joined narration into the asset store. Audio is
+ * content-addressed, so a new take never overwrites the previous one, and the
+ * previous entry stays in the index until the new manifest is committed.
+ */
 async function registerAsset(root: string, name: string, bytes: Buffer, durationSeconds: number) {
   const id = `asset_nar_${sha(bytes, 12)}`
-  const indexPath = resolve(root, 'data', 'assets', 'index.json')
-  const filesDir = resolve(root, 'data', 'assets', 'files')
-  await mkdir(filesDir, { recursive: true })
-  let index: StoredAsset[] = []
-  try {
-    index = JSON.parse(await readFile(indexPath, 'utf-8')) as StoredAsset[]
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
-  // Drop superseded audio for the same scene so old takes do not pile up.
-  for (const old of index.filter((asset) => asset.name === name && asset.id !== id)) {
-    await rm(resolve(filesDir, old.fileName), { force: true })
-  }
+  await atomicWriteFile(resolve(assetFilesDir(root), `${id}.wav`), bytes)
+  const index = await readAssetIndex(root)
   const now = new Date().toISOString()
   const existing = index.find((asset) => asset.id === id)
   const entry = {
@@ -112,18 +120,65 @@ async function registerAsset(root: string, name: string, bytes: Buffer, duration
     imageKind: 'raster',
     duration: Math.round(durationSeconds * 100) / 100,
     bytes: bytes.length,
-    createdAt: existing?.createdAt ?? now,
+    createdAt: (existing?.createdAt as string | undefined) ?? now,
     updatedAt: now,
     url: `/api/assets/${id}/file`,
   }
-  await writeFile(resolve(filesDir, entry.fileName), bytes)
-  const next = [...index.filter((asset) => asset.name !== name), entry]
-  await writeFile(indexPath, `${JSON.stringify(next, null, 2)}\n`)
+  await atomicWriteFile(assetIndexPath(root), `${JSON.stringify([...index.filter((asset) => asset.id !== id), entry], null, 2)}\n`)
   return id
 }
 
-/** Synthesises every scene (chunk by chunk, cached), joins it, registers it, and writes the manifest. */
+async function referencedAssetIds(root: string) {
+  const dir = resolve(root, 'data', 'narration')
+  const ids = new Set<string>()
+  let names: string[] = []
+  try { names = await readdir(dir) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  for (const name of names.filter((file) => file.endsWith('.json'))) {
+    const manifest = JSON.parse(await readFile(resolve(dir, name), 'utf-8')) as NarrationManifest
+    for (const scene of Object.values(manifest.scenes)) ids.add(scene.assetId)
+  }
+  return ids
+}
+
+/**
+ * Removes this lesson's narration assets that no committed manifest uses:
+ * superseded takes, and orphans left by a run that was interrupted before it
+ * could commit. Also clears leftover temporary files. Safe to run at any time;
+ * it never touches audio a manifest references.
+ */
+export async function pruneNarrationAssets(root: string, specId: string) {
+  const keep = await referencedAssetIds(root)
+  const index = await readAssetIndex(root)
+  const stale = index.filter((asset) => asset.name.startsWith(lessonAssetPrefix(specId)) && !keep.has(asset.id))
+  if (stale.length) {
+    const drop = new Set(stale.map((asset) => asset.id))
+    await atomicWriteFile(assetIndexPath(root), `${JSON.stringify(index.filter((asset) => !drop.has(asset.id)), null, 2)}\n`)
+    for (const asset of stale) await rm(resolve(assetFilesDir(root), asset.fileName), { force: true })
+  }
+  for (const dir of [assetFilesDir(root), resolve(root, 'data', 'narration'), resolve(root, 'data', 'assets')]) {
+    const names = await readdir(dir).catch(() => [] as string[])
+    for (const name of names.filter((file) => file.endsWith('.tmp'))) await rm(resolve(dir, name), { force: true })
+  }
+  return stale.length
+}
+
+/** Confirms every asset a manifest names is both on disk and in the index before it is committed. */
+async function assertManifestConsistent(root: string, manifest: NarrationManifest) {
+  const index = new Set((await readAssetIndex(root)).map((asset) => asset.id))
+  for (const [sceneId, scene] of Object.entries(manifest.scenes)) {
+    if (!index.has(scene.assetId)) throw new Error(`Narration for ${sceneId} (${scene.assetId}) is not in the asset index.`)
+  }
+  await assertNarrationAssets(root, manifest)
+}
+
+/**
+ * Synthesises every scene (chunk by chunk, cached), joins it, registers it, and
+ * commits the manifest. The previous manifest and its audio stay valid until
+ * the very last step, so a failure or interruption at any point leaves the last
+ * working narration intact; superseded audio is removed only afterwards.
+ */
 export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): Promise<NarrationManifest> {
+  await pruneNarrationAssets(options.root, spec.id) // recover from an interrupted earlier run
   const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, scenes: {} }
   for (const scene of spec.scenes) {
     const parsed = parseNarration(scene.narration)
@@ -136,7 +191,7 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
     }
     const joined = joinWavs(clips, GAP_SECONDS)
     const seconds = wavSeconds(joined)
-    const assetId = await registerAsset(options.root, `lesson:${spec.id}:${scene.id}`, encodeWav(joined), seconds)
+    const assetId = await registerAsset(options.root, `${lessonAssetPrefix(spec.id)}${scene.id}`, encodeWav(joined), seconds)
     manifest.scenes[scene.id] = {
       assetId,
       durationSeconds: Math.round(seconds * 1000) / 1000,
@@ -144,8 +199,9 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
       source: scene.narration,
     }
   }
-  const path = narrationManifestPath(options.root, spec.id)
-  await mkdir(resolve(path, '..'), { recursive: true })
-  await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
+  await assertManifestConsistent(options.root, manifest)
+  await atomicWriteFile(narrationManifestPath(options.root, spec.id), `${JSON.stringify(manifest, null, 2)}\n`)
+  const removed = await pruneNarrationAssets(options.root, spec.id)
+  if (removed) options.log(`  removed ${removed} superseded audio file(s)`)
   return manifest
 }

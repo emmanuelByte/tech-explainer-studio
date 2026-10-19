@@ -3,6 +3,7 @@ import { Player, type PlayerRef } from '@remotion/player'
 import { ArrowLeft, Check, Download, FolderOpen, Trash2 } from 'lucide-react'
 import { EditorComposition } from '../remotion/Composition'
 import { readProject } from '../projectStorage'
+import { noteStatus, type ReviewNote } from '../domains/review/notes'
 import type { MotionProject } from '../types'
 
 /**
@@ -10,15 +11,6 @@ import type { MotionProject } from '../types'
  * It never writes the project, so it cannot overwrite a build the way the
  * editor's autosave can.
  */
-
-interface ReviewNote {
-  id: string
-  sceneId: string
-  frame: number
-  text: string
-  createdAt: string
-  done?: boolean
-}
 
 interface ExportJob {
   id: string
@@ -182,14 +174,15 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
             <div style={{ fontSize: 11, color: 'var(--section-header)', marginBottom: 6 }}>NOTES FOR THE AI</div>
             {!notes.length && <div style={{ color: 'var(--text3)', fontSize: 13 }}>No notes yet. Pause on a moment and describe what to change.</div>}
             {notes.map((note) => (
-              <div key={note.id} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border2)', opacity: note.done ? 0.5 : 1 }}>
+              <div key={note.id} style={{ display: 'flex', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--border2)', opacity: noteStatus(note) === 'verified' ? 0.5 : 1 }}>
                 <button className="icon-btn" title="Go to this moment" onClick={() => seek(note.frame)} style={{ fontSize: 12, width: 'auto', padding: '0 6px' }}>
                   {clock(note.frame, fps)}
                 </button>
-                <div style={{ flex: 1, fontSize: 13, textDecoration: note.done ? 'line-through' : 'none' }}>
+                <div style={{ flex: 1, fontSize: 13, textDecoration: noteStatus(note) === 'verified' ? 'line-through' : 'none' }}>
                   <span style={{ color: 'var(--text3)' }}>{note.sceneId}</span> — {note.text}
                 </div>
-                {note.done && <Check size={14} color="#22c55e" />}
+                {noteStatus(note) === 'applied' && <span title={note.appliedSummary} style={{ fontSize: 11, color: '#f59e0b' }}>applied</span>}
+                {noteStatus(note) === 'verified' && <Check size={14} color="#22c55e" />}
                 <button className="icon-btn" title="Delete note" onClick={() => void saveNotes(notes.filter((n) => n.id !== note.id))}>
                   <Trash2 size={13} />
                 </button>

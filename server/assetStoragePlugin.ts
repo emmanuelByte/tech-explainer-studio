@@ -139,7 +139,7 @@ async function saveAsset(root: string, payload: UploadAssetPayload) {
   const imageKind = kind === 'image' ? payload.imageKind || (mimeType === 'image/svg+xml' ? 'svg' : 'raster') : 'raster'
   const fileName = `${id}${extensionForAsset({ ...payload, mimeType, imageKind })}`
   const file = resolve(assetFilesDir(root), fileName)
-  await writeFile(file, parsed.buffer)
+  await atomicWriteFile(file, parsed.buffer)
   const info = await stat(file)
 
   const asset: StoredAsset = {
@@ -269,6 +269,11 @@ export function assetStoragePlugin() {
           }
 
           if (!subresource && req.method === 'DELETE') {
+            // Lesson narration is referenced by narration manifests; only `lesson narrate` may replace it.
+            if (asset.name.startsWith('lesson:')) {
+              sendError(res, 409, 'This audio belongs to an AI-authored lesson. Re-run `lesson narrate` to replace it.')
+              return
+            }
             await rm(assetFilePath(root, asset), { force: true })
             await writeIndex(root, assets.filter((item) => item.id !== id))
             sendJson(res, 200, { ok: true })

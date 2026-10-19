@@ -50,6 +50,32 @@ describe('validateLessonSpec', () => {
   })
 })
 
+describe('graph validity by orientation', () => {
+  const canvases = { landscape: { width: 1920, height: 1080 }, portrait: { width: 1080, height: 1920 } }
+
+  for (const [name, canvas] of Object.entries(canvases)) {
+    it(`accepts an acyclic graph in ${name}`, () => {
+      expect(validateLessonSpec({ ...spec(), canvas })).toEqual([])
+    })
+
+    it(`rejects a cyclic graph in ${name}`, () => {
+      const cyclic = spec()
+      cyclic.edges.push({ id: 's1-c', from: 's1', to: 'c' })
+      cyclic.scenes[2].reveal = [...(cyclic.scenes[2].reveal ?? []), 's1-c']
+      expect(messages({ ...cyclic, canvas }).some((m) => m.includes('cycle'))).toBe(true)
+    })
+  }
+
+  it('does not apply the landscape column limit to portrait', () => {
+    const chain = spec()
+    chain.nodes = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, kind: 'server' as const, label: id }))
+    chain.edges = chain.nodes.slice(1).map((node, i) => ({ id: `e${i}`, from: chain.nodes[i].id, to: node.id }))
+    chain.scenes = [{ id: 'all', title: 'All', narration: 'Six in a chain.', durationSeconds: 6, reveal: [...chain.nodes.map((n) => n.id), ...chain.edges.map((e) => e.id)] }]
+    expect(messages({ ...chain, canvas: canvases.landscape }).some((m) => m.includes('columns deep'))).toBe(true)
+    expect(messages({ ...chain, canvas: canvases.portrait }).some((m) => m.includes('columns deep'))).toBe(false)
+  })
+})
+
 describe('layoutNodes', () => {
   it('ranks left to right and centres each column', () => {
     const placements = layoutNodes(spec())

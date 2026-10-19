@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../src/types'
@@ -7,6 +8,7 @@ import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../..
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
 import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
+import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from '../../src/domains/review/notes'
 import { atomicWriteFile } from '../../server/atomicFile'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
@@ -39,7 +41,7 @@ async function readSpec(path: string | undefined) {
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>)'
+const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
   return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration })
@@ -77,22 +79,32 @@ async function main() {
     return
   }
   if (command === 'notes') {
-    // Review notes left in the review screen; `--done` marks the open ones as handled.
+    // Notes the human left in the review screen. Each one moves pending -> applied -> verified, by id.
     const id = `lesson_${(spec as LessonSpec).id}`
     const path = resolve(root, 'data', 'reviews', `${id}.json`)
-    let notes: { sceneId: string; frame: number; text: string; done?: boolean }[] = []
+    let notes: ReviewNote[] = []
     try {
-      notes = (JSON.parse(await readFile(path, 'utf-8')) as { notes: typeof notes }).notes
+      notes = (JSON.parse(await readFile(path, 'utf-8')) as { notes: ReviewNote[] }).notes
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
-    const open = notes.filter((note) => !note.done)
-    for (const note of open) console.log(`[${note.sceneId}] ${(note.frame / 30).toFixed(1)}s: ${note.text}`)
-    console.log(open.length ? `${open.length} open note(s).` : 'No open notes.')
-    if (process.argv.includes('--done') && open.length) {
-      await writeFile(path, `${JSON.stringify({ notes: notes.map((note) => ({ ...note, done: true })) }, null, 2)}\n`)
-      console.log('Marked as done.')
+    const now = new Date().toISOString()
+    const specHash = createHash('sha256').update(JSON.stringify(spec)).digest('hex').slice(0, 16)
+    const ids = (name: string) => flag(name, '').split(',').map((value) => value.trim()).filter(Boolean)
+    if (process.argv.includes('--done')) throw new Error('--done was removed because it closed every note at once. Use --apply <id,...> --summary "<what changed>" after editing the spec, then --verify <id,...> --evidence "<what the render shows>".')
+    if (process.argv.includes('--apply')) notes = markApplied(notes, ids('apply'), { summary: flag('summary', ''), specHash, now })
+    if (process.argv.includes('--verify')) notes = markVerified(notes, ids('verify'), { evidence: flag('evidence', ''), specHash, now })
+    if (process.argv.includes('--apply') || process.argv.includes('--verify')) {
+      await atomicWriteFile(path, `${JSON.stringify({ notes }, null, 2)}\n`)
+      console.log('Updated.')
     }
+    for (const note of notes) {
+      const status = noteStatus(note)
+      if (status === 'verified') continue
+      console.log(`${status.toUpperCase().padEnd(7)} ${note.id} [${note.sceneId}] ${(note.frame / 30).toFixed(1)}s: ${note.text}${note.appliedSummary ? `  (applied: ${note.appliedSummary})` : ''}`)
+    }
+    const pending = openNotes(notes).length
+    console.log(`${pending} pending, ${notes.filter((note) => noteStatus(note) === 'applied').length} applied (unverified), ${notes.filter((note) => noteStatus(note) === 'verified').length} verified.`)
     return
   }
   if (command === 'patch') {
@@ -107,7 +119,7 @@ async function main() {
       return
     }
     const target = resolve(process.cwd(), specPath!)
-    await writeFile(target, `${JSON.stringify(next, null, 2)}\n`)
+    await atomicWriteFile(target, `${JSON.stringify(next, null, 2)}\n`)
     console.log(`Patched ${target}. Re-run narrate if narration text changed, then build, lint and stills.`)
     return
   }

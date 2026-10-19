@@ -1,5 +1,6 @@
 import type { ViteDevServer } from 'vite'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { atomicWriteFile } from './atomicFile'
 import { resolve } from 'node:path'
 import { readBody, sendError, sendJson } from './http'
 
@@ -55,7 +56,7 @@ async function readIndex(root: string): Promise<StoredLibraryItem[]> {
 
 async function writeIndex(root: string, items: StoredLibraryItem[]) {
   await ensureLibraryDir(root)
-  await writeFile(indexPath(root), `${JSON.stringify(items, null, 2)}\n`, 'utf-8')
+  await atomicWriteFile(indexPath(root), `${JSON.stringify(items, null, 2)}\n`)
 }
 
 function saveLibraryItem(payload: SaveLibraryItemPayload, existing?: StoredLibraryItem): StoredLibraryItem {
