@@ -1,4 +1,5 @@
 import type { CameraKeyframe, MotionProject } from '../../types'
+import { captionTop } from './frame'
 import { parseNarration } from './narration'
 import type { LessonSpec } from './types'
 
@@ -18,16 +19,6 @@ const CAPTION_GAP = 16
 const MAX_WORDS_PER_SECOND = 3
 const MAX_NARRATION_WORDS = 45
 const MAX_VISIBLE_NODES = 7
-
-/** Mirrors the readable caption style in the renderer (CaptionOverlay) for a 1080-high canvas. */
-function captionTop(narration: string, width: number, height: number) {
-  const fontSize = height * 0.042
-  const innerWidth = width * 0.82 - width * 0.05
-  const charsPerLine = Math.max(1, Math.floor(innerWidth / (fontSize * 0.52)))
-  const lines = Math.max(1, Math.ceil(narration.length / charsPerLine))
-  const boxHeight = lines * fontSize * 1.28 + height * 0.034
-  return height - height * 0.13 - boxHeight
-}
 
 function cameraAt(keyframes: CameraKeyframe[], frame: number): CameraKeyframe {
   let current = keyframes[0]
@@ -64,7 +55,9 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     if (words / seconds > MAX_WORDS_PER_SECOND) {
       add('warning', 'fast-narration', `${words} words in ${seconds.toFixed(1)}s is ${(words / seconds).toFixed(1)} words/s; aim for at most ${MAX_WORDS_PER_SECOND}. Lengthen the scene or trim the narration.`)
     }
-    if (words > MAX_NARRATION_WORDS) {
+    if (captionTop(spoken, width, height) < height * 0.5) {
+      add('warning', 'long-narration', 'The caption would cover more than half the frame; split the scene or shorten the narration.')
+    } else if (words > MAX_NARRATION_WORDS) {
       add('warning', 'long-narration', `${words} words will wrap into many caption lines; split the scene (aim for at most ${MAX_NARRATION_WORDS} words).`)
     }
     if (visible.size > MAX_VISIBLE_NODES) {

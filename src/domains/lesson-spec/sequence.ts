@@ -1,4 +1,12 @@
+import { contentHeight, type FrameSpec } from './frame'
+import { fitText as fitTextFull, GLYPH_WIDTH as GLYPHS } from './textFit'
 import type { SpecSequence } from './types'
+
+const GLYPH_WIDTH = GLYPHS.mono
+const fitText = (text: string, width: number, maxFont: number, minFont: number, maxLines: number) => {
+  const fitted = fitTextFull(text, width, maxFont, minFont, maxLines, GLYPH_WIDTH)
+  return { lines: fitted.lines, font: fitted.fontSize }
+}
 
 /**
  * Pure geometry for a sequence diagram. All numbers are on-screen pixels
@@ -7,6 +15,7 @@ import type { SpecSequence } from './types'
  */
 
 const PANEL_MAX_WIDTH = 1180
+/** Breathing room kept between a panel and the edge of its content area. */
 const PANEL_SIDE_MARGIN = 40
 const PADDING = 40
 const HEADER_HEIGHT = 76
@@ -17,8 +26,6 @@ const ARROW_BAND = 22
 const LABEL_FONT_MAX = 24
 const LABEL_FONT_MIN = 18
 const LABEL_LINE_HEIGHT = 1.25
-/** Average glyph width as a fraction of font size; deliberately generous so text never overruns. */
-export const GLYPH_WIDTH = 0.6
 const LABEL_MAX_LINES = 3
 
 export interface SequenceParticipantGeometry {
@@ -58,41 +65,9 @@ export interface SequenceGeometry {
   messages: SequenceMessageGeometry[]
 }
 
-/** Greedy word wrap by estimated width; a word that is too long for a line is kept whole on its own line. */
-export function wrapLabel(text: string, maxChars: number): string[] {
-  const lines: string[] = []
-  let current = ''
-  for (const word of text.trim().split(/\s+/)) {
-    if (current && (current.length + 1 + word.length) > maxChars) {
-      lines.push(current)
-      current = word
-    } else {
-      current = current ? `${current} ${word}` : word
-    }
-  }
-  if (current) lines.push(current)
-  return lines
-}
-
-/** Largest font (down to `min`) at which `text` wraps into at most `maxLines` lines no wider than `width`. */
-function fitText(text: string, width: number, maxFont: number, minFont: number, maxLines: number) {
-  for (let font = maxFont; font >= minFont; font -= 1) {
-    const maxChars = Math.floor(width / (GLYPH_WIDTH * font))
-    const lines = wrapLabel(text, maxChars)
-    if (lines.length <= maxLines && lines.every((line) => line.length <= maxChars)) return { lines, font }
-  }
-  // Nothing fits cleanly: break at the minimum font and let the longest word set the width.
-  return { lines: wrapLabel(text, Math.max(1, Math.floor(width / (GLYPH_WIDTH * minFont)))), font: minFont }
-}
-
-export function layoutSequence(
-  sequence: SpecSequence,
-  canvas: { width: number; height: number },
-  /** Vertical space the overlay must stay out of (the caption strip). */
-  reservedBottom: number,
-): SequenceGeometry {
+export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): SequenceGeometry {
   const count = sequence.participants.length
-  const width = Math.min(PANEL_MAX_WIDTH, canvas.width - 2 * PANEL_SIDE_MARGIN)
+  const width = Math.min(PANEL_MAX_WIDTH, frame.overlayMaxWidth)
   const usable = width - 2 * PADDING
   const headerWidth = Math.min(HEADER_MAX_WIDTH, Math.floor(usable / count) - 16)
   const step = count > 1 ? (usable - headerWidth) / (count - 1) : 0
@@ -153,8 +128,7 @@ export function layoutSequence(
     }
   })
 
-  const availableHeight = canvas.height - reservedBottom - 2 * PANEL_SIDE_MARGIN
-  const fit = Math.min(1, availableHeight / height, (canvas.width - 2 * PANEL_SIDE_MARGIN) / width)
+  const fit = Math.min(1, (contentHeight(frame) - PANEL_SIDE_MARGIN) / height)
   // Re-centre vertically: callers place the panel with its centre at the origin.
   const shift = height / 2
   for (const participant of participants) {

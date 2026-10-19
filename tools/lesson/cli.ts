@@ -46,8 +46,19 @@ const STILL_OFFSET_FRAMES = 16
 
 const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
+/** `--aspect 16:9|9:16` renders the same lesson at the native size of that format. */
+const ASPECTS = { '16:9': { width: 1920, height: 1080 }, '9:16': { width: 1080, height: 1920 } } as const
+
+function requestedCanvas() {
+  const at = process.argv.indexOf('--aspect')
+  if (at < 0) return undefined
+  const value = process.argv[at + 1]
+  if (!(value in ASPECTS)) throw new Error(`--aspect must be one of ${Object.keys(ASPECTS).join(', ')}.`)
+  return ASPECTS[value as keyof typeof ASPECTS]
+}
+
 function build(spec: unknown, artwork: ComponentArtwork, narration?: NarrationManifest) {
-  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration })
+  return compileLessonSpec(spec, { artwork, now: new Date().toISOString(), narration, canvas: requestedCanvas() })
 }
 
 function flag(name: string, fallback: string) {

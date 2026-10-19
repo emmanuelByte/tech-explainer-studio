@@ -7,7 +7,7 @@ type ComponentPalette = Record<TechnicalComponentKind, { fill: string; stroke: s
  * intent, while this file owns the presentation choices that must stay coherent
  * across lessons.
  */
-export const LESSON_THEME: {
+export interface LessonTheme {
   colors: {
     background: string
     text: string
@@ -26,6 +26,8 @@ export const LESSON_THEME: {
     introBackdrop: string
     outroBackdrop: string
     lifeline: string
+    positive: string
+    negative: string
     messageSync: string
     messageAsync: string
     messageResponse: string
@@ -66,7 +68,9 @@ export const LESSON_THEME: {
     roughness: number
   }
   components: ComponentPalette
-} = {
+}
+
+export const LESSON_THEME: LessonTheme = {
   colors: {
     background: '#0b1020',
     text: '#ffffff',
@@ -85,6 +89,8 @@ export const LESSON_THEME: {
     introBackdrop: '#0b1020',
     outroBackdrop: 'rgba(11,16,32,0.88)',
     lifeline: '#64748b',
+    positive: '#4ade80',
+    negative: '#fda4af',
     messageSync: '#60a5fa',
     messageAsync: '#fbbf24',
     messageResponse: '#4ade80',

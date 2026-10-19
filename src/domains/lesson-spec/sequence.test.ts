@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { arrowPath, layoutSequence, wrapLabel } from './sequence'
+import { frameFor } from './frame'
+import { arrowPath, layoutSequence } from './sequence'
+import { wrapWords } from './textFit'
 import type { SpecSequence } from './types'
 
 const labels = ['POST /jobs', 'enqueue(job)', '202 Accepted + job id', 'deliver the job to a background worker for processing', 'ok']
@@ -18,7 +20,7 @@ const canvases = { landscape: { width: 1920, height: 1080 }, portrait: { width: 
 
 describe.each(Object.entries(canvases))('layoutSequence in %s', (_name, canvas) => {
   it.each([2, 3, 4, 5])('keeps %i participants, arrows and labels inside the panel without collisions', (count) => {
-    const g = layoutSequence(sequence(count), canvas, 360)
+    const g = layoutSequence(sequence(count), frameFor(canvas.width, canvas.height))
     const half = g.width / 2
     expect(g.width).toBeLessThanOrEqual(canvas.width - 80)
 
@@ -50,22 +52,23 @@ describe.each(Object.entries(canvases))('layoutSequence in %s', (_name, canvas) 
   })
 
   it('scales the panel to fit above the caption strip', () => {
-    const g = layoutSequence(sequence(3, 8), canvas, 360)
+    const g = layoutSequence(sequence(3, 8), frameFor(canvas.width, canvas.height))
     expect(g.fit).toBeLessThanOrEqual(1)
-    expect(g.height * g.fit).toBeLessThanOrEqual(canvas.height - 360)
+    const frame = frameFor(canvas.width, canvas.height)
+    expect(g.height * g.fit).toBeLessThanOrEqual(frame.height - frame.captionReserve - frame.safeTop)
     expect(g.width * g.fit).toBeLessThanOrEqual(canvas.width)
   })
 })
 
 describe('message positions', () => {
   it('follow the source order, top to bottom', () => {
-    const g = layoutSequence(sequence(3, 5), canvases.landscape, 360)
+    const g = layoutSequence(sequence(3, 5), frameFor(1920, 1080))
     const ys = g.messages.map((m) => m.y)
     expect(ys).toEqual([...ys].sort((a, b) => a - b))
   })
 
   it('points each arrow from its sender to its receiver', () => {
-    const g = layoutSequence(sequence(3, 3), canvases.landscape, 360)
+    const g = layoutSequence(sequence(3, 3), frameFor(1920, 1080))
     for (const m of g.messages) expect(m.fromX).not.toBe(m.toX)
     expect(g.messages[2].toX).toBeLessThan(g.messages[2].fromX) // p2 -> p0 goes back left
   })
@@ -95,9 +98,9 @@ describe('arrowPath', () => {
   })
 })
 
-describe('wrapLabel', () => {
+describe('wrapWords', () => {
   it('wraps on word boundaries and never splits a word', () => {
-    expect(wrapLabel('result saved, notify the client', 14)).toEqual(['result saved,', 'notify the', 'client'])
-    expect(wrapLabel('supercalifragilistic', 5)).toEqual(['supercalifragilistic'])
+    expect(wrapWords('result saved, notify the client', 14)).toEqual(['result saved,', 'notify the', 'client'])
+    expect(wrapWords('supercalifragilistic', 5)).toEqual(['supercalifragilistic'])
   })
 })
