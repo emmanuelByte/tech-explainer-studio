@@ -12,6 +12,7 @@ import { fingerprint, sourceFingerprint } from './fingerprint'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson, narrationInputs, narrationIsCurrent, type NarrateOptions } from './narrate'
 import { checkNarrationAudio, checkProjectAudio, type AudioFinding } from './audioChecks'
 import { checkProbe, expectedVideo, probeVideo, renderVideo, type Probe, type Quality } from './render'
+import { contactSheet, inspectVideo } from './outputChecks'
 import { renderStills, stillsDir } from './stills'
 
 export type Aspect = '16:9' | '9:16'
@@ -51,6 +52,8 @@ export interface ProduceDeps {
   renderStills: typeof renderStills
   renderVideo: typeof renderVideo
   probeVideo: (root: string, file: string) => Promise<Probe>
+  inspectVideo: (file: string, project: MotionProject) => Promise<string[]>
+  contactSheet: (root: string, project: MotionProject) => Promise<string | undefined>
 }
 
 export const defaultDeps: ProduceDeps = {
@@ -62,6 +65,8 @@ export const defaultDeps: ProduceDeps = {
   renderStills,
   renderVideo,
   probeVideo,
+  inspectVideo,
+  contactSheet,
 }
 
 export class StageError extends Error {
@@ -258,6 +263,11 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
       }
     }
 
+    if (options.stills) {
+      const sheet = await deps.contactSheet(root, project).catch(() => undefined)
+      if (sheet) log(`[review ${tag}] REVIEW ARTIFACT (look at it; it is not analysed): ${sheet}`)
+    }
+
     // --- render ---
     const videoPath = outputPath(root, project.id, options)
     const renderPrint = fingerprint(buildPrint, rendererPrint, options.quality)
@@ -301,6 +311,13 @@ export async function produce(options: ProduceOptions, deps: ProduceDeps = defau
     if (problems.length) {
       fail('verify', `The exported file does not match the project:\n${problems.map((problem) => `    ${problem}`).join('\n')}`, `Delete ${videoPath} and run again; if it repeats, run with --force.`)
     }
+    // Look inside the decoded video: blank scenes and captions that never render.
+    let visual: string[]
+    try { visual = await deps.inspectVideo(videoPath, project) } catch (error) {
+      return fail('inspect', (error as Error).message, 'Is ffmpeg installed? The video itself was written.')
+    }
+    if (visual.length) fail('inspect', `The rendered video has problems:\n${visual.map((problem) => `    ${problem}`).join('\n')}`, 'Look at the stills and contact sheet, fix the spec, and run again (--force re-renders).')
+    log(`[inspect ${tag}] sampled frames show content in every scene and captions where expected`)
     log(`[verify ${tag}] ok: ${expectedVideo(project.canvas, options.quality, Boolean(manifest)).width}x${expectedVideo(project.canvas, options.quality, Boolean(manifest)).height}, h264${manifest ? ' + aac' : ', silent'}`)
     results.push({ aspect, projectId: project.id, videoPath, reused, ran, probeProblems: problems })
   }

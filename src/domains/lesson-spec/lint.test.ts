@@ -49,3 +49,53 @@ describe('lintLesson', () => {
     expect(issues.some((issue) => issue.rule === 'caption-collision')).toBe(true)
   })
 })
+
+describe('lintLesson self-review rules', () => {
+  const withOverlay = (): LessonSpec => {
+    const value = spec()
+    value.scenes[2].reveal = ['s1', 'lb-s1']
+    value.scenes.push({ id: 'four', title: 'Four', narration: 'Here is a card.', durationSeconds: 6, card: { id: 'note', title: 'Note', lines: ['One', 'Two'] } })
+    return value
+  }
+
+  it('flags an overlay that reaches into the captions', () => {
+    const issues = lint(withOverlay(), (project) => {
+      const group = project.layers.find((layer) => layer.id === 'card_note')!
+      group.keyframes.forEach((keyframe) => { keyframe.props.y = 400 })
+    })
+    expect(issues.some((issue) => issue.rule === 'overlay-collision' && issue.severity === 'error')).toBe(true)
+  })
+
+  it('flags an overlay wider than the frame', () => {
+    const issues = lint(withOverlay(), (project) => {
+      const group = project.layers.find((layer) => layer.id === 'card_note')!
+      group.width = 4000
+    })
+    expect(issues.some((issue) => issue.rule === 'off-canvas')).toBe(true)
+  })
+
+  it('flags text that would overflow its box', () => {
+    const issues = lint(withOverlay(), (project) => {
+      const line = project.layers.find((layer) => layer.id === 'card_note__line1')!
+      line.text = 'x'.repeat(200)
+    })
+    expect(issues.some((issue) => issue.rule === 'text-overflow')).toBe(true)
+  })
+
+  it('flags a reveal that lands just before its scene ends', () => {
+    const issues = lint(spec(), (project) => {
+      const connector = project.connectors!.find((candidate) => candidate.id === 'edge_c-lb')!
+      const scene = project.scenes!.find((candidate) => candidate.id === 'scene_two')!
+      connector.drawEndFrame = scene.endFrame - 5
+    })
+    expect(issues.some((issue) => issue.rule === 'late-reveal')).toBe(true)
+  })
+
+  it('flags overlapping or out-of-scene captions', () => {
+    const issues = lint(spec(), (project) => {
+      const segments = project.script!.segments.filter((segment) => segment.sceneId === 'scene_two' && segment.startFrame !== undefined)
+      segments[0].endFrame = project.scenes!.find((scene) => scene.id === 'scene_two')!.endFrame + 30
+    })
+    expect(issues.some((issue) => issue.rule === 'caption-timing')).toBe(true)
+  })
+})

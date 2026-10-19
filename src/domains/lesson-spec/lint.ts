@@ -1,5 +1,6 @@
 import type { CameraKeyframe, MotionProject } from '../../types'
-import { captionTop } from './frame'
+import { captionTop, frameFor } from './frame'
+import { GLYPH_WIDTH } from './textFit'
 import { parseNarration } from './narration'
 import type { LessonSpec } from './types'
 
@@ -7,7 +8,7 @@ export interface LintIssue {
   severity: 'error' | 'warning'
   /** Scene id, or '' for lesson-wide findings. */
   scene: string
-  rule: 'off-canvas' | 'caption-collision' | 'node-overlap' | 'fast-narration' | 'long-narration' | 'static-scene' | 'dense-scene'
+  rule: 'off-canvas' | 'caption-collision' | 'node-overlap' | 'fast-narration' | 'long-narration' | 'static-scene' | 'dense-scene' | 'overlay-collision' | 'text-overflow' | 'late-reveal' | 'camera-zoom' | 'caption-timing'
   message: string
 }
 
@@ -19,6 +20,11 @@ const CAPTION_GAP = 16
 const MAX_WORDS_PER_SECOND = 3
 const MAX_NARRATION_WORDS = 45
 const MAX_VISIBLE_NODES = 7
+/** A reveal later than this before its scene ends is on screen too briefly to register. */
+const MIN_VISIBLE_FRAMES = 20
+/** From this zoom on, components pushed off screen mean the viewer loses sight of what was already explained. */
+const CONTEXT_LOSS_ZOOM = 1.5
+const OVERLAY_GROUP = /^(card|comparison|sequence)_/
 
 function cameraAt(keyframes: CameraKeyframe[], frame: number): CameraKeyframe {
   let current = keyframes[0]
@@ -36,6 +42,7 @@ function cameraAt(keyframes: CameraKeyframe[], frame: number): CameraKeyframe {
 export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[] {
   const issues: LintIssue[] = []
   const { width, height, fps } = project.canvas
+  const frame = frameFor(width, height)
   const scenes = project.scenes ?? []
   const camera = project.camera?.keyframes ?? []
   const visible = new Set<string>()
@@ -68,9 +75,33 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     if (!changes && index > 0) add('warning', 'static-scene', 'Nothing is revealed, hidden or reframed; the screen will not change while this is narrated.')
     previousFraming = framing
 
+    // Reveals must be on screen long enough to be seen, and inside this scene.
+    for (const id of specScene.reveal ?? []) {
+      const shownAt = revealedAt(project, id)
+      if (shownAt !== undefined && shownAt > scene.endFrame - MIN_VISIBLE_FRAMES) add('warning', 'late-reveal', `"${id}" appears ${((scene.endFrame - shownAt) / fps).toFixed(1)}s before the scene ends; move its cue earlier or lengthen the narration.`)
+    }
+
+    // Caption phrases: inside the scene, in order, never overlapping.
+    const shown = (project.script?.segments ?? []).filter((segment) => segment.sceneId === scene.id && segment.startFrame !== undefined)
+    shown.forEach((segment, i) => {
+      if (segment.startFrame! < scene.startFrame || segment.endFrame! > scene.endFrame) add('error', 'caption-timing', `Caption "${segment.text.slice(0, 30)}" runs outside its scene.`)
+      if (i > 0 && segment.startFrame! < shown[i - 1].endFrame!) add('error', 'caption-timing', `Captions "${shown[i - 1].text.slice(0, 24)}" and "${segment.text.slice(0, 24)}" overlap.`)
+    })
+
     // Captions are short timed phrases; the tallest one this scene shows is what the diagram must stay clear of.
     const phrases = (project.script?.segments ?? []).filter((segment) => segment.sceneId === scene.id && segment.startFrame !== undefined)
     const limit = Math.min(...(phrases.length ? phrases : [{ text: spoken }]).map((phrase) => captionTop(phrase.text, width, height))) - CAPTION_GAP
+    for (const group of project.layers.filter((layer) => layer.type === 'group' && OVERLAY_GROUP.test(layer.id) && layer.startFrame === scene.startFrame)) {
+      const settled = group.keyframes[group.keyframes.length - 2].props
+      const fit = (settled.scale ?? 1) * cam.zoom // 1 = authored size on screen
+      const cx = (width / 2 + settled.x - cam.x) * cam.zoom + width / 2
+      const cy = (height / 2 + settled.y - cam.y) * cam.zoom + height / 2
+      const box = { left: cx - (group.width * fit) / 2, right: cx + (group.width * fit) / 2, top: cy - (group.height * fit) / 2, bottom: cy + (group.height * fit) / 2 }
+      if (box.left < 0 || box.right > width) add('error', 'off-canvas', `The ${group.id.split('_')[0]} overlay is wider than the frame.`)
+      else if (box.bottom > limit) add('error', 'overlay-collision', `The ${group.id.split('_')[0]} overlay reaches y=${Math.round(box.bottom)}, into the caption that starts at y=${Math.round(limit + CAPTION_GAP)}.`)
+      else if (box.top < frame.safeTop) add('warning', 'overlay-collision', `The ${group.id.split('_')[0]} overlay starts at y=${Math.round(box.top)}, inside the top safe margin (${frame.safeTop}px).`)
+    }
+    const offScreen: string[] = []
     const boxes: { id: string; left: number; top: number; right: number; bottom: number }[] = []
     for (const id of visible) {
       const layer = project.layers.find((candidate) => candidate.id === `node_${id}`)
@@ -87,13 +118,14 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
       }
       boxes.push(box)
       const fullyOutside = box.right <= 0 || box.left >= width || box.bottom <= 0 || box.top >= height
-      if (fullyOutside) continue // a deliberate camera move; only half-visible components look wrong
+      if (fullyOutside) { offScreen.push(id); continue } // a deliberate camera move; only half-visible components look wrong
       if (box.left < EDGE_MARGIN || box.right > width - EDGE_MARGIN || box.top < EDGE_MARGIN || box.bottom > height - EDGE_MARGIN) {
         add('error', 'off-canvas', `"${id}" is cut off or too close to the edge at the end of the scene.`)
       } else if (box.bottom > limit) {
         add('error', 'caption-collision', `"${id}" reaches y=${Math.round(box.bottom)}, into the caption that starts at y=${Math.round(limit + CAPTION_GAP)}.`)
       }
     }
+    if (offScreen.length && cam.zoom >= CONTEXT_LOSS_ZOOM) add('warning', 'camera-zoom', `The camera is zoomed to ${cam.zoom.toFixed(2)}x and ${offScreen.map((id) => `"${id}"`).join(', ')} ${offScreen.length === 1 ? 'is' : 'are'} off screen, so the viewer loses sight of what was just shown; add them to \`focus\`.`)
     for (let a = 0; a < boxes.length; a += 1) {
       for (let b = a + 1; b < boxes.length; b += 1) {
         const first = boxes[a]
@@ -105,5 +137,23 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     }
   })
 
+  // Text that would run past its box (estimated from glyph widths; deliberately conservative).
+  for (const layer of project.layers) {
+    if (layer.type !== 'text' || !layer.text) continue
+    const glyph = /mono|Menlo|Consolas/i.test(layer.fontFamily) ? GLYPH_WIDTH.mono : GLYPH_WIDTH.sans
+    const widest = Math.max(...layer.text.split('\n').map((line) => line.length))
+    if (widest * layer.fontSize * glyph > layer.width * 1.12) {
+      issues.push({ severity: 'warning', scene: layer.id.split('__')[0], rule: 'text-overflow', message: `Text in "${layer.name}" (${widest} characters at ${Math.round(layer.fontSize)}px) is wider than its ${Math.round(layer.width)}px box.` })
+    }
+  }
+
   return issues
+}
+
+/** Frame at which a node or connection becomes visible, from the compiled project. */
+function revealedAt(project: MotionProject, id: string): number | undefined {
+  const connector = project.connectors?.find((candidate) => candidate.id === `edge_${id}`)
+  if (connector) return connector.drawEndFrame
+  const layer = project.layers.find((candidate) => candidate.id === `node_${id}`)
+  return layer?.keyframes.find((keyframe) => (keyframe.props.opacity ?? 1) >= 0.99)?.frame
 }

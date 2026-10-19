@@ -35,6 +35,7 @@ const lesson = (first = 'A client sends a request to the server.'): LessonSpec =
 })
 
 interface Calls { narrate: number; stills: number; render: number }
+let inspectProblems: string[] = []
 
 function setup(options: { failRenderTimes?: number } = {}) {
   const calls: Calls = { narrate: 0, stills: 0, render: 0 }
@@ -54,6 +55,8 @@ function setup(options: { failRenderTimes?: number } = {}) {
       if (failures > 0) { failures -= 1; throw new Error('remotion crashed') }
       await writeFile(input.outPath, JSON.stringify({ project: input.projectPath, quality: input.quality }))
     },
+    inspectVideo: async () => inspectProblems,
+    contactSheet: async () => undefined,
     probeVideo: async (_root, file) => {
       const { project, quality } = JSON.parse(await readFile(file, 'utf-8')) as { project: string; quality: 'standard' }
       const built = JSON.parse(await readFile(project, 'utf-8')) as { canvas: { width: number; height: number; fps: number; durationFrames: number }; layers: { type: string }[] }
@@ -163,6 +166,17 @@ describe('produce', () => {
     }, deps).catch((e: unknown) => e)
     expect((error as StageError).stage).toBe('narrate')
     expect((error as StageError).hint).toContain('uvicorn')
+  })
+
+  it('fails the run when the decoded video has a blank scene or missing captions', async () => {
+    const { run } = setup()
+    inspectProblems = ['scene one at 2.5s is blank (nothing drawn).']
+    try {
+      const error = await run(lesson()).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(StageError)
+      expect((error as StageError).stage).toBe('inspect')
+      expect((error as StageError).message).toContain('blank')
+    } finally { inspectProblems = [] }
   })
 
   it('stops with a useful message when the spec is invalid', async () => {

@@ -99,42 +99,22 @@
     },
     {
       "id": "lookup-order",
-      "title": "Check the cache first",
-      "narration": "For each profile request, [[lookup.ask-cache]]the app checks the cache before doing anything more expensive. [[lookup.reply-cache]]Only a cached answer can end the trip immediately.",
-      "sequence": {
+      "title": "The lookup order",
+      "narration": "[[lookup.1]]For every profile request, the app checks the cache first. [[lookup.2]]If the answer is there, it returns it. [[lookup.3]]If not, it asks the database and saves a copy.",
+      "bullets": {
         "id": "lookup",
-        "participants": [
-          {
-            "id": "app",
-            "label": "App Server"
-          },
-          {
-            "id": "cache",
-            "label": "Fast Cache"
-          }
-        ],
-        "messages": [
-          {
-            "id": "ask-cache",
-            "from": "app",
-            "to": "cache",
-            "label": "Get profile",
-            "kind": "sync"
-          },
-          {
-            "id": "reply-cache",
-            "from": "cache",
-            "to": "app",
-            "label": "Hit or miss",
-            "kind": "response"
-          }
+        "title": "For each request",
+        "items": [
+          "1. Ask the cache first",
+          "2. Found it? Return it",
+          "3. Missing? Ask the database, then save a copy"
         ]
       }
     },
     {
       "id": "cache-hit",
       "title": "The fast path",
-      "narration": "If the cache already has the profile, that is [[hit.answer]]a cache hit. [[hit.return]]The answer comes straight back, often in a fraction of a millisecond, and the database never hears about the request.",
+      "narration": "If the cache already has the profile, that is [[hit.answer]]a cache hit. [[hit.return]]The answer comes straight back, often in a fraction of a millisecond, and the database is never asked.",
       "sequence": {
         "id": "hit",
         "participants": [
@@ -145,6 +125,10 @@
           {
             "id": "cache",
             "label": "Fast Cache"
+          },
+          {
+            "id": "database",
+            "label": "Database"
           }
         ],
         "messages": [
@@ -159,7 +143,7 @@
             "id": "return",
             "from": "cache",
             "to": "app",
-            "label": "Profile found",
+            "label": "Hit: profile",
             "kind": "response"
           }
         ]
@@ -168,7 +152,7 @@
     {
       "id": "cache-miss",
       "title": "The slow path",
-      "narration": "If the cache does not have it, that is [[miss.ask-database]]a cache miss. The app asks the database, [[miss.return-profile]]gets the profile, and [[miss.store-copy]]stores a copy so the next request can be a hit.",
+      "narration": "[[miss.ask-cache]]The app asks the cache, [[miss.not-found]]but it has nothing: that is a cache miss. [[miss.ask-database]]So the app asks the database, [[miss.return-profile]]gets the profile, and [[miss.store-copy]]saves a copy in the cache for next time.",
       "sequence": {
         "id": "miss",
         "participants": [
@@ -177,34 +161,48 @@
             "label": "App Server"
           },
           {
-            "id": "database",
-            "label": "Database"
-          },
-          {
             "id": "cache",
             "label": "Fast Cache"
+          },
+          {
+            "id": "database",
+            "label": "Database"
           }
         ],
         "messages": [
           {
+            "id": "ask-cache",
+            "from": "app",
+            "to": "cache",
+            "label": "Get profile",
+            "kind": "sync"
+          },
+          {
+            "id": "not-found",
+            "from": "cache",
+            "to": "app",
+            "label": "Miss: not found",
+            "kind": "response"
+          },
+          {
             "id": "ask-database",
             "from": "app",
             "to": "database",
-            "label": "Get profile",
+            "label": "Query profile",
             "kind": "sync"
           },
           {
             "id": "return-profile",
             "from": "database",
             "to": "app",
-            "label": "Fresh profile",
+            "label": "Profile",
             "kind": "response"
           },
           {
             "id": "store-copy",
             "from": "app",
             "to": "cache",
-            "label": "Store a copy",
+            "label": "Save copy",
             "kind": "async"
           }
         ]
@@ -216,23 +214,24 @@
       "narration": "There is one catch: [[stale.1]]a cached copy can go stale. If you change your name, [[stale.2]]the cache may still hold the old value for a little while.",
       "card": {
         "id": "stale",
-        "title": "Cached profile",
+        "title": "After you change your name",
         "lines": [
-          "Name: Alex Rivera",
-          "Updated name: Alex Chen"
+          "Database: name = Alex Chen    (updated)",
+          "Cache:    name = Alex Rivera  (old copy)"
         ]
       }
     },
     {
       "id": "time-to-live",
       "title": "Expire old answers",
-      "narration": "To control staleness, [[ttl.1]]each cached item gets an expiry time, called a time to live. [[ttl.2]]When that time runs out, the cache drops the item and the next request fetches a fresh copy.",
+      "narration": "To control staleness, [[ttl.1]]each cached item gets an expiry time, called a time to live. [[ttl.2]]When that time runs out, the cache drops the item, [[ttl.3]]and the next request fetches a fresh copy.",
       "card": {
         "id": "ttl",
         "title": "Cache entry",
         "lines": [
           "profile:42 = Alex Rivera",
-          "TTL: 5 minutes"
+          "TTL: 5 minutes (300 seconds)",
+          "Expired -> next request reloads it from the database"
         ]
       }
     },
