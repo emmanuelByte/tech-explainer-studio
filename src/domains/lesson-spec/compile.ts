@@ -11,7 +11,8 @@ import {
   type TechnicalComponentKind,
 } from '../../types'
 import { CURRENT_PROJECT_SCHEMA_VERSION } from '../project/migrations'
-import { SPEC_DEFAULTS, type LessonSpec, type SpecNode, type SpecScene } from './types'
+import { parseNarration } from './narration'
+import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecCard, type SpecNode, type SpecScene } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
 
 /** Raw SVG source per component kind; injected so this module stays free of Vite/Node imports. */
@@ -21,6 +22,8 @@ export interface CompileOptions {
   artwork: ComponentArtwork
   /** ISO timestamp; injected so compilation is deterministic. */
   now: string
+  /** Real narration audio. When given, scene lengths and reveal times follow the audio. */
+  narration?: NarrationManifest
 }
 
 export class LessonSpecError extends Error {
@@ -43,10 +46,26 @@ const NODE_FADE_FRAMES = 12
 const EDGE_DRAW_FRAMES = 24
 const REVEAL_LEAD_FRAMES = 15
 const CAMERA_MOVE_FRAMES = 24
+const CARD_WIDTH = 1200
+const CARD_PADDING = 40
+const CARD_TITLE_HEIGHT = 56
+const CARD_LINE_HEIGHT = 44
+const CARD_FADE_FRAMES = 12
+const CARD_MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace'
 const WORDS_PER_SECOND = 2.5
+/** Silence before the voice starts and after it ends, per scene. */
+const NARRATION_LEAD_SECONDS = 0.5
+const NARRATION_TAIL_SECONDS = 0.7
 
 const PALETTE: Record<TechnicalComponentKind, { fill: string; stroke: string }> = {
   'load-balancer': { fill: '#1d4ed8', stroke: '#60a5fa' },
+  database: { fill: '#9a3412', stroke: '#fdba74' },
+  cache: { fill: '#b91c1c', stroke: '#fca5a5' },
+  queue: { fill: '#a16207', stroke: '#fde047' },
+  cdn: { fill: '#0e7490', stroke: '#67e8f9' },
+  'api-gateway': { fill: '#4338ca', stroke: '#a5b4fc' },
+  'object-storage': { fill: '#475569', stroke: '#cbd5e1' },
+  worker: { fill: '#0f766e', stroke: '#5eead4' },
   server: { fill: '#166534', stroke: '#4ade80' },
   client: { fill: '#7c3aed', stroke: '#c4b5fd' },
 }
@@ -59,7 +78,7 @@ function svgDataUrl(svg: string) {
 
 /** Mirrors the editor's makeLayer defaults, minus its randomness, so output is deterministic. */
 function baseLayer(type: LayerType, overrides: Partial<Layer> & Pick<Layer, 'id' | 'name' | 'startFrame' | 'endFrame' | 'keyframes'>): Layer {
-  return {
+  const layer: Layer = {
     type,
     visible: true,
     locked: false,
@@ -120,6 +139,14 @@ function baseLayer(type: LayerType, overrides: Partial<Layer> & Pick<Layer, 'id'
     scope: 'global',
     ...overrides,
   }
+  // The editor draws per-side borders and per-corner radii, so a plain width/radius must set all of them.
+  if (overrides.strokeWidth !== undefined && overrides.strokeTopWidth === undefined) {
+    layer.strokeTopWidth = layer.strokeRightWidth = layer.strokeBottomWidth = layer.strokeLeftWidth = overrides.strokeWidth
+  }
+  if (overrides.borderRadius !== undefined && overrides.borderTopLeftRadius === undefined) {
+    layer.borderTopLeftRadius = layer.borderTopRightRadius = layer.borderBottomRightRadius = layer.borderBottomLeftRadius = overrides.borderRadius
+  }
+  return layer
 }
 
 function staticKeyframe(frame: number, x: number, y: number): Keyframe[] {
@@ -127,7 +154,7 @@ function staticKeyframe(frame: number, x: number, y: number): Keyframe[] {
 }
 
 function sceneFrames(scene: SpecScene, fps: number) {
-  const words = scene.narration.trim().split(/\s+/).length
+  const words = parseNarration(scene.narration).plain.split(/\s+/).length
   const seconds = scene.durationSeconds ?? Math.max(4, Math.ceil(words / WORDS_PER_SECOND) + 1)
   return Math.round(seconds * fps)
 }
@@ -258,25 +285,51 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const revealFrame = new Map<string, number>()
   const hideFrame = new Map<string, number>()
   const framings: CameraKeyframe[] = []
+  const narrationLayers: Layer[] = []
+  const cardLayerSets: Layer[] = []
   let visibleNodes: string[] = []
   let cursor = 0
 
   for (const specScene of spec.scenes) {
-    const length = sceneFrames(specScene, fps)
+    const parsed = parseNarration(specScene.narration)
+    const audio = options.narration?.scenes[specScene.id]
+    if (options.narration && !audio) {
+      throw new LessonSpecError([{ path: `scenes.${specScene.id}`, message: 'No narration audio for this scene; run `lesson narrate`.' }])
+    }
+    if (audio && audio.source !== specScene.narration) {
+      throw new LessonSpecError([{ path: `scenes.${specScene.id}.narration`, message: 'Narration text changed since its audio was made; run `lesson narrate`.' }])
+    }
+    const leadFrames = Math.round(NARRATION_LEAD_SECONDS * fps)
+    const length = audio
+      ? Math.round((NARRATION_LEAD_SECONDS + audio.durationSeconds + NARRATION_TAIL_SECONDS) * fps)
+      : sceneFrames(specScene, fps)
     const start = cursor
     const end = start + length
+    const audioStart = start + leadFrames
     const reveals = specScene.reveal ?? []
     const usable = Math.max(0, Math.floor(length * 0.75) - REVEAL_LEAD_FRAMES)
+    // A cue pins an element to the moment its words begin; otherwise reveals are spread evenly.
+    const cueFrame = (id: string) => (audio?.cues[id] === undefined ? undefined : audioStart + Math.round(audio.cues[id] * fps))
     reveals.forEach((id, index) => {
-      revealFrame.set(id, start + REVEAL_LEAD_FRAMES + Math.floor((index * usable) / Math.max(1, reveals.length)))
+      revealFrame.set(id, cueFrame(id) ?? start + REVEAL_LEAD_FRAMES + Math.floor((index * usable) / Math.max(1, reveals.length)))
       if (placements.has(id)) visibleNodes.push(id)
     })
     for (const id of specScene.hide ?? []) {
-      hideFrame.set(id, start + REVEAL_LEAD_FRAMES)
+      hideFrame.set(id, cueFrame(id) ?? start + REVEAL_LEAD_FRAMES)
       visibleNodes = visibleNodes.filter((candidate) => candidate !== id)
     }
 
-    framings.push(cameraFor(specScene.focus ?? visibleNodes, placements, start, width, height))
+    const framing = cameraFor(specScene.focus ?? visibleNodes, placements, start, width, height)
+    framings.push(framing)
+
+    if (specScene.card) {
+      const card = specScene.card
+      const cardStart = start + CAMERA_MOVE_FRAMES
+      const spread = Math.max(0, Math.floor((end - cardStart) * 0.7) - 8)
+      const lineFrames = card.lines.map((_, i) => cueFrame(`${card.id}.${i + 1}`)
+        ?? cardStart + 8 + Math.floor((i * spread) / Math.max(1, card.lines.length)))
+      cardLayerSets.push(...cardLayers(card, framing, { width, height }, start, end, cardStart, lineFrames))
+    }
 
     const sceneId = `scene_${specScene.id}`
     const segmentId = `segment_${specScene.id}`
@@ -289,7 +342,41 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       transitionIn: 0,
       transitionOut: 0,
     })
-    segments.push({ id: segmentId, text: specScene.narration, sceneId, startFrame: start, endFrame: end })
+    segments.push({ id: segmentId, text: parsed.plain, sceneId, startFrame: start, endFrame: end })
+    if (audio && options.narration) {
+      const sourceFrames = Math.max(1, Math.round(audio.durationSeconds * fps))
+      narrationLayers.push(baseLayer('audio', {
+        id: `narration_${specScene.id}`,
+        name: `Narration: ${specScene.title}`,
+        src: `/api/assets/${audio.assetId}/file`,
+        audioRole: 'narration',
+        scriptSegmentId: segmentId,
+        audioVolume: 1,
+        audioMuted: false,
+        width: 1,
+        height: 1,
+        fillType: 'none',
+        videoDuration: audio.durationSeconds,
+        sourceDurationFrames: sourceFrames,
+        startFrame: audioStart,
+        endFrame: audioStart + sourceFrames,
+        videoSegments: [{
+          id: `narration_segment_${specScene.id}`,
+          timelineStartFrame: audioStart,
+          timelineEndFrame: audioStart + sourceFrames,
+          sourceStartFrame: 0,
+          sourceEndFrame: sourceFrames,
+        }],
+        narrationGeneration: {
+          provider: 'local-chatterbox',
+          voiceId: options.narration.voiceId,
+          sourceText: parsed.plain,
+          exaggeration: options.narration.exaggeration,
+          cfgWeight: options.narration.cfgWeight,
+        },
+        keyframes: staticKeyframe(audioStart, 0, 0),
+      }))
+    }
     cursor = end
   }
   const totalFrames = cursor
@@ -298,6 +385,9 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   for (const node of spec.nodes) {
     layers.push(...nodeLayers(node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), totalFrames, options.artwork))
   }
+  // Top-level layers stack first-on-top (a group's children stack last-on-top), so cards go first.
+  layers.unshift(...cardLayerSets)
+  layers.push(...narrationLayers)
 
   const connectors: Connector[] = spec.edges.map((edge) => {
     const from = spec.nodes.find((node) => node.id === edge.from)!
@@ -339,7 +429,12 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     connectors,
     camera: { keyframes: cameraTrack(framings, scenes) },
     captions: { enabled: true, style: 'readable' },
-    localVoice: { baseVoiceId: '', exaggeration: 0.5, cfgWeight: 0.5, pauseFrames: 6 },
+    localVoice: {
+      baseVoiceId: options.narration?.voiceId ?? '',
+      exaggeration: options.narration?.exaggeration ?? 0.5,
+      cfgWeight: options.narration?.cfgWeight ?? 0.5,
+      pauseFrames: 6,
+    },
   }
 }
 
@@ -388,4 +483,80 @@ function cameraTrack(framings: CameraKeyframe[], scenes: Scene[]): CameraKeyfram
     track.push({ ...previous, frame: start }, { ...next, frame: moveEnd })
   }
   return track
+}
+
+/**
+ * A code/request panel for one scene. It is placed in world coordinates at the
+ * centre of the scene's (caption-free) camera framing and scaled by 1/zoom, so
+ * it appears at a fixed on-screen size over a backdrop that dims the diagram.
+ */
+function cardLayers(
+  card: SpecCard,
+  framing: CameraKeyframe,
+  canvas: { width: number; height: number },
+  start: number,
+  end: number,
+  cardStart: number,
+  lineFrames: number[],
+): Layer[] {
+  const x = framing.x - canvas.width / 2
+  const y = framing.y - canvas.height / 2 - CAPTION_RESERVE / (2 * framing.zoom)
+  const scale = 1 / framing.zoom
+  const titleHeight = card.title ? CARD_TITLE_HEIGHT : 0
+  const bodyHeight = CARD_PADDING * 2 + titleHeight + card.lines.length * CARD_LINE_HEIGHT
+  const top = -bodyHeight / 2
+  const groupId = `card_${card.id}`
+  const timing = { startFrame: start, endFrame: end }
+
+  const at = (props: Partial<Keyframe['props']>) => ({ ...DEFAULT_TRANSFORM, x, y, scale, ...props })
+  const group = baseLayer('group', {
+    id: groupId,
+    name: card.title ?? 'Card',
+    width: CARD_WIDTH,
+    height: bodyHeight,
+    ...timing,
+    keyframes: [
+      { frame: start, easing: 'linear', props: at({ opacity: 0 }) },
+      { frame: cardStart, easing: 'ease-out', props: at({ opacity: 0 }) },
+      { frame: cardStart + CARD_FADE_FRAMES, easing: 'linear', props: at({ opacity: 1 }) },
+      { frame: end - CARD_FADE_FRAMES, easing: 'ease-in', props: at({ opacity: 1 }) },
+      { frame: end, easing: 'linear', props: at({ opacity: 0 }) },
+    ],
+  })
+  const child = (id: string, type: LayerType, offsetY: number, overrides: Partial<Layer>, keyframes?: Keyframe[]) => baseLayer(type, {
+    id: `${groupId}__${id}`,
+    parentId: groupId,
+    ...timing,
+    keyframes: keyframes ?? staticKeyframe(start, 0, offsetY),
+    ...overrides,
+  } as Parameters<typeof baseLayer>[1])
+  const layers: Layer[] = [
+    group,
+    child('backdrop', 'rectangle', 0, { name: 'Backdrop', width: 8000, height: 6000, fillColor: 'rgba(11,16,32,0.92)' }),
+    child('panel', 'rectangle', 0, {
+      name: 'Panel', width: CARD_WIDTH, height: bodyHeight, fillColor: '#16213f',
+      strokeEnabled: true, strokeColor: '#60a5fa', strokeWidth: 2, borderRadius: 20,
+    }),
+  ]
+  if (card.title) {
+    layers.push(child('title', 'text', top + CARD_PADDING + CARD_TITLE_HEIGHT / 2, {
+      name: 'Title', text: card.title, width: CARD_WIDTH - 2 * CARD_PADDING, height: CARD_TITLE_HEIGHT,
+      fontSize: 32, fontWeight: '700', textColor: '#93c5fd', textAlign: 'left', htmlText: true, htmlWhiteSpace: 'pre',
+    }))
+  }
+  card.lines.forEach((line, index) => {
+    const offsetY = top + CARD_PADDING + titleHeight + index * CARD_LINE_HEIGHT + CARD_LINE_HEIGHT / 2
+    const frame = lineFrames[index]
+    const shown = { ...DEFAULT_TRANSFORM, x: 0, y: offsetY }
+    layers.push(child(`line${index + 1}`, 'text', offsetY, {
+      name: `Line ${index + 1}`, text: line, width: CARD_WIDTH - 2 * CARD_PADDING, height: CARD_LINE_HEIGHT,
+      fontFamily: CARD_MONO, fontSize: 28, fontWeight: '500', textColor: '#e2e8f0', textAlign: 'left',
+      htmlText: true, htmlWhiteSpace: 'pre',
+    }, [
+      { frame: start, easing: 'linear', props: { ...shown, opacity: 0 } },
+      { frame, easing: 'ease-out', props: { ...shown, opacity: 0 } },
+      { frame: frame + CARD_FADE_FRAMES, easing: 'ease-out', props: shown },
+    ]))
+  })
+  return layers
 }

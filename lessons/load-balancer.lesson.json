@@ -63,7 +63,7 @@
     {
       "id": "problem",
       "title": "The problem",
-      "narration": "Every time you open a website, your browser sends a request to a server.",
+      "narration": "[[clients]]Every time you open a website, your browser sends a request to a server.",
       "reveal": [
         "clients"
       ]
@@ -71,7 +71,7 @@
     {
       "id": "bottleneck",
       "title": "One server is not enough",
-      "narration": "As traffic grows, a single server becomes a bottleneck. It slows down, and eventually it fails.",
+      "narration": "As traffic grows, [[s1]][[clients-s1]]a single server becomes a bottleneck. It slows down, and eventually it fails.",
       "reveal": [
         "s1",
         "clients-s1"
@@ -80,7 +80,7 @@
     {
       "id": "solution",
       "title": "Add a load balancer",
-      "narration": "A load balancer sits in front of your servers and receives every request first.",
+      "narration": "[[lb]][[clients-s1]]A load balancer sits in front of your servers, [[clients-lb]]and receives every request first.",
       "reveal": [
         "lb",
         "clients-lb"
@@ -92,7 +92,7 @@
     {
       "id": "distribute",
       "title": "Spread the traffic",
-      "narration": "It then distributes those requests across several servers, so no single machine is overwhelmed.",
+      "narration": "It then distributes those requests [[s2]][[s3]]across several servers, [[lb-s1]][[lb-s2]][[lb-s3]]so no single machine is overwhelmed.",
       "reveal": [
         "s2",
         "s3",

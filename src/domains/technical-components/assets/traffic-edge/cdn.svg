@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">CDN</title>
+  <desc id="desc">A globe with latitude and longitude lines, for content served near the user.</desc>
+  <circle cx="120" cy="75" r="52"/>
+  <ellipse cx="120" cy="75" rx="22" ry="52"/>
+  <path d="M68 75h104M78 50h84M78 100h84"/>
+</svg>

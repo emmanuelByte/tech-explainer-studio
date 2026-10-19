@@ -1,6 +1,8 @@
-import { SPEC_DEFAULTS, type LessonSpec, type SpecIssue } from './types'
+import { TECHNICAL_COMPONENT_KINDS } from '../../types'
+import { narrationCueProblems, parseNarration } from './narration'
+import { CARD_LIMITS, SPEC_DEFAULTS, type LessonSpec, type SpecIssue } from './types'
 
-const KINDS = new Set(['client', 'load-balancer', 'server'])
+const KINDS = new Set<string>(TECHNICAL_COMPONENT_KINDS)
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -74,6 +76,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   const sceneIds = new Set<string>()
   const revealed = new Set<string>()
   const hidden = new Set<string>()
+  const cardIds = new Set<string>()
   scenes?.forEach((scene, index) => {
     const path = `scenes[${index}]`
     if (!isRecord(scene)) return add(path, 'Must be an object.')
@@ -94,6 +97,30 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         revealed.add(id)
       })
     }
+    const cardCueIds: string[] = []
+    if (scene.card !== undefined) {
+      const card = scene.card
+      if (!isRecord(card)) add(`${path}.card`, 'Must be an object.')
+      else {
+        if (typeof card.id !== 'string' || !ID_PATTERN.test(card.id)) add(`${path}.card.id`, 'Required lowercase slug.')
+        else if (ids.has(card.id) || cardIds.has(card.id)) add(`${path}.card.id`, `Duplicate id "${card.id}".`)
+        else cardIds.add(card.id)
+        if (card.title !== undefined && (typeof card.title !== 'string' || card.title.length > CARD_LIMITS.titleLength)) {
+          add(`${path}.card.title`, `Text of ${CARD_LIMITS.titleLength} characters or fewer.`)
+        }
+        const lines = card.lines
+        if (!Array.isArray(lines) || !lines.length || lines.length > CARD_LIMITS.lines) {
+          add(`${path}.card.lines`, `Must be 1 to ${CARD_LIMITS.lines} lines.`)
+        } else {
+          lines.forEach((line, i) => {
+            if (typeof line !== 'string' || line.length > CARD_LIMITS.lineLength) {
+              add(`${path}.card.lines[${i}]`, `Text of ${CARD_LIMITS.lineLength} characters or fewer.`)
+            }
+          })
+          if (typeof card.id === 'string') lines.forEach((_, i) => cardCueIds.push(`${card.id}.${i + 1}`))
+        }
+      }
+    }
     const hide = scene.hide
     if (hide !== undefined) {
       if (!Array.isArray(hide)) add(`${path}.hide`, 'Must be an array of ids.')
@@ -105,6 +132,22 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         if (hidden.has(id)) return add(`${path}.hide[${i}]`, `"${id}" is already hidden.`)
         hidden.add(id)
       })
+    }
+    if (typeof scene.narration === 'string' && scene.narration.trim()) {
+      for (const problem of narrationCueProblems(scene.narration)) add(`${path}.narration`, problem)
+      const parsed = parseNarration(scene.narration)
+      if (!parsed.plain) add(`${path}.narration`, 'Must contain spoken text, not only cues.')
+      const allowed = new Set<string>([
+        ...(Array.isArray(scene.reveal) ? scene.reveal : []),
+        ...(Array.isArray(scene.hide) ? scene.hide : []),
+        ...cardCueIds,
+      ].filter((id): id is string => typeof id === 'string'))
+      const seen = new Set<string>()
+      for (const cue of parsed.cues) {
+        if (!allowed.has(cue.id)) add(`${path}.narration`, `Cue "[[${cue.id}]]" is not in this scene's reveal or hide list.`)
+        else if (seen.has(cue.id)) add(`${path}.narration`, `Cue "[[${cue.id}]]" appears more than once.`)
+        seen.add(cue.id)
+      }
     }
     const focus = scene.focus
     if (focus !== undefined) {

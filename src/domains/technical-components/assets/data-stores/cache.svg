@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Cache</title>
+  <desc id="desc">A memory chip with a lightning bolt, suggesting fast access.</desc>
+  <rect x="60" y="28" width="120" height="94" rx="12"/>
+  <path d="M84 12v16M120 12v16M156 12v16M84 122v16M120 122v16M156 122v16"/>
+  <path d="M130 46 102 80h20l-10 26 30-36h-20z"/>
+</svg>

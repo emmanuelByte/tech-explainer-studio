@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "id": "page-load",
+  "title": "What Happens When You Load a Page",
+  "nodes": [
+    {
+      "id": "browser",
+      "kind": "client",
+      "label": "Browser"
+    },
+    {
+      "id": "cdn",
+      "kind": "cdn",
+      "label": "CDN"
+    },
+    {
+      "id": "gateway",
+      "kind": "api-gateway",
+      "label": "API Gateway"
+    },
+    {
+      "id": "app",
+      "kind": "server",
+      "label": "App Server"
+    },
+    {
+      "id": "cache",
+      "kind": "cache",
+      "label": "Cache"
+    },
+    {
+      "id": "db",
+      "kind": "database",
+      "label": "Database"
+    }
+  ],
+  "edges": [
+    {
+      "id": "browser-cdn",
+      "from": "browser",
+      "to": "cdn",
+      "label": "static files"
+    },
+    {
+      "id": "cdn-gateway",
+      "from": "cdn",
+      "to": "gateway",
+      "label": "API calls"
+    },
+    {
+      "id": "gateway-app",
+      "from": "gateway",
+      "to": "app"
+    },
+    {
+      "id": "app-cache",
+      "from": "app",
+      "to": "cache",
+      "label": "1. check"
+    },
+    {
+      "id": "app-db",
+      "from": "app",
+      "to": "db",
+      "label": "2. query",
+      "style": "dashed"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "click",
+      "title": "You click a link",
+      "narration": "[[browser]]You click a link, and your browser starts looking for the page.",
+      "reveal": [
+        "browser"
+      ]
+    },
+    {
+      "id": "cdn",
+      "title": "The CDN",
+      "narration": "Images and scripts come from [[cdn]]a CDN, [[browser-cdn]]a server close to you.",
+      "reveal": [
+        "cdn",
+        "browser-cdn"
+      ]
+    },
+    {
+      "id": "gateway",
+      "title": "The gateway",
+      "narration": "Requests for data go on to [[gateway]]an API gateway, [[cdn-gateway]]the single front door.",
+      "reveal": [
+        "gateway",
+        "cdn-gateway"
+      ]
+    },
+    {
+      "id": "request",
+      "title": "What a request looks like",
+      "narration": "A typical request is just text: [[req.1]]a method and path, [[req.2]]the host, [[req.3]]who is asking, [[req.4]]and what format to reply in.",
+      "card": {
+        "id": "req",
+        "title": "GET /api/products",
+        "lines": [
+          "GET /api/products?limit=3 HTTP/1.1",
+          "Host: shop.example.com",
+          "Authorization: Bearer <token>",
+          "Accept: application/json"
+        ]
+      }
+    },
+    {
+      "id": "app",
+      "title": "The app server",
+      "narration": "The gateway hands each request to [[app]]an application server, [[gateway-app]]which does the real work.",
+      "reveal": [
+        "app",
+        "gateway-app"
+      ]
+    },
+    {
+      "id": "fast",
+      "title": "The fast path",
+      "narration": "The server checks [[cache]]a cache first, [[app-cache]]because memory is very fast.",
+      "reveal": [
+        "cache",
+        "app-cache"
+      ]
+    },
+    {
+      "id": "slow",
+      "title": "The slow path",
+      "narration": "On a miss, it asks [[db]]the database, [[app-db]]which is slower but always right.",
+      "reveal": [
+        "db",
+        "app-db"
+      ]
+    }
+  ]
+}

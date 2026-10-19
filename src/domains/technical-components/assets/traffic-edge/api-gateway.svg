@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">API gateway</title>
+  <desc id="desc">A gateway with a door; requests enter on the left and leave on the right.</desc>
+  <rect x="72" y="22" width="96" height="106" rx="10"/>
+  <path d="M100 128V86a20 20 0 0 1 40 0v42"/>
+  <path d="M14 75h46m-10-10 10 10-10 10M180 75h46m-10-10 10 10-10 10"/>
+</svg>

@@ -33,6 +33,16 @@ export interface SpecEdge {
   style?: 'solid' | 'dashed'
 }
 
+export interface SpecCard {
+  /** Unique across cards and must not clash with node/edge ids; cue ids are `<id>.<line number>`. */
+  id: string
+  title?: string
+  /** Up to 8 lines of at most 60 characters, revealed one after another. */
+  lines: string[]
+}
+
+export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
+
 export interface SpecScene {
   /** Unique slug; stable so later spec patches can address the scene. */
   id: string
@@ -44,8 +54,28 @@ export interface SpecScene {
   reveal?: string[]
   /** Node/edge ids removed in this scene, once its first reveal begins. Must already be revealed. */
   hide?: string[]
+  /** A code/request panel shown over the dimmed diagram for this scene only. */
+  card?: SpecCard
   /** Node ids the camera frames. Defaults to everything revealed so far. */
   focus?: string[]
+}
+
+/** Measured narration audio for a lesson (produced by `lesson narrate`, consumed by the compiler). */
+export interface NarrationManifest {
+  voiceId: string
+  exaggeration: number
+  cfgWeight: number
+  scenes: Record<string, SceneNarration>
+}
+
+export interface SceneNarration {
+  /** Registered asset id of the scene's joined narration WAV. */
+  assetId: string
+  durationSeconds: number
+  /** Cue id -> seconds from the start of this scene's audio. */
+  cues: Record<string, number>
+  /** The exact `narration` text this audio was made from, cues included; detects stale audio. */
+  source: string
 }
 
 export const SPEC_DEFAULTS = {

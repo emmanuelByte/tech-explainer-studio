@@ -1,5 +1,9 @@
 export type LayerType = 'rectangle' | 'ellipse' | 'line' | 'triangle' | 'path' | 'text' | 'image' | 'video' | 'audio' | 'group'
-export type TechnicalComponentKind = 'client' | 'load-balancer' | 'server'
+export const TECHNICAL_COMPONENT_KINDS = [
+  'client', 'load-balancer', 'server',
+  'database', 'cache', 'queue', 'cdn', 'api-gateway', 'object-storage', 'worker',
+] as const
+export type TechnicalComponentKind = typeof TECHNICAL_COMPONENT_KINDS[number]
 
 export interface TechnicalComponentMeta {
   kind: TechnicalComponentKind

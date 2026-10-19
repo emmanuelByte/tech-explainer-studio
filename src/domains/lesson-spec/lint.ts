@@ -1,4 +1,5 @@
 import type { CameraKeyframe, MotionProject } from '../../types'
+import { parseNarration } from './narration'
 import type { LessonSpec } from './types'
 
 export interface LintIssue {
@@ -58,7 +59,8 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     for (const id of specScene.hide ?? []) visible.delete(id)
 
     const seconds = (scene.endFrame - scene.startFrame) / fps
-    const words = specScene.narration.trim().split(/\s+/).length
+    const spoken = parseNarration(specScene.narration).plain
+    const words = spoken.split(/\s+/).length
     if (words / seconds > MAX_WORDS_PER_SECOND) {
       add('warning', 'fast-narration', `${words} words in ${seconds.toFixed(1)}s is ${(words / seconds).toFixed(1)} words/s; aim for at most ${MAX_WORDS_PER_SECOND}. Lengthen the scene or trim the narration.`)
     }
@@ -71,11 +73,11 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
 
     const cam = cameraAt(camera, scene.endFrame - 1)
     const framing = `${cam.x}|${cam.y}|${cam.zoom}`
-    const changes = (specScene.reveal?.length ?? 0) + (specScene.hide?.length ?? 0) > 0 || framing !== previousFraming
+    const changes = (specScene.reveal?.length ?? 0) + (specScene.hide?.length ?? 0) > 0 || Boolean(specScene.card) || framing !== previousFraming
     if (!changes && index > 0) add('warning', 'static-scene', 'Nothing is revealed, hidden or reframed; the screen will not change while this is narrated.')
     previousFraming = framing
 
-    const limit = captionTop(specScene.narration, width, height) - CAPTION_GAP
+    const limit = captionTop(spoken, width, height) - CAPTION_GAP
     const boxes: { id: string; left: number; top: number; right: number; bottom: number }[] = []
     for (const id of visible) {
       const layer = project.layers.find((candidate) => candidate.id === `node_${id}`)

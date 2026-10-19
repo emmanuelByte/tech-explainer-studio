@@ -1,0 +1,121 @@
+import { createHash } from 'node:crypto'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
+import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
+import { encodeWav, joinWavs, parseWav, wavSeconds } from './wav'
+
+const GAP_SECONDS = 0.18
+const REQUEST_TIMEOUT_MS = 15 * 60 * 1000
+
+export interface NarrateOptions {
+  root: string
+  workerUrl: string
+  voice: string
+  exaggeration: number
+  cfgWeight: number
+  log: (line: string) => void
+}
+
+const sha = (value: string | Buffer, length: number) => createHash('sha256').update(value).digest('hex').slice(0, length)
+
+export function narrationManifestPath(root: string, specId: string) {
+  return resolve(root, 'data', 'narration', `${specId}.json`)
+}
+
+export async function loadNarrationManifest(root: string, specId: string): Promise<NarrationManifest | undefined> {
+  try {
+    return JSON.parse(await readFile(narrationManifestPath(root, specId), 'utf-8')) as NarrationManifest
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    throw error
+  }
+}
+
+async function synthesise(options: NarrateOptions, text: string) {
+  const key = sha(JSON.stringify([text, options.voice, options.exaggeration, options.cfgWeight]), 16)
+  const cached = resolve(options.root, 'data', 'narration', 'cache', `${key}.wav`)
+  try {
+    return { bytes: await readFile(cached), fromCache: true }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const response = await fetch(`${options.workerUrl}/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voice: options.voice, exaggeration: options.exaggeration, cfg_weight: options.cfgWeight }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  })
+  if (!response.ok) throw new Error(`Chatterbox failed (${response.status}): ${(await response.text()).slice(0, 300)}`)
+  const bytes = Buffer.from(await response.arrayBuffer())
+  await mkdir(resolve(cached, '..'), { recursive: true })
+  await writeFile(cached, bytes)
+  return { bytes, fromCache: false }
+}
+
+interface StoredAsset { id: string; name: string; fileName: string; [key: string]: unknown }
+
+/** Registers a scene's joined narration in the editor's asset store so projects and renders can reference it. */
+async function registerAsset(root: string, name: string, bytes: Buffer, durationSeconds: number) {
+  const id = `asset_nar_${sha(bytes, 12)}`
+  const indexPath = resolve(root, 'data', 'assets', 'index.json')
+  const filesDir = resolve(root, 'data', 'assets', 'files')
+  await mkdir(filesDir, { recursive: true })
+  let index: StoredAsset[] = []
+  try {
+    index = JSON.parse(await readFile(indexPath, 'utf-8')) as StoredAsset[]
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  // Drop superseded audio for the same scene so old takes do not pile up.
+  for (const old of index.filter((asset) => asset.name === name && asset.id !== id)) {
+    await rm(resolve(filesDir, old.fileName), { force: true })
+  }
+  const now = new Date().toISOString()
+  const existing = index.find((asset) => asset.id === id)
+  const entry = {
+    id,
+    name,
+    fileName: `${id}.wav`,
+    mimeType: 'audio/wav',
+    kind: 'audio',
+    imageKind: 'raster',
+    duration: Math.round(durationSeconds * 100) / 100,
+    bytes: bytes.length,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    url: `/api/assets/${id}/file`,
+  }
+  await writeFile(resolve(filesDir, entry.fileName), bytes)
+  const next = [...index.filter((asset) => asset.name !== name), entry]
+  await writeFile(indexPath, `${JSON.stringify(next, null, 2)}\n`)
+  return id
+}
+
+/** Synthesises every scene (chunk by chunk, cached), joins it, registers it, and writes the manifest. */
+export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): Promise<NarrationManifest> {
+  const manifest: NarrationManifest = { voiceId: options.voice, exaggeration: options.exaggeration, cfgWeight: options.cfgWeight, scenes: {} }
+  for (const scene of spec.scenes) {
+    const parsed = parseNarration(scene.narration)
+    const clips = []
+    for (const [index, chunk] of parsed.chunks.entries()) {
+      const started = Date.now()
+      const { bytes, fromCache } = await synthesise(options, chunk)
+      clips.push(parseWav(bytes))
+      options.log(`  ${scene.id} ${index + 1}/${parsed.chunks.length} ${fromCache ? 'cached' : `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${chunk.slice(0, 48)}`)
+    }
+    const joined = joinWavs(clips, GAP_SECONDS)
+    const seconds = wavSeconds(joined)
+    const assetId = await registerAsset(options.root, `lesson:${spec.id}:${scene.id}`, encodeWav(joined), seconds)
+    manifest.scenes[scene.id] = {
+      assetId,
+      durationSeconds: Math.round(seconds * 1000) / 1000,
+      cues: resolveCueTimes(parsed, clips.map(wavSeconds), GAP_SECONDS),
+      source: scene.narration,
+    }
+  }
+  const path = narrationManifestPath(options.root, spec.id)
+  await mkdir(resolve(path, '..'), { recursive: true })
+  await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`)
+  return manifest
+}

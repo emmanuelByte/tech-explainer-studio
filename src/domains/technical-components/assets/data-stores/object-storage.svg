@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Object storage</title>
+  <desc id="desc">A storage bucket holding files.</desc>
+  <ellipse cx="120" cy="42" rx="58" ry="14"/>
+  <path d="M62 42l12 84c0 7 20 12 46 12s46-5 46-12l12-84"/>
+  <path d="M96 82h48M100 104h40"/>
+</svg>

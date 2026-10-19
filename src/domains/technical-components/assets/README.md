@@ -5,8 +5,10 @@ Vendor-neutral SVG artwork used by the editable technical component kit.
 ## Structure
 
 - `clients/` — users, browsers, mobile devices, and external clients
-- `traffic-edge/` — DNS, CDN, proxies, gateways, and load balancers
+- `traffic-edge/` — DNS, CDN, proxies, API gateways, and load balancers
 - `compute/` — servers, services, workers, containers, and functions
+- `data-stores/` — databases, caches, and object storage
+- `messaging/` — queues and event buses
 
 ## Authoring contract
 

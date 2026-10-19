@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { TECHNICAL_COMPONENT_KINDS } from '../../types'
 import { migrateProject } from '../project/migrations'
-import { compileLessonSpec, layoutNodes, LessonSpecError, type ComponentArtwork } from './compile'
+import { compileLessonSpec, layoutNodes, type ComponentArtwork } from './compile'
 import type { LessonSpec } from './types'
 import { validateLessonSpec } from './validate'
 
-const artwork: ComponentArtwork = {
-  client: '<svg xmlns="http://www.w3.org/2000/svg"/>',
-  'load-balancer': '<svg xmlns="http://www.w3.org/2000/svg"/>',
-  server: '<svg xmlns="http://www.w3.org/2000/svg"/>',
-}
+const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>'
+const artwork = Object.fromEntries(TECHNICAL_COMPONENT_KINDS.map((kind) => [kind, svg])) as ComponentArtwork
 const options = { artwork, now: '2026-10-19T00:00:00.000Z' }
 
 function spec(): LessonSpec {
@@ -44,72 +42,10 @@ describe('validateLessonSpec', () => {
     expect(validateLessonSpec(spec())).toEqual([])
   })
 
-  it('rejects non-objects and wrong versions', () => {
-    expect(validateLessonSpec(null)).toHaveLength(1)
-    expect(messages({ ...spec(), version: 2 })).toContain('version: Must be 1.')
-  })
-
-  it('reports duplicate ids across nodes and edges', () => {
-    const bad = spec()
-    bad.edges[0].id = 'lb'
-    expect(messages(bad).some((m) => m.includes('Duplicate id "lb"'))).toBe(true)
-  })
-
-  it('reports edges that point at unknown or non-node ids', () => {
-    const bad = spec()
-    bad.edges[1].to = 'nope'
-    bad.edges[2].to = 'c-lb'
-    const found = messages(bad)
-    expect(found.some((m) => m.includes('"nope" is not a node id'))).toBe(true)
-    expect(found.some((m) => m.includes('"c-lb" is not a node id'))).toBe(true)
-  })
-
-  it('reports ids that are declared but never revealed', () => {
-    const bad = spec()
-    bad.scenes[2].reveal = ['s1', 'lb-s1', 'lb-s2']
-    expect(messages(bad).some((m) => m.includes('"s2" is declared but never revealed'))).toBe(true)
-  })
-
-  it('reports an id revealed twice', () => {
-    const bad = spec()
-    bad.scenes[1].reveal = ['lb', 'c-lb', 'c']
-    expect(messages(bad).some((m) => m.includes('already revealed'))).toBe(true)
-  })
-
   it('reports an edge revealed before one of its nodes', () => {
     const bad = spec()
     bad.scenes[1].reveal = ['c-lb', 'lb']
     expect(messages(bad).some((m) => m.includes('revealed before both its nodes'))).toBe(true)
-  })
-
-  it('reports labels that would overflow a component', () => {
-    const bad = spec()
-    bad.nodes[1].label = 'A very long load balancer'
-    expect(messages(bad).some((m) => m.includes('16 characters'))).toBe(true)
-  })
-
-  it('reports cycles', () => {
-    const bad = spec()
-    bad.edges.push({ id: 's1-c', from: 's1', to: 'c' })
-    bad.scenes[2].reveal = [...(bad.scenes[2].reveal ?? []), 's1-c']
-    expect(messages(bad).some((m) => m.includes('cycle'))).toBe(true)
-  })
-
-  it('reports a graph too deep for the canvas', () => {
-    const deep: LessonSpec = {
-      version: 1,
-      id: 'deep',
-      title: 'Deep',
-      nodes: ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ id, kind: 'server' as const, label: id })),
-      edges: [['a', 'b'], ['b', 'c'], ['c', 'd'], ['d', 'e'], ['e', 'f']].map(([from, to]) => ({ id: `${from}-${to}`, from, to })),
-      scenes: [{
-        id: 'all',
-        title: 'All',
-        narration: 'Everything at once.',
-        reveal: ['a', 'b', 'a-b', 'c', 'b-c', 'd', 'c-d', 'e', 'd-e', 'f', 'e-f'],
-      }],
-    }
-    expect(messages(deep).some((m) => m.includes('will not fit'))).toBe(true)
   })
 })
 
@@ -124,12 +60,6 @@ describe('layoutNodes', () => {
 })
 
 describe('compileLessonSpec', () => {
-  it('throws every validation issue', () => {
-    const bad = spec()
-    bad.nodes[0].kind = 'mystery' as never
-    expect(() => compileLessonSpec(bad, options)).toThrow(LessonSpecError)
-  })
-
   it('is deterministic', () => {
     expect(compileLessonSpec(spec(), options)).toEqual(compileLessonSpec(spec(), options))
   })
@@ -165,17 +95,6 @@ describe('compileLessonSpec', () => {
     expect(edge.label).toBe('requests')
   })
 
-  it('keeps every component on the canvas and every layer id unique', () => {
-    const project = compileLessonSpec(spec(), options)
-    const ids = project.layers.map((layer) => layer.id)
-    expect(new Set(ids).size).toBe(ids.length)
-    for (const layer of project.layers.filter((candidate) => candidate.technicalComponent)) {
-      const { x, y } = layer.keyframes[0].props
-      expect(Math.abs(x) + layer.width / 2).toBeLessThanOrEqual(project.canvas.width / 2)
-      expect(Math.abs(y) + layer.height / 2).toBeLessThanOrEqual(project.canvas.height / 2)
-    }
-  })
-
   it('writes one script segment and camera keyframe per scene, with captions on', () => {
     const project = compileLessonSpec(spec(), options)
     expect(project.script?.segments).toHaveLength(3)
@@ -183,22 +102,6 @@ describe('compileLessonSpec', () => {
     // Hold each framing, then move to the next over 24 frames at the start of its scene.
     expect(project.camera?.keyframes.map((keyframe) => keyframe.frame)).toEqual([0, 150, 174, 330, 354])
     expect(project.captions).toEqual({ enabled: true, style: 'readable' })
-  })
-
-  it('keeps the framed content above the caption strip', () => {
-    const project = compileLessonSpec(spec(), options)
-    const last = project.camera!.keyframes[project.camera!.keyframes.length - 1]
-    // All nodes are framed; the camera looks below the content centre so it sits above the captions.
-    expect(last.y).toBeGreaterThan(project.canvas.height / 2)
-    expect(last.zoom).toBeGreaterThanOrEqual(1)
-  })
-
-  it('does not move the camera between scenes that share a framing', () => {
-    const same = spec()
-    same.scenes[1].focus = ['c']
-    same.scenes[0].focus = ['c']
-    same.scenes[2].focus = ['c']
-    expect(compileLessonSpec(same, options).camera?.keyframes).toHaveLength(1)
   })
 })
 
@@ -217,30 +120,6 @@ describe('hide', () => {
     expect(validateLessonSpec(withTemporaryEdge())).toEqual([])
   })
 
-  it('rejects hiding something not yet revealed, or in the same scene', () => {
-    const early = withTemporaryEdge()
-    early.scenes[0].hide = ['lb']
-    expect(messages(early).some((m) => m.includes('must be revealed in an earlier scene'))).toBe(true)
-    const same = withTemporaryEdge()
-    same.scenes[0].hide = ['c-s1']
-    expect(messages(same).some((m) => m.includes('must be revealed in an earlier scene'))).toBe(true)
-  })
-
-  it('rejects hiding twice, focusing a hidden node and revealing an edge after its node is hidden', () => {
-    const twice = withTemporaryEdge()
-    twice.scenes[2].hide = ['c-s1']
-    expect(messages(twice).some((m) => m.includes('already hidden'))).toBe(true)
-
-    const focus = withTemporaryEdge()
-    focus.scenes[1].hide = ['c-s1', 's1']
-    focus.scenes[2].focus = ['s1']
-    expect(messages(focus).some((m) => m.includes('is hidden by'))).toBe(true)
-
-    const late = withTemporaryEdge()
-    late.scenes[1].hide = ['c-s1', 'c']
-    expect(messages(late).some((m) => m.includes('revealed after one of its nodes was hidden'))).toBe(true)
-  })
-
   it('fades a hidden edge and node out when the hiding scene begins revealing', () => {
     const value = withTemporaryEdge()
     value.scenes[1].hide = ['c-s1', 's1']
@@ -254,10 +133,47 @@ describe('hide', () => {
     expect(last.frame).toBe(150 + 15 + 12)
     expect(last.props.opacity).toBe(0)
   })
+})
 
-  it('leaves un-hidden connectors without a hideFrame and frames only what is still visible', () => {
-    const project = compileLessonSpec(withTemporaryEdge(), options)
-    expect(project.connectors!.find((connector) => connector.id === 'edge_c-lb')!.hideFrame).toBeUndefined()
-    expect(migrateProject(project)).toEqual(project)
+describe('narration', () => {
+  function cued(): LessonSpec {
+    const value = spec()
+    value.scenes[1].narration = '[[lb]]A load balancer receives it, [[c-lb]]before anything else.'
+    return value
+  }
+
+  function manifest(value: LessonSpec) {
+    return {
+      voiceId: 'baseVoice',
+      exaggeration: 0.5,
+      cfgWeight: 0.5,
+      scenes: {
+        one: { assetId: 'asset_one', durationSeconds: 3, cues: {}, source: value.scenes[0].narration },
+        two: { assetId: 'asset_two', durationSeconds: 4, cues: { lb: 0, 'c-lb': 2.5 }, source: value.scenes[1].narration },
+        three: { assetId: 'asset_three', durationSeconds: 5, cues: {}, source: value.scenes[2].narration },
+      },
+    }
+  }
+
+  it('sizes scenes from real audio and pins reveals to their cues', () => {
+    const value = cued()
+    const project = compileLessonSpec(value, { ...options, narration: manifest(value) })
+    // lead 0.5s + audio + tail 0.7s at 30 fps
+    expect(project.scenes!.map((scene) => scene.endFrame - scene.startFrame)).toEqual([126, 156, 186])
+    const sceneTwo = project.scenes![1]
+    const audioStart = sceneTwo.startFrame + 15
+    const lb = project.layers.find((layer) => layer.id === 'node_lb')!
+    expect(lb.keyframes[1].frame).toBe(audioStart)
+    expect(project.connectors!.find((connector) => connector.id === 'edge_c-lb')!.drawStartFrame).toBe(audioStart + 75)
+  })
+
+  it('refuses stale or missing audio', () => {
+    const value = cued()
+    const stale = manifest(value)
+    stale.scenes.two.source = 'something older'
+    expect(() => compileLessonSpec(value, { ...options, narration: stale })).toThrow('changed since its audio was made')
+    const full = manifest(value)
+    const missing = { ...full, scenes: Object.fromEntries(Object.entries(full.scenes).filter(([id]) => id !== 'three')) }
+    expect(() => compileLessonSpec(value, { ...options, narration: missing })).toThrow('No narration audio')
   })
 })

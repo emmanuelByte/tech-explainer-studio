@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="title desc">
+  <title id="title">Message queue</title>
+  <desc id="desc">Three messages waiting in line, moving left to right.</desc>
+  <rect x="16" y="52" width="46" height="46" rx="8"/>
+  <rect x="97" y="52" width="46" height="46" rx="8"/>
+  <rect x="178" y="52" width="46" height="46" rx="8"/>
+  <path d="M68 75h23m-8-8 8 8-8 8M149 75h23m-8-8 8 8-8 8"/>
+</svg>
