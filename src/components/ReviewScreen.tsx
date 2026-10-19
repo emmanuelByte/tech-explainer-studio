@@ -110,7 +110,7 @@ export function ReviewScreen({ projectId }: { projectId: string }) {
     void api<ExportJob>('/api/exports', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId, fileName: project.name, format: 'mp4', quality: 'standard' }),
+      body: JSON.stringify({ projectId, fileName: project.name, format: 'mp4', quality: 'standard', startFrame: 0, endFrame: durationFrames - 1 }),
     }).then(setJob).catch((e: Error) => setError(e.message))
   }
   const exporting = job?.status === 'queued' || job?.status === 'running'

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
+import { chunkLooksWrong, parseNarration, resolveCueTimes } from '../../src/domains/lesson-spec/narration'
 import type { LessonSpec, NarrationManifest } from '../../src/domains/lesson-spec/types'
 import { encodeWav, joinWavs, parseWav, wavSeconds } from './wav'
 
@@ -32,14 +32,9 @@ export async function loadNarrationManifest(root: string, specId: string): Promi
   }
 }
 
-async function synthesise(options: NarrateOptions, text: string) {
-  const key = sha(JSON.stringify([text, options.voice, options.exaggeration, options.cfgWeight]), 16)
-  const cached = resolve(options.root, 'data', 'narration', 'cache', `${key}.wav`)
-  try {
-    return { bytes: await readFile(cached), fromCache: true }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-  }
+const MAX_ATTEMPTS = 3
+
+async function generate(options: NarrateOptions, text: string) {
   const response = await fetch(`${options.workerUrl}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -47,10 +42,33 @@ async function synthesise(options: NarrateOptions, text: string) {
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw new Error(`Chatterbox failed (${response.status}): ${(await response.text()).slice(0, 300)}`)
-  const bytes = Buffer.from(await response.arrayBuffer())
+  return Buffer.from(await response.arrayBuffer())
+}
+
+/** Cached by text + voice + settings. A take that looks stretched or garbled is re-rolled (best of three). */
+async function synthesise(options: NarrateOptions, text: string) {
+  const key = sha(JSON.stringify([text, options.voice, options.exaggeration, options.cfgWeight]), 16)
+  const cached = resolve(options.root, 'data', 'narration', 'cache', `${key}.wav`)
+  try {
+    const bytes = await readFile(cached)
+    if (!chunkLooksWrong(text, wavSeconds(parseWav(bytes)))) return { bytes, note: 'cached' }
+    options.log(`  (cached take of "${text.slice(0, 30)}" looks wrong; re-rolling)`)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  let best: Buffer | null = null
+  let bestSeconds = Infinity
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    const bytes = await generate(options, text)
+    const seconds = wavSeconds(parseWav(bytes))
+    if (seconds < bestSeconds) { best = bytes; bestSeconds = seconds }
+    if (!chunkLooksWrong(text, seconds)) break
+    options.log(`  attempt ${attempt}: ${seconds.toFixed(1)}s for ${text.length} characters looks wrong`)
+  }
+  if (chunkLooksWrong(text, bestSeconds)) options.log(`  WARNING: "${text}" still looks wrong; merge it into a longer phrase`)
   await mkdir(resolve(cached, '..'), { recursive: true })
-  await writeFile(cached, bytes)
-  return { bytes, fromCache: false }
+  await writeFile(cached, best!)
+  return { bytes: best!, note: '' }
 }
 
 interface StoredAsset { id: string; name: string; fileName: string; [key: string]: unknown }
@@ -100,9 +118,9 @@ export async function narrateLesson(spec: LessonSpec, options: NarrateOptions): 
     const clips = []
     for (const [index, chunk] of parsed.chunks.entries()) {
       const started = Date.now()
-      const { bytes, fromCache } = await synthesise(options, chunk)
+      const { bytes, note } = await synthesise(options, chunk)
       clips.push(parseWav(bytes))
-      options.log(`  ${scene.id} ${index + 1}/${parsed.chunks.length} ${fromCache ? 'cached' : `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${chunk.slice(0, 48)}`)
+      options.log(`  ${scene.id} ${index + 1}/${parsed.chunks.length} ${note || `${((Date.now() - started) / 1000).toFixed(1)}s`}: ${chunk.slice(0, 48)}`)
     }
     const joined = joinWavs(clips, GAP_SECONDS)
     const seconds = wavSeconds(joined)

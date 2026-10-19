@@ -178,7 +178,8 @@ async function createExportJob(root: string, body: Record<string, unknown>) {
 
   const durationFrames = await readProjectFrameCount(root, projectId)
   const startFrame = clampFrame(body.startFrame, 0, durationFrames - 1)
-  const endFrame = clampFrame(body.endFrame, startFrame, durationFrames - 1)
+  // No range given means the whole video (clampFrame alone would collapse it to a single frame).
+  const endFrame = body.endFrame === undefined ? durationFrames - 1 : clampFrame(body.endFrame, startFrame, durationFrames - 1)
   const format = normalizeFormat(body.format)
   const quality = normalizeQuality(body.quality)
   const profile = QUALITY_PROFILES[quality]

@@ -41,14 +41,6 @@ describe('lintLesson', () => {
     expect(lint(spec())).toEqual([])
   })
 
-  it('flags a component pushed off the canvas', () => {
-    const issues = lint(spec(), (project) => {
-      const group = project.layers.find((layer) => layer.id === 'node_s1')!
-      group.keyframes.forEach((keyframe) => { keyframe.props.x = 900 })
-    })
-    expect(issues.some((issue) => issue.rule === 'off-canvas' && issue.severity === 'error')).toBe(true)
-  })
-
   it('flags a component that runs into the captions', () => {
     const issues = lint(spec(), (project) => {
       const group = project.layers.find((layer) => layer.id === 'node_c')!

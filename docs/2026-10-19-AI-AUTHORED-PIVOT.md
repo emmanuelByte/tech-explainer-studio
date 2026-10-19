@@ -283,3 +283,45 @@ column spacing for graphs deeper than five columns.
 - Not yet verified by ear: very short chunks (e.g. "a CDN,") may sound
   choppy; if so, merge cues into longer phrases or move the cue to a phrase
   boundary.
+
+### 2026-10-19 — Milestone 7: first unaided end-to-end lesson
+
+Topic chosen by the AI (no help from the human): **How a Message Queue Works**
+(`lessons/message-queue.lesson.json`, 6 scenes, 37.5 s of speech, 44.7 s video,
+uses the queue / worker / object-storage kinds and a JSON card). Flow:
+write spec -> `validate` -> `lint` -> `narrate` (3 min) -> `build` -> `lint` ->
+`stills` -> fix -> full MP4 export through the app's `/api/exports`.
+
+What the test found and fixed:
+
+- **Export bug (real):** the review screen's Export button sent no frame range,
+  and the export API collapsed a missing `endFrame` to frame 0, so it would have
+  produced a **one-frame video**. The server now defaults to the whole video and
+  the screen sends the range explicitly.
+- **Lint too strict:** zooming the camera onto a subset of components flagged
+  the rest as "cut off". The rule now flags only *partially* visible components
+  (a component fully out of frame is a deliberate camera move). The spec was
+  also changed (`scale` scene hides `user` and `app` so no arrow dangles in).
+- Verified the exported file: 1920x1080, 30 fps, H.264 + AAC, 44.7 s, steady
+  speech level throughout, and the JSON card's lines reveal on their cues.
+
+Still not verified by a human ear: voice quality and the choppiness of short
+chunks. Still open from the status table: theme file, patch tooling, and the
+remaining explainer blocks (data-flow pulses, title/outro cards, emphasis,
+sequence diagrams).
+
+### 2026-10-19 — Voice quality check (found by the human's ear)
+
+- The human reported a mispronounced word in the "Save the result" scene. Cause:
+  Chatterbox stretched the one-word chunk "storage," to 2.7 s (a normal take is
+  ~0.7 s). "a queue," was also off (1.5 s).
+- `narrate` now judges every chunk (`chunkLooksWrong`: longer than
+  max(1.2 s, 0.18 s per character)), re-rolls a suspect take up to three times,
+  keeps the best, caches only that, and also re-checks previously cached takes.
+  It prints a warning if three tries all look wrong (then merge the phrase into
+  a longer one). Short chunks of one or two words are the usual cause.
+- After the fix: "storage," 0.76 s, "a queue," 0.88 s; message-queue video 42.1 s.
+- Pace is a little slow (human feedback, "fine for now"). Possible knob later:
+  a lower `--cfg` (e.g. 0.3) makes Chatterbox speak faster.
+- VS Code's built-in video preview does not play audio; check videos in
+  QuickTime or the review page.

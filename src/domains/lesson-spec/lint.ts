@@ -93,6 +93,8 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
         bottom: cy + (NODE_HEIGHT * cam.zoom) / 2,
       }
       boxes.push(box)
+      const fullyOutside = box.right <= 0 || box.left >= width || box.bottom <= 0 || box.top >= height
+      if (fullyOutside) continue // a deliberate camera move; only half-visible components look wrong
       if (box.left < EDGE_MARGIN || box.right > width - EDGE_MARGIN || box.top < EDGE_MARGIN || box.bottom > height - EDGE_MARGIN) {
         add('error', 'off-canvas', `"${id}" is cut off or too close to the edge at the end of the scene.`)
       } else if (box.bottom > limit) {

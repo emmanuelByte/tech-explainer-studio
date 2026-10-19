@@ -46,6 +46,15 @@ export function narrationCueProblems(text: string): string[] {
 }
 
 /**
+ * The voice model sometimes stretches or garbles a short phrase (a one-word
+ * chunk once took 2.7 s). A phrase is suspect when it is much longer than its
+ * text should take: more than max(1.2 s, 0.18 s per character).
+ */
+export function chunkLooksWrong(text: string, seconds: number) {
+  return seconds > Math.max(1.2, text.length * 0.18)
+}
+
+/**
  * Cue id -> seconds from the start of the scene's audio, given each chunk's
  * measured duration and the silence inserted between chunks.
  */

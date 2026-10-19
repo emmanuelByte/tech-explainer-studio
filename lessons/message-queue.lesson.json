@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "id": "message-queue",
+  "title": "How a Message Queue Works",
+  "nodes": [
+    {
+      "id": "user",
+      "kind": "client",
+      "label": "User"
+    },
+    {
+      "id": "app",
+      "kind": "server",
+      "label": "Web App"
+    },
+    {
+      "id": "queue",
+      "kind": "queue",
+      "label": "Queue"
+    },
+    {
+      "id": "w1",
+      "kind": "worker",
+      "label": "Worker 1"
+    },
+    {
+      "id": "w2",
+      "kind": "worker",
+      "label": "Worker 2"
+    },
+    {
+      "id": "store",
+      "kind": "object-storage",
+      "label": "Photo Storage"
+    }
+  ],
+  "edges": [
+    {
+      "id": "user-app",
+      "from": "user",
+      "to": "app",
+      "label": "upload"
+    },
+    {
+      "id": "app-queue",
+      "from": "app",
+      "to": "queue",
+      "label": "job"
+    },
+    {
+      "id": "queue-w1",
+      "from": "queue",
+      "to": "w1"
+    },
+    {
+      "id": "queue-w2",
+      "from": "queue",
+      "to": "w2"
+    },
+    {
+      "id": "w1-store",
+      "from": "w1",
+      "to": "store"
+    },
+    {
+      "id": "w2-store",
+      "from": "w2",
+      "to": "store"
+    }
+  ],
+  "scenes": [
+    {
+      "id": "upload",
+      "title": "A slow job",
+      "narration": "[[user]]A user uploads a photo. [[app]]The web app has to resize it, [[user-app]]and that is slow work.",
+      "reveal": [
+        "user",
+        "app",
+        "user-app"
+      ]
+    },
+    {
+      "id": "queue",
+      "title": "Hand it to a queue",
+      "narration": "Instead of doing the work itself, the app drops a job onto [[queue]]a queue, [[app-queue]]and replies to the user straight away.",
+      "reveal": [
+        "queue",
+        "app-queue"
+      ]
+    },
+    {
+      "id": "message",
+      "title": "The job message",
+      "narration": "A job is just a small message: [[job.2]]what to do, [[job.3]]which file, [[job.4]]and the sizes needed.",
+      "card": {
+        "id": "job",
+        "title": "Job on the queue",
+        "lines": [
+          "{",
+          "  \"task\": \"resize_photo\",",
+          "  \"photo\": \"cat.jpg\",",
+          "  \"sizes\": [200, 800]",
+          "}"
+        ]
+      }
+    },
+    {
+      "id": "workers",
+      "title": "Workers take jobs",
+      "narration": "Workers pick up jobs [[w1]][[w2]]from the queue, [[queue-w1]][[queue-w2]]one at a time, as fast as they can.",
+      "reveal": [
+        "w1",
+        "w2",
+        "queue-w1",
+        "queue-w2"
+      ]
+    },
+    {
+      "id": "store",
+      "title": "Save the result",
+      "narration": "Each worker saves its result to [[store]]storage, [[w1-store]][[w2-store]]and the user sees the new photo.",
+      "reveal": [
+        "store",
+        "w1-store",
+        "w2-store"
+      ]
+    },
+    {
+      "id": "scale",
+      "title": "Scaling up",
+      "narration": "If traffic spikes, jobs simply wait in the queue. Add more workers, and the line gets shorter.",
+      "focus": [
+        "queue",
+        "w1",
+        "w2",
+        "store"
+      ],
+      "hide": [
+        "user",
+        "app"
+      ]
+    }
+  ]
+}

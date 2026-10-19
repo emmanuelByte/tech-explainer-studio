@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { narrationCueProblems, parseNarration, resolveCueTimes } from './narration'
+import { chunkLooksWrong, narrationCueProblems, parseNarration, resolveCueTimes } from './narration'
 
 describe('parseNarration', () => {
   it('returns one chunk and no cues for plain text', () => {
@@ -47,5 +47,13 @@ describe('resolveCueTimes', () => {
   it('places a trailing cue at the end without the final gap', () => {
     const parsed = parseNarration('One. [[end]]')
     expect(resolveCueTimes(parsed, [2], 0.5)).toEqual({ end: 2 })
+  })
+})
+
+describe('chunkLooksWrong', () => {
+  it('flags a stretched short phrase but not normal speech', () => {
+    expect(chunkLooksWrong('storage,', 2.72)).toBe(true)
+    expect(chunkLooksWrong('storage,', 0.7)).toBe(false)
+    expect(chunkLooksWrong('Instead of doing the work itself, the app drops a job onto', 3.56)).toBe(false)
   })
 })
