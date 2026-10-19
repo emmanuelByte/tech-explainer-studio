@@ -60,7 +60,7 @@
     {
       "id": "profile-request",
       "title": "A familiar request",
-      "narration": "Every time you open a profile page, [[browser]]your browser asks [[app]]the app for your data. [[browser-app]]That request begins the same way for every visitor.",
+      "narration": "[[browser]]Every time you open a profile page, your browser asks [[app]]the app for your data. [[browser-app]]That request begins the same way for every visitor.",
       "reveal": [
         "browser",
         "app",

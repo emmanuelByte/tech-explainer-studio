@@ -99,3 +99,18 @@ describe('lintLesson self-review rules', () => {
     expect(issues.some((issue) => issue.rule === 'caption-timing')).toBe(true)
   })
 })
+
+describe('blank-start rule', () => {
+  it('warns when a narrated scene shows an empty screen before its first reveal', () => {
+    const value = spec()
+    value.scenes[0].narration = '[[c]]Every time you open a page.'
+    const project = compileLessonSpec(value, options)
+    const node = project.layers.find((layer) => layer.id === 'node_c')!
+    node.keyframes.forEach((keyframe) => { keyframe.frame += 90 }) // first reveal three seconds in
+    expect(lintLesson(value, project).some((issue) => issue.rule === 'blank-start')).toBe(true)
+  })
+
+  it('stays quiet when the first reveal is at the start, or something is already on screen', () => {
+    expect(lintLesson(spec(), compileLessonSpec(spec(), options)).some((issue) => issue.rule === 'blank-start')).toBe(false)
+  })
+})

@@ -66,7 +66,26 @@ export interface SequenceGeometry {
   messages: SequenceMessageGeometry[]
 }
 
+/** The most a sequence's vertical spacing is opened up to use spare room (portrait has plenty). */
+const MAX_STRETCH = 1.9
+/** Share of the content area a stretched sequence should aim to fill. */
+const TARGET_FILL = 0.72
+
+/**
+ * Lays the sequence out at natural spacing, then, when the frame has room to
+ * spare, opens the row spacing up so a short sequence does not sit as a thin
+ * band in a tall frame.
+ */
 export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): SequenceGeometry {
+  const natural = layoutWithStretch(sequence, frame, 1)
+  const room = (contentHeight(frame) - PANEL_SIDE_MARGIN) * TARGET_FILL
+  const stretch = Math.max(1, Math.min(MAX_STRETCH, room / natural.height))
+  return stretch > 1.05 ? layoutWithStretch(sequence, frame, stretch) : natural
+}
+
+function layoutWithStretch(sequence: SpecSequence, frame: FrameSpec, stretch: number): SequenceGeometry {
+  const rowPadding = ROW_PADDING * stretch
+  const headerGap = HEADER_GAP * Math.sqrt(stretch)
   const count = sequence.participants.length
   const width = Math.min(PANEL_MAX_WIDTH, frame.overlayMaxWidth)
   const usable = width - 2 * PADDING
@@ -76,7 +95,7 @@ export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): Sequen
 
   const rowHeights: number[] = []
   const headerTop = PADDING
-  const rowsTop = headerTop + HEADER_HEIGHT + HEADER_GAP
+  const rowsTop = headerTop + HEADER_HEIGHT + headerGap
   const xOf = new Map(sequence.participants.map((participant, index) => [participant.id, centreX(index)]))
 
   const messages: SequenceMessageGeometry[] = []
@@ -90,8 +109,8 @@ export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): Sequen
     const { lines, font } = fitText(message.label, Math.min(room, usable), LABEL_FONT_MAX * frame.overlayTextScale, LABEL_FONT_MIN, LABEL_MAX_LINES)
     const labelHeight = lines.length * font * LABEL_LINE_HEIGHT
     const labelWidth = Math.max(...lines.map((line) => line.length)) * font * GLYPH_WIDTH + 16
-    const rowHeight = labelHeight + ROW_PADDING + ARROW_BAND
-    const y = cursor + labelHeight + ROW_PADDING / 2 + ARROW_BAND / 2
+    const rowHeight = labelHeight + rowPadding + ARROW_BAND
+    const y = cursor + labelHeight + rowPadding / 2 + ARROW_BAND / 2
     const middle = (fromX + toX) / 2
     // Keep a widened label inside the panel.
     const limit = width / 2 - PADDING / 2 - labelWidth / 2
@@ -104,7 +123,7 @@ export function layoutSequence(sequence: SpecSequence, frame: FrameSpec): Sequen
       labelLines: lines,
       labelFontSize: font,
       labelX: Math.max(-limit, Math.min(limit, middle)),
-      labelY: cursor + ROW_PADDING / 4 + labelHeight / 2,
+      labelY: cursor + rowPadding / 4 + labelHeight / 2,
       labelWidth,
       labelHeight,
     })

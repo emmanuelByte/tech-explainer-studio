@@ -8,7 +8,7 @@ export interface LintIssue {
   severity: 'error' | 'warning'
   /** Scene id, or '' for lesson-wide findings. */
   scene: string
-  rule: 'off-canvas' | 'caption-collision' | 'node-overlap' | 'fast-narration' | 'long-narration' | 'static-scene' | 'dense-scene' | 'overlay-collision' | 'text-overflow' | 'late-reveal' | 'camera-zoom' | 'caption-timing'
+  rule: 'off-canvas' | 'caption-collision' | 'node-overlap' | 'fast-narration' | 'long-narration' | 'static-scene' | 'dense-scene' | 'overlay-collision' | 'text-overflow' | 'late-reveal' | 'camera-zoom' | 'caption-timing' | 'blank-start'
   message: string
 }
 
@@ -24,6 +24,8 @@ const MAX_VISIBLE_NODES = 7
 const MIN_VISIBLE_FRAMES = 20
 /** From this zoom on, components pushed off screen mean the viewer loses sight of what was already explained. */
 const CONTEXT_LOSS_ZOOM = 1.5
+/** A narrated scene should not show an empty screen for longer than this before something appears. */
+const MAX_EMPTY_SECONDS = 0.8
 const OVERLAY_GROUP = /^(card|comparison|sequence)_/
 
 function cameraAt(keyframes: CameraKeyframe[], frame: number): CameraKeyframe {
@@ -53,6 +55,11 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
     const add = (severity: LintIssue['severity'], rule: LintIssue['rule'], message: string) =>
       issues.push({ severity, scene: specScene.id, rule, message })
 
+    // Nothing on screen yet, and the first reveal is late: the viewer stares at an empty frame.
+    const firstReveal = (specScene.reveal ?? []).map((id) => revealStartsAt(project, id)).filter((frame): frame is number => frame !== undefined).sort((a, b) => a - b)[0]
+    if (!visible.size && !specScene.card && !specScene.comparison && !specScene.bullets && !specScene.sequence && firstReveal !== undefined && (firstReveal - scene.startFrame) / fps > MAX_EMPTY_SECONDS) {
+      add('warning', 'blank-start', `The screen is empty for ${((firstReveal - scene.startFrame) / fps).toFixed(1)}s at the start of this scene; put the first reveal cue at the start of the narration.`)
+    }
     for (const id of specScene.reveal ?? []) if (spec.nodes.some((node) => node.id === id)) visible.add(id)
     for (const id of specScene.hide ?? []) visible.delete(id)
 
@@ -150,7 +157,16 @@ export function lintLesson(spec: LessonSpec, project: MotionProject): LintIssue[
   return issues
 }
 
-/** Frame at which a node or connection becomes visible, from the compiled project. */
+/** Frame at which a node or connection starts to appear (its fade or draw begins). */
+function revealStartsAt(project: MotionProject, id: string): number | undefined {
+  const connector = project.connectors?.find((candidate) => candidate.id === `edge_${id}`)
+  if (connector) return connector.drawStartFrame
+  const layer = project.layers.find((candidate) => candidate.id === `node_${id}`)
+  const shown = layer?.keyframes.findIndex((keyframe) => (keyframe.props.opacity ?? 1) >= 0.99) ?? -1
+  return shown < 0 ? undefined : layer!.keyframes[Math.max(0, shown - 1)].frame
+}
+
+/** Frame at which a node or connection is fully visible, from the compiled project. */
 function revealedAt(project: MotionProject, id: string): number | undefined {
   const connector = project.connectors?.find((candidate) => candidate.id === `edge_${id}`)
   if (connector) return connector.drawEndFrame
