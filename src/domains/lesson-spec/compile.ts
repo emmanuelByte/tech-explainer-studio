@@ -137,7 +137,7 @@ export interface NodePlacement {
 }
 
 /** Left-to-right layered layout, computed once for the whole lesson so positions never jump between scenes. */
-export function layoutNodes(spec: Pick<LessonSpec, 'nodes' | 'edges'>): Map<string, NodePlacement> {
+export function layoutNodes(spec: Pick<LessonSpec, 'nodes' | 'edges'>, canvas: { width: number; height: number } = SPEC_DEFAULTS): Map<string, NodePlacement> {
   const ranks = computeRanks(spec)
   if (!ranks) throw new LessonSpecError([{ path: 'edges', message: 'Edges form a cycle.' }])
   const columns = Math.max(...ranks.values()) + 1
@@ -147,11 +147,14 @@ export function layoutNodes(spec: Pick<LessonSpec, 'nodes' | 'edges'>): Map<stri
     byRank.set(rank, [...(byRank.get(rank) ?? []), node])
   }
   const placements = new Map<string, NodePlacement>()
+  const portrait = canvas.height > canvas.width
   for (const [rank, members] of byRank) {
     members.forEach((node, index) => {
       placements.set(node.id, {
-        x: (rank - (columns - 1) / 2) * COLUMN_STEP,
-        y: (index - (members.length - 1) / 2) * ROW_STEP,
+        // Portrait is composed top-to-bottom, retaining full-size components
+        // and letting the camera move between ranks instead of shrinking text.
+        x: portrait ? (index - (members.length - 1) / 2) * ROW_STEP : (rank - (columns - 1) / 2) * COLUMN_STEP,
+        y: portrait ? (rank - (columns - 1) / 2) * Math.max(280, ROW_STEP + 80) : (index - (members.length - 1) / 2) * ROW_STEP,
       })
     })
   }
@@ -270,7 +273,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const width = spec.canvas?.width ?? SPEC_DEFAULTS.width
   const height = spec.canvas?.height ?? SPEC_DEFAULTS.height
   const fps = spec.canvas?.fps ?? SPEC_DEFAULTS.fps
-  const placements = layoutNodes(spec)
+  const placements = layoutNodes(spec, { width, height })
 
   // Timeline: scenes are consecutive ranges; every reveal lands inside its scene.
   const scenes: Scene[] = []
@@ -445,8 +448,8 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       id: `edge_${edge.id}`,
       sourceLayerId: `node_${edge.from}`,
       targetLayerId: `node_${edge.to}`,
-      sourcePort: 'right',
-      targetPort: 'left',
+      sourcePort: height > width ? 'bottom' : 'right',
+      targetPort: height > width ? 'top' : 'left',
       routing: 'bezier',
       lineStyle: edge.style ?? 'solid',
       arrowStart: false,

@@ -303,7 +303,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
 
   const canvas = isRecord(input.canvas) ? input.canvas : {}
   const width = typeof canvas.width === 'number' ? canvas.width : SPEC_DEFAULTS.width
-  if (nodes && !issues.length) {
+  if (nodes && !issues.length && width >= (typeof canvas.height === 'number' ? canvas.height : SPEC_DEFAULTS.height)) {
     const ranks = rankCount(input as unknown as LessonSpec)
     if (ranks === null) add('edges', 'Edges form a cycle; the layout needs a directed acyclic graph.')
     else if ((ranks - 1) * 400 + 240 + 80 > width) add('nodes', `The graph is ${ranks} columns deep and will not fit a ${width}px canvas.`)

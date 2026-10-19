@@ -58,6 +58,13 @@ describe('layoutNodes', () => {
     expect(placements.get('s1')).toEqual({ x: 400, y: -100 })
     expect(placements.get('s2')).toEqual({ x: 400, y: 100 })
   })
+
+  it('stacks ranks for portrait output without shrinking component geometry', () => {
+    const placements = layoutNodes(spec(), { width: 1080, height: 1920 })
+    expect(placements.get('c')!.y).toBeLessThan(placements.get('lb')!.y)
+    expect(placements.get('lb')!.y).toBeLessThan(placements.get('s1')!.y)
+    expect(placements.get('s1')!.x).not.toBe(placements.get('s2')!.x)
+  })
 })
 
 describe('LESSON_THEME', () => {
