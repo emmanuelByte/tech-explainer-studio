@@ -39,7 +39,7 @@ render, ffprobe verify), resumable and incremental, in 16:9 and/or 9:16:
 
 ```bash
 npm run produce -- lessons/x.lesson.json --aspect both          # from a spec
-npm run produce -- --script scripts/x.script.md --aspect both   # an agent authors the spec first
+npm run produce -- --script lessons/x.script.md --aspect both   # an agent authors the spec first
 ```
 
 See `docs/PRODUCTION_PIPELINE.md` (options, restart rules) and

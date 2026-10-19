@@ -23,7 +23,7 @@ The AI edits `lessons/<name>.lesson.json` and runs:
 ```bash
 # One command for the whole chain, 16:9 and 9:16, resumable (docs/PRODUCTION_PIPELINE.md):
 npm run produce -- lessons/load-balancer.lesson.json --aspect both
-npm run produce -- --script scripts/how-caching-works.script.md --aspect both   # an agent authors the spec first
+npm run produce -- --script lessons/how-caching-works.script.md --aspect both   # an agent authors the spec first
 
 # Or step by step:
 npm run lesson -- validate lessons/load-balancer.lesson.json

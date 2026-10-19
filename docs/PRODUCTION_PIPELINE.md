@@ -20,7 +20,7 @@ MP4 + provenance sidecar                        data/exports/<project id>.mp4(.j
 npm run produce -- lessons/message-queue.lesson.json --aspect both
 
 # From a plain script (an agent CLI authors the spec, then the same pipeline runs):
-npm run produce -- --script scripts/how-caching-works.script.md --aspect both
+npm run produce -- --script lessons/how-caching-works.script.md --aspect both
 ```
 
 | Option | Meaning |
