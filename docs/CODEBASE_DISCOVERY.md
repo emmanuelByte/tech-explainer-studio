@@ -221,7 +221,7 @@ Cloud-vendor icon packs should be handled later, after checking each pack's lice
 
 ## Existing AI integration
 
-The repository has optional local AI middleware in `server/aiAssistPlugin.ts` and UI components for AI assistance.
+The in-app OpenAI/ChatKit assistant was removed on 2026-10-19 (see docs/2026-10-19-AI-AUTHORED-PIVOT.md).
 
 The current AI integration can request OpenAI responses for graphic or animation assistance.
 

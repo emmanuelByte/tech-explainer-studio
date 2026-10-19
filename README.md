@@ -151,38 +151,20 @@ Export progress is based on the backend job state and Remotion output. It tracks
 data/exports
 ```
 
-## Optional AI Assistant
+## AI-authored videos
 
-The editor includes optional AI help. The top bar AI button opens a full-height ChatKit panel on the right side, so you can keep chatting without covering the canvas. The local AI endpoint is still available for editor actions, graphic generation, and animation prompt experiments.
-
-To enable it, copy the example config:
+The AI (Claude Code) writes a lesson spec and builds the video; you preview and
+export. See [docs/2026-10-19-AI-AUTHORED-PIVOT.md](docs/2026-10-19-AI-AUTHORED-PIVOT.md).
 
 ```bash
-cp ai.config.example.json ai.config.local.json
+npm run lesson -- validate lessons/load-balancer.lesson.json
+npm run lesson -- narrate  lessons/load-balancer.lesson.json   # needs the Chatterbox worker
+npm run lesson -- build    lessons/load-balancer.lesson.json
+npm run lesson -- lint     lessons/load-balancer.lesson.json
+npm run lesson -- stills   lessons/load-balancer.lesson.json   # one PNG per scene
 ```
 
-Then add your model and API key:
-
-```json
-{
-  "model": "gpt-4.1-mini",
-  "apiKey": "sk-...",
-  "chatkitWorkflowId": "wf_..."
-}
-```
-
-Restart the dev server after changing the config.
-
-`ai.config.local.json` is ignored by Git so the API key is not committed or bundled into the browser. The browser calls the local `/api/chatkit/session` endpoint, and the Vite dev server creates a short-lived ChatKit session token using your OpenAI key and `chatkitWorkflowId`. You can also set `OPENAI_API_KEY`, `OPENAI_MODEL`, and `OPENAI_CHATKIT_WORKFLOW_ID` as environment variables.
-
-AI prompt source files live in:
-
-```text
-public/ai-graphic-prompt.md
-public/ai-animation-prompt.md
-```
-
-The graphic prompt is for generating static editable HTML/SVG designs. The animation prompt is for applying keyframes to existing layers, selected descendants, or selected timeline keyframes.
+Preview, leave notes for the AI, and export at `http://localhost:3005/review/<project id>`.
 
 ## Local Backend
 
@@ -192,7 +174,7 @@ The Vite dev server mounts local JSON/file APIs:
 - `/api/assets` stores imported image, video, and audio files in `data/assets`.
 - `/api/library` stores reusable design and animation items in `data/library`.
 - `/api/exports` starts, tracks, cancels, and reveals Remotion export jobs in `data/exports`.
-- `/api/chatkit/session` and `/api/ai-assist` support optional AI workflows.
+- `/api/reviews` stores review notes in `data/reviews`.
 
 This is intentionally local-only. There is no database and no hosted service requirement.
 

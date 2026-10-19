@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import {
   AlertTriangle, Check, CircleDot, Code2, Download, Eye, FileJson, History,
   Home, Keyboard, LoaderCircle, Moon, PanelBottomClose, PanelBottomOpen, Redo2, Save,
-  Play, Settings, Sparkles, Sun, Undo2,
+  Play, Settings, Sun, Undo2,
 } from 'lucide-react'
 import { Modal } from './components/Modal'
 import { ProjectSidebar } from './components/ProjectSidebar'
@@ -12,11 +12,11 @@ import { PreviewModal } from './components/PreviewModal'
 import { PropertiesPanel } from './components/PropertiesPanel'
 import { Timeline } from './components/Timeline'
 import { ExportModal } from './components/ExportModal'
-import { AiChatPanel } from './components/AiChatPanel'
 import { FloatingToolbar } from './components/FloatingToolbar'
 import { TopMenu, type TopMenuEntry, formatShortcut } from './components/TopMenu'
 import { ShortcutsModal } from './components/ShortcutsModal'
 import { HomeScreen } from './components/HomeScreen'
+import { ReviewScreen } from './components/ReviewScreen'
 import { SettingsModal } from './components/SettingsModal'
 import { SelectionTracker } from './components/SelectionTracker'
 import { HtmlImportModal } from './components/HtmlImportModal'
@@ -34,16 +34,18 @@ import {
   upsertProject,
 } from './projectStorage'
 
-type Route = { name: 'home' } | { name: 'editor'; projectId: string }
+type Route = { name: 'home' } | { name: 'editor'; projectId: string } | { name: 'review'; projectId: string }
 type SaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed'
 
 function routeFromPath(): Route {
+  const review = window.location.pathname.match(/^\/review\/([^/]+)/)
+  if (review) return { name: 'review', projectId: decodeURIComponent(review[1]) }
   const match = window.location.pathname.match(/^\/editor\/([^/]+)/)
   return match ? { name: 'editor', projectId: decodeURIComponent(match[1]) } : { name: 'home' }
 }
 
 function pushRoute(route: Route) {
-  const path = route.name === 'home' ? '/' : `/editor/${encodeURIComponent(route.projectId)}`
+  const path = route.name === 'home' ? '/' : `/${route.name}/${encodeURIComponent(route.projectId)}`
   window.history.pushState(null, '', path)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
@@ -172,13 +174,12 @@ function HistoryModal({ onClose, onRestore }: { onClose: () => void; onRestore: 
   )
 }
 
-function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp4, onOpenAi, onShowShortcuts }: {
+function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp4, onShowShortcuts }: {
   saveStatus: SaveStatus
   onForceSave: () => void
   onGoHome: () => void
   onPreview: () => void
   onExportMp4: () => void
-  onOpenAi: () => void
   onShowShortcuts: () => void
 }) {
   const { t } = useTranslation()
@@ -263,7 +264,6 @@ function EditorTopBar({ saveStatus, onForceSave, onGoHome, onPreview, onExportMp
 
       {/* Right: high-frequency primary actions stay visible. */}
       <div className="flex items-center gap-1 flex-shrink-0">
-        <button onClick={onOpenAi} className="icon-btn" title={t('topbar.ai')}><Sparkles size={14} /></button>
         <button onClick={onPreview} className="pill-btn" title={`${t('topbar.preview')} (${formatModP()})`} style={{ height: 28, padding: '0 10px', fontSize: 11, display: 'flex', alignItems: 'center', gap: 5 }}>
           <Play size={13} />{editorWorkspace === 'scene' ? t('workspace.previewScene') : t('workspace.previewProject')}
         </button>
@@ -289,7 +289,6 @@ function EditorScreen({ projectId }: { projectId: string }) {
   const { t } = useTranslation()
   const [showExport, setShowExport] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
-  const [showAi, setShowAi] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const saveTimer = useRef<number | null>(null)
@@ -444,7 +443,7 @@ function EditorScreen({ projectId }: { projectId: string }) {
 
   return (
     <div className="capcut-shell h-screen flex flex-col overflow-hidden" style={{ color: 'var(--text)' }}>
-      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onPreview={() => setShowPreview(true)} onExportMp4={() => void openExport()} onOpenAi={() => setShowAi((v) => !v)} onShowShortcuts={() => setShowShortcuts(true)} />
+      <EditorTopBar saveStatus={saveStatus} onForceSave={() => void forceSave(false)} onGoHome={goHome} onPreview={() => setShowPreview(true)} onExportMp4={() => void openExport()} onShowShortcuts={() => setShowShortcuts(true)} />
       <WorkspaceBar />
       <div className="flex-1 min-h-0 overflow-hidden flex">
         <div className="relative flex-1 min-w-0 min-h-0 overflow-hidden">
@@ -460,7 +459,6 @@ function EditorScreen({ projectId }: { projectId: string }) {
               shape-creation needs the full canvas height. */}
           {timelineVisible && <Timeline />}
         </div>
-        {showAi && <AiChatPanel onClose={() => setShowAi(false)} />}
       </div>
       {showPreview && <PreviewModal onClose={() => setShowPreview(false)} />}
       {showExport && <ExportModal onClose={() => setShowExport(false)} />}
@@ -486,6 +484,8 @@ function App() {
   if (route.name === 'home') {
     return <HomeScreen onOpenProject={(project: MotionProject) => { pushRoute({ name: 'editor', projectId: project.id }) }} />
   }
+
+  if (route.name === 'review') return <ReviewScreen projectId={route.projectId} />
 
   return <EditorScreen projectId={route.projectId} />
 }
