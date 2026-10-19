@@ -276,7 +276,17 @@ describe('sequence diagrams', () => {
     expect(validateLessonSpec(value)).toEqual([])
     const project = compileLessonSpec(value, options)
     expect(project.layers.some((layer) => layer.id === 'sequence_checkout')).toBe(true)
-    expect(project.layers.find((layer) => layer.id === 'sequence_checkout__message-request')?.text).toContain('POST /checkout')
-    expect(project.layers.find((layer) => layer.id === 'sequence_checkout__message-response')?.text).toContain('↩')
+    const find = (id: string) => project.layers.find((layer) => layer.id === `sequence_checkout__${id}`)
+    // Real arrows and lifelines, not text rows.
+    expect(find('message-request-arrow')?.type).toBe('path')
+    expect(find('message-request-arrow')?.fillType).toBe('solid') // synchronous: filled head
+    expect(find('message-response-arrow')?.fillType).toBe('none') // response: open head, dashed
+    expect(find('message-request-label')?.text).toContain('POST /checkout')
+    expect(find('message-response-label')?.text).toContain('201 Created')
+    expect(find('lifeline-client')?.type).toBe('path')
+    expect(find('lifeline-service')?.type).toBe('path')
+    // Messages reveal in order.
+    const reveal = (id: string) => find(id)!.keyframes.find((keyframe) => keyframe.props.opacity === 1)!.frame
+    expect(reveal('message-response-arrow')).toBeGreaterThan(reveal('message-request-arrow'))
   })
 })
