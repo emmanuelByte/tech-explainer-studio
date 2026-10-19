@@ -72,5 +72,5 @@ describe.skipIf(!hasFfmpeg)('inspectVideo on a real file', () => {
       execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', lit, '-vf', 'scale=960:540', '-pix_fmt', 'yuv420p', draft])
       expect(await inspectVideo(draft, project(1920, 1080), 0.5)).toEqual([])
     } finally { await rm(dir, { recursive: true, force: true }) }
-  })
+  }, 60_000) // several ffmpeg runs, slow on a busy machine
 })
