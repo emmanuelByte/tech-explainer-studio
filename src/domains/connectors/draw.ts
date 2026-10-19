@@ -3,6 +3,14 @@ export function connectorDrawProgress(frame: number, startFrame?: number, endFra
   return Math.max(0, Math.min(1, (frame - startFrame) / (endFrame - startFrame)))
 }
 
+export const CONNECTOR_HIDE_FADE_FRAMES = 12
+
+/** 1 until `hideFrame`, then fades linearly to 0 over CONNECTOR_HIDE_FADE_FRAMES. */
+export function connectorHideOpacity(frame: number, hideFrame?: number) {
+  if (hideFrame === undefined) return 1
+  return Math.max(0, Math.min(1, 1 - (frame - hideFrame) / CONNECTOR_HIDE_FADE_FRAMES))
+}
+
 export function connectorDash(length: number, progress: number) {
   const safeLength = Math.max(0, length)
   const safeProgress = Math.max(0, Math.min(1, progress))

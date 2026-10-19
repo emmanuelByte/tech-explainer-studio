@@ -25,6 +25,8 @@ export interface Connector {
   strokeWidth: number
   drawStartFrame?: number
   drawEndFrame?: number
+  /** Frame at which the connector starts fading out (schema 14). Absent = never hidden. */
+  hideFrame?: number
   sketchEnabled?: boolean
   sketchRoughness?: number
 }

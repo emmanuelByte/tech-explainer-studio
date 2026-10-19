@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { connectorDash, connectorDrawProgress, connectorLineDash } from './draw'
+import { CONNECTOR_HIDE_FADE_FRAMES, connectorDash, connectorDrawProgress, connectorHideOpacity, connectorLineDash } from './draw'
+
+describe('connector hide fade', () => {
+  it('is fully visible without a hide frame and until the hide frame', () => {
+    expect(connectorHideOpacity(500)).toBe(1)
+    expect(connectorHideOpacity(99, 100)).toBe(1)
+    expect(connectorHideOpacity(100, 100)).toBe(1)
+  })
+
+  it('fades to zero over the fade duration and stays hidden', () => {
+    expect(connectorHideOpacity(100 + CONNECTOR_HIDE_FADE_FRAMES / 2, 100)).toBe(0.5)
+    expect(connectorHideOpacity(100 + CONNECTOR_HIDE_FADE_FRAMES, 100)).toBe(0)
+    expect(connectorHideOpacity(1000, 100)).toBe(0)
+  })
+})
 
 describe('connector draw animation', () => {
   it('clamps progress to its authored frame range', () => {

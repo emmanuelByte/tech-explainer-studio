@@ -155,6 +155,13 @@ describe('migrateProject', () => {
     expect(migrated.layers[1]).toMatchObject({ scope: 'global', startFrame: 200, endFrame: 220 })
   })
 
+  it('keeps connectors unchanged when migrating to version 14', () => {
+    const connector = { id: 'c1', sourceLayerId: 'a', targetLayerId: 'b' }
+    const migrated = migrateProject({ ...legacyProject, schemaVersion: 13, connectors: [connector] })
+    expect(migrated.schemaVersion).toBe(CURRENT_PROJECT_SCHEMA_VERSION)
+    expect(migrated.connectors).toEqual([connector])
+  })
+
   it('rejects malformed and future project versions without downgrading them', () => {
     expect(() => migrateProject([])).toThrow(ProjectMigrationError)
     expect(() => migrateProject({ ...legacyProject, schemaVersion: -1 })).toThrow(ProjectMigrationError)

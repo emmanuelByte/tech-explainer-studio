@@ -1,7 +1,7 @@
 # Project schema and migrations
 
 Tech Explainer Studio persists a complete project as JSON. Every project now
-has a top-level `schemaVersion`; the current version is **12**.
+has a top-level `schemaVersion`; the current version is **14**.
 
 ## Loading and saving
 
@@ -41,6 +41,10 @@ imported object.
 - Version `12` adds safe defaults for the selected local base voice, expression,
   guidance, and pauses between generated narration segments. Existing audio
   remains unchanged.
+- Version `13` (Phase 7.3) gives layers scene ownership (`scope`, `sceneId`,
+  scene-local frames). Version `14` adds an optional connector `hideFrame`
+  (fade-out start; absent means never hidden), so existing projects are
+  unchanged.
 - A project whose version is newer than the editor supports is rejected. It is
   never silently downgraded or overwritten.
 - Any future persisted-field change must increment

@@ -1,5 +1,6 @@
 import { resolveLayerAnimation } from '../../animationProperties'
 import type { Connector, ConnectorPort, Layer, TransformProps } from '../../types'
+import { connectorHideOpacity } from './draw'
 import { portPosition, routeConnector, type Point, type PortAnchor } from './geometry'
 
 /** Apply the renderer's 2D CSS transform order around its authored origin. */
@@ -65,6 +66,6 @@ export function resolveConnector(connector: Connector, layers: Layer[], frame: n
   if (!source || !target) return null
   return {
     path: routeConnector(source.ports[connector.sourcePort], target.ports[connector.targetPort], connector.routing),
-    opacity: Math.min(source.opacity, target.opacity),
+    opacity: Math.min(source.opacity, target.opacity) * connectorHideOpacity(frame, connector.hideFrame),
   }
 }
