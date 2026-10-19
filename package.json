@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "produce": "npm run -s lesson -- produce",
     "lesson": "esbuild tools/lesson/cli.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/lesson-cli.mjs --log-level=warning && node node_modules/.cache/lesson-cli.mjs"
   },
   "dependencies": {

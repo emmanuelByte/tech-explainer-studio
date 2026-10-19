@@ -35,6 +35,19 @@ export async function loadNarrationManifest(root: string, specId: string): Promi
   }
 }
 
+/** The inputs that determine what the voice says; theme and aspect ratio are deliberately absent, so changing them reuses the audio. */
+export function narrationInputs(spec: LessonSpec, params: { voice: string; exaggeration: number; cfgWeight: number }) {
+  return { voice: params.voice, exaggeration: params.exaggeration, cfgWeight: params.cfgWeight, scenes: spec.scenes.map((scene) => [scene.id, scene.narration]) }
+}
+
+/** True when a manifest was made from exactly this spec's narration with these voice settings. */
+export function narrationIsCurrent(spec: LessonSpec, manifest: NarrationManifest | undefined, params: { voice: string; exaggeration: number; cfgWeight: number }) {
+  if (!manifest) return false
+  if (manifest.voiceId !== params.voice || manifest.exaggeration !== params.exaggeration || manifest.cfgWeight !== params.cfgWeight) return false
+  return spec.scenes.every((scene) => manifest.scenes[scene.id]?.source === scene.narration)
+    && Object.keys(manifest.scenes).length === spec.scenes.length
+}
+
 /** Fail before compile/render when a manifest points at local audio that was cleaned up or never copied. */
 export async function assertNarrationAssets(root: string, manifest: NarrationManifest) {
   const missing: string[] = []

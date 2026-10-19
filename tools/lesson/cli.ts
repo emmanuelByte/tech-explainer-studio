@@ -1,12 +1,13 @@
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { TECHNICAL_COMPONENT_KINDS, type TechnicalComponentKind } from '../../src/types'
 import { compileLessonSpec, LessonSpecError, type ComponentArtwork } from '../../src/domains/lesson-spec/compile'
 import { lintLesson } from '../../src/domains/lesson-spec/lint'
 import { applyLessonSpecPatch } from '../../src/domains/lesson-spec/patch'
+import { loadArtwork } from './artwork'
+import { renderStills } from './stills'
+import { produceCommand, reportFailure } from './produceCommand'
 import { assertNarrationAssets, loadNarrationManifest, narrateLesson } from './narrate'
 import { markApplied, markVerified, noteStatus, openNotes, type ReviewNote } from '../../src/domains/review/notes'
 import { atomicWriteFile } from '../../server/atomicFile'
@@ -15,37 +16,13 @@ import { THEME_IDS, type ThemeId } from '../../src/domains/lesson-spec/theme'
 import { validateLessonSpec } from '../../src/domains/lesson-spec/validate'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
-const assets = resolve(root, 'src', 'domains', 'technical-components', 'assets')
-
-const ARTWORK_FILES: Record<TechnicalComponentKind, string> = {
-  client: 'clients/client-group.svg',
-  'load-balancer': 'traffic-edge/load-balancer.svg',
-  server: 'compute/application-server.svg',
-  database: 'data-stores/database.svg',
-  cache: 'data-stores/cache.svg',
-  queue: 'messaging/queue.svg',
-  cdn: 'traffic-edge/cdn.svg',
-  'api-gateway': 'traffic-edge/api-gateway.svg',
-  'object-storage': 'data-stores/object-storage.svg',
-  worker: 'compute/worker.svg',
-}
-
-async function loadArtwork(): Promise<ComponentArtwork> {
-  const entries = await Promise.all(
-    TECHNICAL_COMPONENT_KINDS.map(async (kind) => [kind, await readFile(resolve(assets, ARTWORK_FILES[kind]), 'utf-8')] as const),
-  )
-  return Object.fromEntries(entries) as ComponentArtwork
-}
 
 async function readSpec(path: string | undefined) {
   if (!path) throw new Error(USAGE)
   return JSON.parse(await readFile(resolve(process.cwd(), path), 'utf-8')) as unknown
 }
 
-/** Overlays fade out over the last 12 frames of a scene; stay clear of that. */
-const STILL_OFFSET_FRAMES = 16
-
-const USAGE = 'Usage: lesson <validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
+const USAGE = 'Usage: lesson <produce|validate|narrate|build|lint|stills|notes|patch> <spec.json>  (patch: <patch.json> [--write]; narrate: --voice <id> --worker <url>; notes: --apply <ids> --summary <text> | --verify <ids> --evidence <text>)'
 
 /** `--aspect 16:9|9:16` renders the same lesson at the native size of that format. */
 const ASPECTS = { '16:9': { width: 1920, height: 1080 }, '9:16': { width: 1080, height: 1920 } } as const
@@ -82,17 +59,8 @@ async function writeProject(project: ReturnType<typeof build>) {
   return out
 }
 
-function renderStill(projectPath: string, frame: number, outPath: string) {
-  const bin = resolve(root, 'node_modules', '.bin', 'remotion')
-  return new Promise<void>((done, fail) => {
-    const child = spawn(bin, ['still', 'src/remotion/index.tsx', 'EditorComposition', outPath, `--frame=${frame}`, `--props=${projectPath}`, '--public-dir=data'], { cwd: root, stdio: ['ignore', 'ignore', 'pipe'] })
-    let stderr = ''
-    child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
-    child.on('close', (code) => (code === 0 ? done() : fail(new Error(`remotion still failed at frame ${frame}:\n${stderr.trim()}`))))
-  })
-}
-
 async function main() {
+  if (process.argv[2] === 'produce') return produceCommand(root, process.argv.slice(3))
   const [command, specPath, patchPath] = process.argv.slice(2)
   const spec = await readSpec(specPath)
   if (command === 'validate') {
@@ -146,7 +114,7 @@ async function main() {
     console.log(`Patched ${target}. Re-run narrate if narration text changed, then build, lint and stills.`)
     return
   }
-  const artwork = await loadArtwork()
+  const artwork = await loadArtwork(root)
   if (command === 'narrate') {
     const issues = validateLessonSpec(spec)
     if (issues.length) throw new LessonSpecError(issues)
@@ -180,22 +148,14 @@ async function main() {
     return
   }
   if (command === 'stills') {
-    // One frame per scene, late enough that reveals and the camera move have finished but before overlays start fading out.
     const projectPath = await writeProject(project)
-    const dir = resolve(root, 'data', 'exports', 'stills', project.id)
-    await rm(dir, { recursive: true, force: true }) // stale stills from an older scene order would mislead
-    await mkdir(dir, { recursive: true })
-    for (const [index, scene] of (project.scenes ?? []).entries()) {
-      const out = resolve(dir, `${String(index + 1).padStart(2, '0')}-${scene.id.replace(/^scene_/, '')}.png`)
-      await renderStill(projectPath, scene.endFrame - STILL_OFFSET_FRAMES, out)
-      console.log(out)
-    }
+    await renderStills(root, projectPath, project, (line) => console.log(line))
     return
   }
   throw new Error(USAGE)
 }
 
 main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : error)
+  reportFailure(error)
   process.exit(1)
 })
