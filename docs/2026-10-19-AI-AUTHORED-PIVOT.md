@@ -120,9 +120,9 @@ Findings still open:
 
 - **An open editor tab overwrites rebuilt projects.** The editor autosaves its
   in-memory copy over `data/projects/<id>.json`, silently reverting a build.
-  The review-only UI (item 8) must not autosave, and must reload from disk.
-  Until then, close the editor tab before running `build`.
-- Labels are limited to 16 characters; the component kit is still 3 kinds.
+  Use the review screen (`/review/<id>`, never writes) instead of the editor;
+  close any editor tab before running `build`.
+- Labels are limited to 16 characters.
 - Pre-existing type error in `src/domains/scenes/focus.test.ts` (not touched).
 
 
@@ -155,3 +155,107 @@ building (see autosave finding above).
 Next: real narration timing from Chatterbox (item 4): generate per-scene audio
 with a cache, measure durations, replace placeholder scene lengths, and add
 reveal cues in narration.
+
+### 2026-10-19 — Milestone 3: narration-driven timing (item 4)
+
+- **Cues in narration.** `[[id]]` inside a scene's `narration` means "reveal (or
+  hide) `id` when the words after this begin". Cues must name an id in the same
+  scene's `reveal`/`hide`, at most once each. They are stripped from captions
+  and the script. Elements without a cue keep the even-spacing fallback.
+- **`npm run lesson -- narrate <spec> [--voice baseVoice] [--worker URL]`** —
+  synthesises each scene with the local Chatterbox worker, one chunk per cue
+  boundary, joins the chunks (0.18 s gap), measures real durations, registers
+  one WAV per scene in the editor asset store (`data/assets`) and writes
+  `data/narration/<spec id>.json`. Chunks are cached by hash of text + voice +
+  settings (`data/narration/cache/`), so editing one phrase re-synthesises only
+  that phrase. Start the worker first (see `docs/LOCAL_TTS.md`).
+- **`build`/`lint`/`stills` use the manifest automatically.** Scene length =
+  0.5 s lead + audio + 0.7 s tail; cue times become reveal/hide/draw frames;
+  one `audioRole: 'narration'` layer per scene. A manifest older than the
+  narration text is refused with "run `lesson narrate`".
+- **Stills and renders need `--public-dir=data`** so Remotion can find the
+  audio (the app's export already passes it; the CLI now does too).
+- Verified: Load Balancer lesson is 31.8 s of real speech (was 37 s of
+  placeholder); a rendered slice has an AAC audio track with audible speech.
+- Cost: ~2.5 min for the first full synthesis (5 scenes, Apple GPU).
+
+Known limits: chunking at cues can sound slightly choppy at a comma; the
+fast-narration lint threshold (3 words/s) is a guess to be tuned by ear; the
+`recap` scene still triggers the static-scene warning.
+
+Next: a review-only UI (no autosave, per-scene notes the AI can read), then the
+component kit and explainer building blocks.
+
+### 2026-10-19 — Milestone 4: review-only screen, lighter testing
+
+- **`/review/<project id>`** (`src/components/ReviewScreen.tsx`): plays the
+  project from disk with Remotion Player controls, scene list that seeks,
+  timestamped **notes for the AI** (saved to `data/reviews/<id>.json` via
+  `server/reviewPlugin.ts`) and **Export MP4** (reuses `/api/exports`, with
+  progress and reveal-in-Finder). It never writes the project, so it cannot
+  overwrite a build.
+- **`npm run lesson -- notes <spec> [--done]`** prints open notes (scene, time,
+  text) for the AI; `--done` marks them handled.
+- **Testing stance (user feedback):** keep tests to non-trivial pure logic
+  (timing, cues, migrations, file formats); no per-error-message tests; one
+  render check per visual change. Trimmed 25 over-specific tests.
+
+Next: bigger component kit and explainer building blocks; remove the in-app
+OpenAI ChatKit integration; hide leftover MotionEditor UI.
+
+### 2026-10-19 — Milestone 5: component kit (item 5)
+
+- Kit grows from 3 to 10 kinds: client, load-balancer, server, **database,
+  cache, queue, cdn, api-gateway, object-storage, worker**. Single source of
+  truth is `TECHNICAL_COMPONENT_KINDS` in `src/types.ts`; the validator,
+  compiler palette (type-checked for completeness) and CLI artwork map all
+  derive from it, so adding a kind is: add the name, an SVG, a colour pair and
+  a path in `tools/lesson/cli.ts`.
+- New SVGs follow the existing contract (240x150, line art, currentColor) under
+  `data-stores/`, `messaging/` and `traffic-edge/`, `compute/`.
+- Second lesson, `lessons/page-load.lesson.json` (browser -> CDN -> gateway ->
+  server -> cache/database), uses five columns, the layout's maximum at
+  1920 px. Not narrated yet.
+- The in-app editor's "insert component" menu still offers only the original
+  three; new kinds are spec-only, which is all the AI workflow needs.
+
+Known limit: more than five columns will not fit (the validator says so); an
+adaptive column step would raise it if a lesson needs it.
+
+
+### 2026-10-19 — Milestone 6: ChatKit removed, code/request cards
+
+- **Removed the in-app OpenAI integration:** `AiAssistantModal`, `AiChatPanel`,
+  `server/aiAssistPlugin.ts`, `public/ai-*.md`, `ai.config.example.json`, the
+  ChatKit script tag, `@openai/chatkit-react`, the top-bar AI button and its CSS.
+  README now documents the `lesson` workflow instead. (`ai.config.local.json`
+  stays in `.gitignore` as a safety net. `pnpm-lock.yaml` still lists the
+  dependency; the project's own lockfile is `package-lock.json`.)
+- **Cards:** a scene may carry `card: { id, title?, lines[] }` (max 8 lines of
+  60 characters). It fades in over a dimmed diagram for that scene only, with
+  monospace lines revealed one by one. Cue a line with `[[<card id>.<n>]]`
+  in the narration, e.g. `[[req.2]]`. The card is placed at the centre of the
+  scene's caption-free camera framing and scaled by 1/zoom so it keeps a fixed
+  on-screen size.
+- Renderer facts learned: top-level layers stack **first-on-top**, while a
+  group's children stack **last-on-top**; the layer defaults carry per-side
+  border widths and per-corner radii that override plain `strokeWidth` /
+  `borderRadius`, so the compiler's layer builder now sets all of them (this
+  also fixed square, borderless component boxes in every lesson).
+- `lessons/page-load.lesson.json` now has an HTTP request card scene.
+
+Next: hide leftover MotionEditor UI (home screen
+still says "MotionEditor", HTML import, video library); optional adaptive
+column spacing for graphs deeper than five columns.
+
+### 2026-10-19 — page-load lesson narrated
+
+- `lessons/page-load.lesson.json` has cues on every reveal, including the card
+  lines (`[[req.1]]`..`[[req.4]]`). 7 scenes, 37 s of speech, 45.5 s video,
+  ~3 min to synthesise (45 chunks). Lint is clean. A mid-scene frame confirmed
+  the card lines appear on their cues.
+- Both lessons are built from their specs; open
+  `/review/lesson_page-load` or `/review/lesson_load-balancer` to preview.
+- Not yet verified by ear: very short chunks (e.g. "a CDN,") may sound
+  choppy; if so, merge cues into longer phrases or move the cue to a phrase
+  boundary.
