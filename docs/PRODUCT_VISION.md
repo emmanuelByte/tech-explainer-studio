@@ -7,6 +7,13 @@
 > path" are **superseded**. See `docs/2026-10-19-AI-AUTHORED-PIVOT.md` for the plan, the
 > decisions and the progress log.
 
+> **Visual refinement (2026-10-22):** the concrete reference is polished,
+> application-driven technical motion graphics with realistic fictional UI,
+> animated backend diagrams, handwritten accents and synchronized state changes.
+> Treat the existing whiteboard/sketch style as one ingredient, not the complete
+> goal. See [the visual reference and quality bar](2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
+> This is a **target**, not a statement that richer UI primitives already ship.
+
 ## What we are building
 
 **Tech Explainer Studio** creates technical education videos, especially software engineering and system-design explainers, from a short lesson description.
@@ -28,7 +35,15 @@ The spec is the source of truth: changes go through the spec, never by hand-edit
 
 ## The experience we are aiming for
 
-The visual style should make it easy to create videos inspired by high-quality technical whiteboard/sketch lessons:
+The visual style should support polished **application-driven motion graphics**
+where user-facing UI and backend mechanisms change together. The former
+whiteboard/sketch emphasis remains a technique, not the definition of the
+finished video. The reference benchmark adds realistic original application
+mock screens, stateful charts/tables, multi-object choreography, purposeful
+motion and premium typography. See the benchmark's acceptance pilot before
+prioritizing new engine work.
+
+Existing supporting principles:
 
 - minimal background, often dark
 - handwritten/sketch-like headings where appropriate

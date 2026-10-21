@@ -6,6 +6,14 @@ technical explainer video (system design, architecture, how-things-work). It is
 builds a normal editable project from it, and you preview the result, leave
 notes, and export an MP4. Everything runs locally.
 
+**Visual-quality direction (2026-10-22):** polished, application-driven technical
+motion graphics are our benchmark: realistic fictional app screens connected to
+animated infrastructure, expressive handwritten annotations and clear narration-
+aligned state changes. See [the reference-video discovery and acceptance bar](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
+The existing engine remains the baseline; this is a **target**, not a claim that
+all visual elements are already implemented. Narration is approved by the user
+before a coding agent produces a publishable lesson.
+
 It is built on the [MotionEditor](https://github.com/tomaslachmann/motion-editor)
 foundation (React, Vite, Remotion) and keeps its editor, but the editor is no
 longer the main workflow.

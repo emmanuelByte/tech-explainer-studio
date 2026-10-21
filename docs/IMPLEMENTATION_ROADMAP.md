@@ -60,11 +60,40 @@ Out of scope until after V1:
 | 12. Review-only screen | Complete | `/review/<id>` preview, notes for the AI, export; never writes the project | 10 |
 | 13. Component kit and explainer blocks | Complete (first cut) | 10 component kinds, `hide`, code/request cards | 10 |
 | 14. Clean-up | Complete | Removed in-app OpenAI chat, HTML import button, video library | 12 |
+| 15. Reference-quality scene composition | Discovery only; **not started** | Application UI ↔ backend choreography in one approved lesson, scoped asset/scene extensions and demonstrated motion fidelity | 10–14 + approved script |
 
 Phases 2 and 3 may share visual-design preparation, but their persisted data and
 interactive behavior should land in the stated order. Do not start a phase by
 adding fields directly to a large component or the root store; create the
 relevant domain module first.
+
+## Phase 15 — Reference-quality application-driven lessons (discovery, 2026-10-22)
+
+**Status: planned; no implementation authorized by this discovery.** See
+[the observed reference, gap matrix and pilot acceptance bar](2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
+The goal is visual fidelity to **the teaching style**, with original branding
+and assets: realistic UI showing a user action, accompanying service/database
+mechanism, visible consequences, scripted timing, refined typography and
+transitions. This refines the output target without undoing the completed
+production-pipeline phases or rebuilding MotionEditor.
+
+**Entry gate:** ChatGPT + user explicitly approve the precise Load Balancer
+narration and storyboard. The coding agent then:
+
+1. Reuses the current spec/compiler/Remotion pipeline to attempt one realistic
+   app-to-architecture shot, comparing a moving render with the visual bar.
+2. Documents the *specific* unsupported object, state change or choreography.
+3. Adds the smallest reusable scene/UI primitive needed for the shot, not an
+   unfocused editor rewrite or asset-library project.
+4. Validates both 9:16 and 16:9; reviews before/during/after frames and actual
+   moving footage with narration (stills and codec checks alone are insufficient).
+5. Gets human approval of the pilot before calling the benchmark met or
+   generalizing any new capability.
+
+**Exit criterion:** the user accepts the rendered original pilot as an
+application-driven technical explainer, with unchanged approved voiceover,
+correct system behavior, legible UI/diagrams and purposeful timed motion in
+both formats. This stage is **not complete** merely because build/lint passes.
 
 ## Rules that apply to every phase
 

@@ -16,6 +16,24 @@ The plan, decisions and a dated progress log are in
 `docs/2026-10-19-AI-AUTHORED-PIVOT.md`. Read it before starting a major feature.
 It supersedes the old "manual-first" documents.
 
+## Visual-quality benchmark and approval gate (2026-10-22)
+
+Read [the reference benchmark](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md)
+before any lesson visual design or production work. The user wants polished
+application-driven technical motion graphics, **including evolving fictional
+app UI, architecture, data flow, meaningful state changes, typography, pacing,
+and transitions**, not disconnected diagrams or a pure sketch slideshow.
+This is a desired quality bar; the current lesson spec does not implement all
+of it. Reuse the production engine and only add demonstrated missing primitives.
+Do not copy third-party footage, branding or app assets from the reference.
+
+**Production gate:** For publishable lessons, the user and ChatGPT agree on the
+teaching script and explicitly approve narration **before** the coding agent
+starts production. Preserve approved narration verbatim. Make a storyboard of
+what visually changes with each beat; if the compiler cannot express an approved
+shot, report/implement the smallest necessary extension rather than replacing
+it with a generic overlay. Never change approved words without approval.
+
 ## The workflow
 
 Run from the repository root. The app (`npm run dev`, port 3005) must be running

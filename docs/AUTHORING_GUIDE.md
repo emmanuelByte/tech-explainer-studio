@@ -5,6 +5,27 @@ teaching script into `lessons/<id>.lesson.json`. The spec says *what* the
 lesson shows; the compiler decides positions, camera, timing and rendering.
 Never write coordinates or layer data.
 
+## Approved script and visual-storyboard gate
+
+For publishable Engineering Explained lessons, **ChatGPT and the user finalize
+narration first**, with explicit user approval. The coding agent must preserve
+approved narration exactly. This guide begins **after** that approval; it does
+not authorize rewriting the voiceover as part of spec compilation. Any change
+to approved wording goes back for user approval.
+
+Before authoring the spec, break the approved script into visual beats and
+record what the viewer sees **before, during and after** each operation: original
+fictional app UI, request/service/database behavior, counters/tables, failure
+and recovery, and the reason for the transition. See
+[the 2026-10-22 visual reference benchmark](2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
+
+Prefer a coherent running application example over disconnected abstract
+slides. The existing declarative spec has a limited set of nodes and overlays;
+when it cannot represent a required UI-to-backend interaction, explicitly note
+that **capability gap**. Do not disguise it as an existing feature or remove
+the approved teaching beat. The coding agent should prove the need with a
+representative shot and make the smallest reusable extension.
+
 ## Process
 
 1. Read the script and decide the lesson's teaching arc: what the viewer should

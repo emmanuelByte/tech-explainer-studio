@@ -13,6 +13,14 @@ MP4 + provenance sidecar                          data/exports/<project id>.mp4(
    v human review at /review/<project id>, notes, AI revision, export
 ```
 
+> **Preproduction requirement for publishable lessons:** user-approved
+> narration and its visual storyboard come first. Preserve the approved words;
+> do not treat `--script` authoring as permission to rewrite them. For visual
+> acceptance beyond technical render checks, see
+> [the reference benchmark](2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
+> A clean stills/contact sheet or valid MP4 does not establish motion-graphics
+> fidelity; inspect full motion with audio before publication.
+
 ## Prerequisites (once per machine)
 
 | Needed | For | How |
