@@ -40,9 +40,10 @@ representative shot and make the smallest reusable extension.
 6. Lint both formats and fix errors:
    `npm run lesson -- lint lessons/<id>.lesson.json --aspect 16:9` and `--aspect 9:16`.
 
-Do not turn the script into slides by keyword matching. Rewrite narration so it
-is spoken English, explain each idea once, and make the picture carry the
-structure the words describe.
+Do not turn the script into slides by keyword matching. For an **unapproved
+script draft**, improve the spoken-English flow before seeking user approval.
+For an **approved script**, preserve narration exactly and make the picture
+carry the structure the existing words describe.
 
 ## Spec shape
 
@@ -94,7 +95,7 @@ Changing narration text means re-running narration (`produce` does it).
 - Write whole sentences. The voice speaks a sentence at a time, so a `[[cue]]` can sit mid-sentence without breaking the speech.
 - Keep a scene to about 20 to 30 words. Longer scenes are spoken faster and fatigue the viewer; `lint` warns above 45 and the audio check warns above about 4 words per second.
 - Avoid one- and two-word sentences ("Fast."); they are joined to a neighbour or garbled.
-- Spell numbers and symbols as you want them said ("three hundred seconds", "T T L" if you want letters). Captions show your text exactly, so use readable spellings.
+- **Before script approval**, spell numbers and symbols as you want them said ("three hundred seconds", "T T L" if you want letters). Captions show narration text as written. Once approved, do not silently respell the words; request approval for a correction.
 - Captions are generated from the narration, in short phrases. Do not write overlay lines that repeat the caption word for word.
 
 ## Teaching accuracy
