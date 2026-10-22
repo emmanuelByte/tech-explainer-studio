@@ -11,6 +11,8 @@
     "lint": "eslint .",
     "render": "remotion render src/remotion/index.tsx EditorComposition",
     "remotion:compositions": "remotion compositions src/remotion/index.tsx",
+    "hero:studio": "remotion studio src/remotion/hero/index.ts",
+    "hero:render": "remotion render src/remotion/hero/index.ts CachingHero out/caching-hero.mp4 --color-space=bt709",
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
@@ -36,6 +38,9 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/kalam": "^5.3.0",
     "@remotion/cli": "4.0.463",
     "@types/node": "25.9.1",
     "@types/react": "^19.2.14",

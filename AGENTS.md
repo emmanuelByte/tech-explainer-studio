@@ -37,6 +37,30 @@ what visually changes with each beat; if the compiler cannot express an approved
 shot, report/implement the smallest necessary extension rather than replacing
 it with a generic overlay. Never change approved words without approval.
 
+## In-house visual bar: the caching hero shot (approved 2026-10-22)
+
+`src/remotion/hero/` is a hand-built 30 s, 9:16 shot that the user approved as
+**exactly the target look**. Watch `docs/hero-reference/caching-hero.mp4` (or run
+`npm run hero:studio`) before any visual work. It outranks the third-party
+references when they disagree, because it is ours and it renders in this engine.
+
+What it establishes, and what every lesson should now do:
+
+- Portrait-first composition; one persistent layout that changes state in place
+  (no text-card slideshow).
+- A hook with a concrete number in the first 3 s; consistent illustrative numbers.
+- A fictional app UI (phone screen) tied to backend state.
+- Visible cause and effect: chips carry payloads, meters move, nodes glow under
+  pressure, badges mark hit/miss, a big readout changes value.
+- One highlighted keyword per caption phrase; handwriting only for short notes.
+- Tokens in `src/remotion/hero/theme.ts` (navy field, blue request, teal cache/
+  healthy, amber attention, red pressure, IBM Plex Sans / Kalam / JetBrains Mono).
+
+**Next engineering step:** promote each file in `src/remotion/hero/primitives/`
+into a lesson-spec component or action (see `src/remotion/hero/README.md`), then
+rebuild this shot from a lesson JSON and compare it with the hand-built render.
+Do not edit the hero files to fit the compiler; extend the compiler to reach the hero.
+
 ## The workflow
 
 Run from the repository root. The app (`npm run dev`, port 3005) must be running

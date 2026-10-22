@@ -541,3 +541,16 @@ Gotchas learned:
 Open: listen to the caching narration (pronunciation of "TTL", naturalness of
 slowed sentences); regenerate the four older lessons with the new narration
 pipeline; larger portrait overlays if short panels in a tall frame look sparse.
+
+## Hero shot approved as the visual bar (2026-10-22)
+
+Hand-built `src/remotion/hero/` (CachingHero, 1080×1920, 30 fps, 900 frames),
+written directly in Remotion outside the lesson compiler to prove the target look
+first. The user approved it as the target. Reference render and stills are in
+`docs/hero-reference/`. Its primitives (phone screen, server/database/cache nodes,
+meter, travelling chip, connector, keyword caption, handwriting, big-number
+readout) are the first library components to bring into the lesson spec.
+
+Open: lesson-spec kinds/actions for these primitives; rebuild the hero from JSON;
+quality lint rules (hook ≤ 3 s, state change every 6–8 s, text-card share,
+cue/narration agreement); narration audio for the hero.
