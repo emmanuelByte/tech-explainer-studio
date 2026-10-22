@@ -71,6 +71,16 @@ Do not edit the hero files to fit the compiler; extend the compiler to reach the
 Then work through the **build** rows in `docs/visual-references/TECHNIQUES.md`,
 starting with whatever the next lesson's storyboard needs.
 
+## Studio skills (making videos)
+
+Video production runs through the project skills in `.claude/skills/`, **one video
+at a time**: `studio-video` (the conductor: stages, gates, `docs/videos/<nn>-<slug>/STATUS.md`),
+`studio-script` (hook-first narration and fact-check, Gate A), `studio-storyboard`
+(beat plan and new primitives, Gate B), `studio-primitive` (reusable library pieces),
+`studio-review` (side-by-side, scores, metrics, Gate C). The benchmark queue of six
+reference topics is in `.claude/skills/studio-video/references/benchmark-queue.md`.
+Never start the next video before the user signs off the current one.
+
 ## The workflow
 
 Run from the repository root. The app (`npm run dev`, port 3005) must be running

@@ -38,6 +38,8 @@ tools/local-tts/voices/*
 
 scripts
 plan
-.claude
+.claude/*
+!.claude/skills/
+!.claude/skills/*/scripts/
 out
 out/*
