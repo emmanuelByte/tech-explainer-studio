@@ -81,3 +81,18 @@ These shots are kept separately so an agent can inspect scene composition at gre
 ## Where these files belong
 
 This entire folder is **design evidence only**. The lesson engine must not load from `docs/visual-references/` at runtime. New visuals must live in the project's normal, original, licensed asset/scene system. The original uploaded video is intentionally **not committed**.
+
+## Six additional reference videos (2026-10-22)
+
+The [six-video annotated reference library](extra-six/README.md) adds **36 timestamped screenshots**, **six contact sheets**, an [all-six overview](extra-six/ALL_SIX_OVERVIEW.webp), and a machine-readable [manifest](extra-six/manifest.json). These supplement the primary CodewithIddris benchmark; they do not replace its visual identity.
+
+| Creator/video | Technique to study | Frames |
+| --- | --- | --- |
+| Kuls Tech — Kernel | layered system diagrams and semantic colour | [View](extra-six/01-kuls-tech-kernel/contact_sheet.webp) |
+| So That's How — Wi-Fi | spatial continuity, obstacles and wave motion | [View](extra-six/02-so-thats-how-wifi/contact_sheet.webp) |
+| Rick — Computer Vision | evolving application states and visual data processing | [View](extra-six/03-rick-computer-vision/contact_sheet.webp) |
+| Rick — System Design 101 | architecture evolution from product requirements | [View](extra-six/04-rick-system-design/contact_sheet.webp) |
+| KodeKloud — TCP/TLS/HTTP | ordered protocol messages and layered networking | [View](extra-six/05-kodekloud-http-tls/contact_sheet.webp) |
+| KodeKloud — Authentication | login, sessions, tokens, expiration and security state | [View](extra-six/06-kodekloud-auth/contact_sheet.webp) |
+
+Use the reduced-size third-party screenshots only for attributed commentary and analysis. Preserve watermarks and make **original** production assets. No third-party source videos have been committed.

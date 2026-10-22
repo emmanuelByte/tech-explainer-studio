@@ -19,8 +19,10 @@ It supersedes the old "manual-first" documents.
 ## Visual-quality benchmark and approval gate (2026-10-22)
 
 Read [the reference benchmark](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md)
-and [the annotated visual screenshots](docs/visual-references/README.md)
-before any lesson visual design or production work. The user wants polished
+[the primary annotated visual screenshots](docs/visual-references/README.md),
+and [six additional visual references](docs/visual-references/extra-six/README.md)
+before any lesson visual design or production work. Extract strengths selectively;
+do not combine incompatible styles or assume the current engine supports every shot. The user wants polished
 application-driven technical motion graphics, **including evolving fictional
 app UI, architecture, data flow, meaningful state changes, typography, pacing,
 and transitions**, not disconnected diagrams or a pure sketch slideshow.

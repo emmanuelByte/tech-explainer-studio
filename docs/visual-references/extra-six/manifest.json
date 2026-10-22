@@ -1,0 +1,230 @@
+[
+  {
+    "slug": "01-kuls-tech-kernel",
+    "title": "Kuls Tech | Kernel",
+    "duration_seconds": 103.1,
+    "notes": "Dark navy palette; crisp boxes; progressive build-up of process boundaries. Weakness: much of the runtime uses the same central composition. Reuse its simplicity, avoid static-looking scenes.",
+    "screenshots": [
+      {
+        "time_seconds": 10,
+        "description": "title and visual hierarchy",
+        "file": "01-kuls-tech-kernel/01_00m10s.webp"
+      },
+      {
+        "time_seconds": 24,
+        "description": "application/kernel/hardware three-tier diagram",
+        "file": "01-kuls-tech-kernel/02_00m24s.webp"
+      },
+      {
+        "time_seconds": 38,
+        "description": "system-call and kernel execution",
+        "file": "01-kuls-tech-kernel/03_00m38s.webp"
+      },
+      {
+        "time_seconds": 45,
+        "description": "device response and hardware connection",
+        "file": "01-kuls-tech-kernel/04_00m45s.webp"
+      },
+      {
+        "time_seconds": 65,
+        "description": "user mode versus kernel mode",
+        "file": "01-kuls-tech-kernel/05_01m05s.webp"
+      },
+      {
+        "time_seconds": 86,
+        "description": "OS/kernel families",
+        "file": "01-kuls-tech-kernel/06_01m26s.webp"
+      }
+    ]
+  },
+  {
+    "slug": "02-so-thats-how-wifi",
+    "title": "So Thats How | Wi-Fi",
+    "duration_seconds": 55.4,
+    "notes": "Excellent spatial storytelling and strong continuity from source to obstacles to a receiving device. Physical analogies need careful technical fact-checking; 3D work is optional.",
+    "screenshots": [
+      {
+        "time_seconds": 6,
+        "description": "red wave rings and router",
+        "file": "02-so-thats-how-wifi/01_00m06s.webp"
+      },
+      {
+        "time_seconds": 13,
+        "description": "wave pulse particle metaphor",
+        "file": "02-so-thats-how-wifi/02_00m13s.webp"
+      },
+      {
+        "time_seconds": 24,
+        "description": "signal meets an obstruction",
+        "file": "02-so-thats-how-wifi/03_00m24s.webp"
+      },
+      {
+        "time_seconds": 28,
+        "description": "propagation and barrier visualization",
+        "file": "02-so-thats-how-wifi/04_00m28s.webp"
+      },
+      {
+        "time_seconds": 39,
+        "description": "dense propagating waves",
+        "file": "02-so-thats-how-wifi/05_00m39s.webp"
+      },
+      {
+        "time_seconds": 46,
+        "description": "phone response/consequence",
+        "file": "02-so-thats-how-wifi/06_00m46s.webp"
+      }
+    ]
+  },
+  {
+    "slug": "03-rick-computer-vision",
+    "title": "Rick | Computer Vision",
+    "duration_seconds": 156.4,
+    "notes": "UI-rich explainer with typed data, selection states and image processing panels. Reuse contextual state transitions and the labeled processing stages; avoid persistent distracting avatar and illegibly tiny grids.",
+    "screenshots": [
+      {
+        "time_seconds": 5,
+        "description": "searchable app gallery",
+        "file": "03-rick-computer-vision/01_00m05s.webp"
+      },
+      {
+        "time_seconds": 26,
+        "description": "code/rule explanation",
+        "file": "03-rick-computer-vision/02_00m26s.webp"
+      },
+      {
+        "time_seconds": 47,
+        "description": "pixel-value grid",
+        "file": "03-rick-computer-vision/03_00m47s.webp"
+      },
+      {
+        "time_seconds": 99,
+        "description": "segmentation output",
+        "file": "03-rick-computer-vision/04_01m39s.webp"
+      },
+      {
+        "time_seconds": 130,
+        "description": "photo and question app view",
+        "file": "03-rick-computer-vision/05_02m10s.webp"
+      },
+      {
+        "time_seconds": 140,
+        "description": "input-to-prediction workflow",
+        "file": "03-rick-computer-vision/06_02m20s.webp"
+      }
+    ]
+  },
+  {
+    "slug": "04-rick-system-design",
+    "title": "Rick | System Design 101",
+    "duration_seconds": 159.5,
+    "notes": "Strongest full product-to-architecture teaching narrative. White template competes with existing dark aesthetic and labels are tiny on mobile; borrow modular layout and progression, not exact graphics or avatar.",
+    "screenshots": [
+      {
+        "time_seconds": 16,
+        "description": "design requirements",
+        "file": "04-rick-system-design/01_00m16s.webp"
+      },
+      {
+        "time_seconds": 37,
+        "description": "one-service architecture evolves",
+        "file": "04-rick-system-design/02_00m37s.webp"
+      },
+      {
+        "time_seconds": 58,
+        "description": "multiple services, cache and database",
+        "file": "04-rick-system-design/03_00m58s.webp"
+      },
+      {
+        "time_seconds": 80,
+        "description": "phone video upload plus backend storage",
+        "file": "04-rick-system-design/04_01m20s.webp"
+      },
+      {
+        "time_seconds": 112,
+        "description": "observability: metrics and logs",
+        "file": "04-rick-system-design/05_01m52s.webp"
+      },
+      {
+        "time_seconds": 144,
+        "description": "architecture and bottleneck principles",
+        "file": "04-rick-system-design/06_02m24s.webp"
+      }
+    ]
+  },
+  {
+    "slug": "05-kodekloud-http-tls",
+    "title": "KodeKloud | TCP, TLS and HTTP",
+    "duration_seconds": 161.6,
+    "notes": "Best reference for timing data packets, sequence diagrams and preserving protocol layers through transitions. Restrained dark setting and semantic blue/pink/orange colors. Verify details before copying any protocol claims.",
+    "screenshots": [
+      {
+        "time_seconds": 16,
+        "description": "browser talking to server",
+        "file": "05-kodekloud-http-tls/01_00m16s.webp"
+      },
+      {
+        "time_seconds": 48,
+        "description": "TCP flow and acknowledgements",
+        "file": "05-kodekloud-http-tls/02_00m48s.webp"
+      },
+      {
+        "time_seconds": 70,
+        "description": "TLS and HTTP relationship",
+        "file": "05-kodekloud-http-tls/03_01m10s.webp"
+      },
+      {
+        "time_seconds": 81,
+        "description": "TLS handshake exchange",
+        "file": "05-kodekloud-http-tls/04_01m21s.webp"
+      },
+      {
+        "time_seconds": 111,
+        "description": "HTTP request over TLS and TCP",
+        "file": "05-kodekloud-http-tls/05_01m51s.webp"
+      },
+      {
+        "time_seconds": 137,
+        "description": "stacked HTTP/TLS/TCP/IP diagram",
+        "file": "05-kodekloud-http-tls/06_02m17s.webp"
+      }
+    ]
+  },
+  {
+    "slug": "06-kodekloud-auth",
+    "title": "KodeKloud | Authentication",
+    "duration_seconds": 182.0,
+    "notes": "Best reference for stateful security sequences: app, auth service, Redis, sessions, tokens, expiry, attacker states. Keep independent UI and backend states readable and revisit the same elements across scenes.",
+    "screenshots": [
+      {
+        "time_seconds": 18,
+        "description": "mobile app and login service",
+        "file": "06-kodekloud-auth/01_00m18s.webp"
+      },
+      {
+        "time_seconds": 42,
+        "description": "session ID stored in Redis",
+        "file": "06-kodekloud-auth/02_00m42s.webp"
+      },
+      {
+        "time_seconds": 67,
+        "description": "API gateway under user load",
+        "file": "06-kodekloud-auth/03_01m07s.webp"
+      },
+      {
+        "time_seconds": 90,
+        "description": "access-token handoff",
+        "file": "06-kodekloud-auth/04_01m30s.webp"
+      },
+      {
+        "time_seconds": 127,
+        "description": "expiry and threat scenario",
+        "file": "06-kodekloud-auth/05_02m07s.webp"
+      },
+      {
+        "time_seconds": 152,
+        "description": "refresh-token state and renewal",
+        "file": "06-kodekloud-auth/06_02m32s.webp"
+      }
+    ]
+  }
+]

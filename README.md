@@ -6,7 +6,7 @@ technical explainer video (system design, architecture, how-things-work). It is
 builds a normal editable project from it, and you preview the result, leave
 notes, and export an MP4. Everything runs locally.
 
-**Visual-quality direction (2026-10-22):** polished, application-driven technical
+**Reference gallery:** [Primary and six additional annotated video references](docs/visual-references/README.md) (43 new + 13 existing images, design evidence only).\n\n**Visual-quality direction (2026-10-22):** polished, application-driven technical
 motion graphics are our benchmark: realistic fictional app screens connected to
 animated infrastructure, expressive handwritten annotations and clear narration-
 aligned state changes. See [the reference-video discovery and acceptance bar](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
