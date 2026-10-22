@@ -1,16 +1,20 @@
 # Production pipeline: script to MP4
 
-One command takes a lesson spec (or a plain teaching script) to a verified,
-captioned, narrated MP4 in 16:9, 9:16 or both.
+This pipeline is approval-gated. Build and review scene visuals first; add
+narration for a second preview only after those visuals are approved; render the
+final MP4 only after the narrated preview is approved.
 
 ```text
 Teaching script
    | optional: an AI agent writes the spec (docs/AUTHORING_GUIDE.md)
    v
 Lesson spec  lessons/<id>.lesson.json            the source of truth
-   v validate -> narrate -> audio checks -> build -> lint -> stills -> render -> verify -> inspect
-MP4 + provenance sidecar                          data/exports/<project id>.mp4(.json)
-   v human review at /review/<project id>, notes, AI revision, export
+   v validate -> build -> lint -> stills
+Visual scene review at /review/<project id>        human approval / per-scene notes
+   v narrate -> audio checks -> build
+Narrated preview at /review/<project id>           human final approval / notes
+   v render -> verify -> inspect
+MP4 + provenance sidecar                           data/exports/<project id>.mp4(.json)
 ```
 
 > **Preproduction requirement for publishable lessons:** user-approved
@@ -20,6 +24,19 @@ MP4 + provenance sidecar                          data/exports/<project id>.mp4(
 > [the reference benchmark](2026-10-22-VISUAL-REFERENCE-BENCHMARK.md).
 > A clean stills/contact sheet or valid MP4 does not establish motion-graphics
 > fidelity; inspect full motion with audio before publication.
+
+## Required approval gates
+
+1. **Visual-scene approval:** The AI authors the spec, builds both requested
+   aspects without narration, and inspects the stills. The human plays/reviews
+   the scenes at `/review/<project id>` and requests any visual corrections.
+   Revise the spec and repeat this gate until the scenes are approved.
+2. **Narrated-preview approval:** Only then start the voice worker and run
+   `narrate`; rebuild so audio and captions can be previewed with the approved
+   visuals. The human reviews that preview and requests any final correction.
+3. **Export approval:** Run `produce` to render an MP4 only after the human
+   explicitly approves the narrated preview. `produce` is not the first review
+   step because it always performs narration and rendering.
 
 ## Prerequisites (once per machine)
 

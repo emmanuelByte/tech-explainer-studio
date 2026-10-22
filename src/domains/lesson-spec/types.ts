@@ -93,6 +93,28 @@ export interface SpecSequence {
   messages: SpecSequenceMessage[]
 }
 
+/**
+ * A page-level database index visual. This intentionally describes the teaching
+ * situation rather than coordinates, so the compiler can make a responsive,
+ * animatable diagram for landscape and portrait output.
+ */
+export type DatabaseIndexDiagramMode =
+  | 'million-rows'
+  | 'sequential-scan'
+  | 'index-intro'
+  | 'btree-anatomy'
+  | 'btree-traversal'
+  | 'comparison'
+  | 'write-amplification'
+  | 'planner'
+  | 'takeaway'
+
+export interface SpecDatabaseIndexDiagram {
+  mode: DatabaseIndexDiagramMode
+  /** Visual intent preserved with a reviewed scene revision. */
+  treatment?: 'embedded-activity' | 'palette-consistent'
+}
+
 export const TITLE_LIMITS = { title: 60, subtitle: 60, seconds: [1, 10] } as const
 
 export const CARD_LIMITS = { lines: 8, lineLength: 60, titleLength: 40 } as const
@@ -123,6 +145,8 @@ export interface SpecScene {
   bullets?: SpecBullets
   /** A semantic request/response interaction diagram over the current lesson context. */
   sequence?: SpecSequence
+  /** A responsive, page-level database index diagram for this scene. */
+  databaseIndex?: SpecDatabaseIndexDiagram
   /** Node ids the camera frames. Defaults to everything revealed so far. */
   focus?: string[]
 }

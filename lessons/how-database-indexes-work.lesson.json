@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "id": "how-database-indexes-work",
+  "title": "How Database Indexes Work",
+  "theme": "clean-technical",
+  "intro": {
+    "subtitle": "Finding one record without reading every row",
+    "seconds": 3
+  },
+  "outro": {
+    "text": "A good index finds the right data with less work.",
+    "seconds": 3
+  },
+  "nodes": [],
+  "edges": [],
+  "scenes": [
+    {
+      "id": "one-among-million",
+      "title": "One user among a million",
+      "narration": "Imagine a database containing one million users.\n\nNow, someone tries to log in using their email address.\n\nYour backend sends a query to the database, asking for one specific account.\n\nBut here's the question.\n\nHow does the database find that one user among a million records?\n\nDoes it check every single row?\n\nOr is there a smarter way?",
+      "databaseIndex": {
+        "mode": "million-rows"
+      }
+    },
+    {
+      "id": "sequential-scan",
+      "title": "Searching without an index",
+      "narration": "Let's imagine there's no index on the email column.\n\nPostgreSQL might perform what's called a sequential scan.\n\nIt reads through the table, checking each row to see whether the email matches.\n\nAnd even if it finds Alex, it may still need to check the remaining rows, because there could be other matches.\n\nNow imagine doing that across a million records.\n\nThat's a lot of work just to answer one query.",
+      "databaseIndex": {
+        "mode": "sequential-scan",
+        "treatment": "embedded-activity"
+      }
+    },
+    {
+      "id": "introducing-index",
+      "title": "The database index",
+      "narration": "This is where database indexes come in.\n\nThink about the index at the back of a textbook.\n\nIf you're looking for a particular topic, you don't read every page from the beginning.\n\nYou find the topic in the index, which tells you where to look.\n\nA database index works on a similar idea.\n\nIt organizes searchable values so the database can find the relevant records without scanning the entire table.",
+      "databaseIndex": {
+        "mode": "index-intro",
+        "treatment": "embedded-activity"
+      }
+    },
+    {
+      "id": "inside-btree",
+      "title": "Inside a B-tree index",
+      "narration": "But how does the index actually organize all these values?\n\nIn PostgreSQL, the default index type is a B-tree.\n\nA B-tree organizes sorted values across connected pages.\n\nEach page can contain multiple keys that help guide the search.\n\nInstead of examining every email address, PostgreSQL can use those keys to narrow down where the matching value should be.\n\nLet's see how.",
+      "databaseIndex": {
+        "mode": "btree-anatomy"
+      }
+    },
+    {
+      "id": "finding-alex",
+      "title": "Finding Alex in the B-tree",
+      "narration": "Remember, we're searching for alex@example.com.\n\nPostgreSQL starts at the root of the B-tree.\n\nIt compares our search value with the keys stored there.\n\nThose keys tell it which branch to follow.\n\nAt the next level, it repeats the process, narrowing the search even further.\n\nEventually, it reaches the leaf entry containing Alex's email.\n\nThat entry includes a reference to the corresponding row in the original table.\n\nPostgreSQL follows that reference, retrieves the user, and returns the result.\n\nAnd just like that, we've found our record without scanning a million rows.",
+      "databaseIndex": {
+        "mode": "btree-traversal"
+      }
+    },
+    {
+      "id": "scan-versus-index",
+      "title": "Full scan vs indexed lookup",
+      "narration": "Now let's compare the two approaches.\n\nWithout an index, PostgreSQL may examine the entire table to find matching rows.\n\nWith a suitable B-tree index, it can navigate through a much smaller number of index pages to locate the record.\n\nFor a selective query against a large table, that can dramatically reduce the work required.\n\nThat's why a well-chosen index can make such a big difference.",
+      "databaseIndex": {
+        "mode": "comparison"
+      }
+    },
+    {
+      "id": "hidden-cost",
+      "title": "The hidden cost of indexes",
+      "narration": "But here's something important.\n\nIndexes aren't free.\n\nFirst, they consume additional storage.\n\nAnd whenever you insert a new record, the database may also need to add an entry to the index.\n\nIf you change an indexed email address, the index needs updating too.\n\nDeleting records also involves index maintenance.\n\nSo while indexes can make reads faster, they introduce extra work when data changes.\n\nThat's why creating an index on every column isn't always a good idea.",
+      "databaseIndex": {
+        "mode": "write-amplification"
+      }
+    },
+    {
+      "id": "planner-choice",
+      "title": "Why PostgreSQL might ignore an index",
+      "narration": "And here's one more interesting detail.\n\nJust because an index exists doesn't mean PostgreSQL will always use it.\n\nSuppose your query needs almost every row in the table.\n\nFollowing the index and repeatedly fetching table rows could actually cost more than simply scanning the table in sequence.\n\nSo PostgreSQL has a query planner that estimates the cost of different approaches.\n\nIt chooses the plan it expects to be most efficient.\n\nThe best strategy depends on the query and the data.",
+      "databaseIndex": {
+        "mode": "planner",
+        "treatment": "embedded-activity"
+      }
+    },
+    {
+      "id": "final-takeaway",
+      "title": "The takeaway",
+      "narration": "So, how does a database find one user among a million?\n\nWith a useful index, it can follow an organized search path instead of checking every row.\n\nIn PostgreSQL, a B-tree makes that possible by narrowing the search through sorted keys until it reaches the matching entry.\n\nBut indexes come with trade-offs: extra storage and additional work when data changes.\n\nThe real skill is knowing which columns to index, based on the queries your application actually runs.\n\nAnd that's how databases can find a needle in a million-row haystack.",
+      "databaseIndex": {
+        "mode": "takeaway",
+        "treatment": "palette-consistent"
+      }
+    }
+  ]
+}

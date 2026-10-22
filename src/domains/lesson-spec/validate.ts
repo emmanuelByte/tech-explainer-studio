@@ -5,6 +5,10 @@ import { BULLET_LIMITS, CARD_LIMITS, COMPARISON_LIMITS, SEQUENCE_LIMITS, SPEC_DE
 
 const KINDS = new Set<string>(TECHNICAL_COMPONENT_KINDS)
 const ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/
+const DATABASE_INDEX_DIAGRAM_MODES = new Set([
+  'million-rows', 'sequential-scan', 'index-intro', 'btree-anatomy',
+  'btree-traversal', 'comparison', 'write-amplification', 'planner', 'takeaway',
+])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -51,7 +55,9 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
   const ids = new Map<string, 'node' | 'edge'>()
   const nodes = Array.isArray(input.nodes) ? input.nodes : null
   const edges = Array.isArray(input.edges) ? input.edges : null
-  if (!nodes || !nodes.length) add('nodes', 'Must be a non-empty array.')
+  const rawScenes = Array.isArray(input.scenes) ? input.scenes : null
+  const hasDatabaseIndexDiagram = rawScenes?.some((scene) => isRecord(scene) && scene.databaseIndex !== undefined) ?? false
+  if (!nodes || (!nodes.length && !hasDatabaseIndexDiagram)) add('nodes', 'Must be a non-empty array unless the lesson uses a databaseIndex diagram.')
   if (!edges) add('edges', 'Must be an array (may be empty).')
 
   nodes?.forEach((node, index) => {
@@ -221,6 +227,18 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
         })
       }
     }
+    if (scene.databaseIndex !== undefined) {
+      const diagram = scene.databaseIndex
+      if (!isRecord(diagram)) add(`${path}.databaseIndex`, 'Must be an object.')
+      else {
+        if (typeof diagram.mode !== 'string' || !DATABASE_INDEX_DIAGRAM_MODES.has(diagram.mode)) {
+          add(`${path}.databaseIndex.mode`, `Must be one of: ${[...DATABASE_INDEX_DIAGRAM_MODES].join(', ')}.`)
+        }
+        if (diagram.treatment !== undefined && !['embedded-activity', 'palette-consistent'].includes(String(diagram.treatment))) {
+          add(`${path}.databaseIndex.treatment`, 'Must be "embedded-activity" or "palette-consistent".')
+        }
+      }
+    }
     const extraCueIds: string[] = []
     if (scene.emphasize !== undefined) {
       if (!Array.isArray(scene.emphasize)) add(`${path}.emphasize`, 'Must be an array of node ids.')
@@ -323,6 +341,7 @@ export function validateLessonSpec(input: unknown): SpecIssue[] {
 export function rankCount(spec: Pick<LessonSpec, 'nodes' | 'edges'>): number | null {
   const ranks = computeRanks(spec)
   if (!ranks) return null
+  if (!ranks.size) return 0
   return Math.max(...ranks.values()) + 1
 }
 

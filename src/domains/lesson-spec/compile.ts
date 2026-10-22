@@ -16,6 +16,7 @@ import { buildCaptions, estimateWordTimes } from './captions'
 import { captionPhraseChars, contentCentreOffset, contentHeight, frameFor, type FrameSpec } from './frame'
 import { baseLayer, staticKeyframe, svgDataUrl, type BuildContext } from './layerKit'
 import { bulletLayers, cardLayers, comparisonLayers, sequenceLayers, titleCardLayers } from './overlays'
+import { databaseIndexLayers } from './databaseIndexDiagram'
 import { LESSON_THEMES, resolveTheme, type LessonTheme, type ThemeId } from './theme'
 import { SPEC_DEFAULTS, type LessonSpec, type NarrationManifest, type SpecNode, type SpecScene } from './types'
 import { computeRanks, validateLessonSpec } from './validate'
@@ -73,6 +74,7 @@ const PORTRAIT_RANK_GAP = 140
 export function layoutNodes(spec: Pick<LessonSpec, 'nodes' | 'edges'>, canvas: { width: number; height: number } = SPEC_DEFAULTS): Map<string, NodePlacement> {
   const ranks = computeRanks(spec)
   if (!ranks) throw new LessonSpecError([{ path: 'edges', message: 'Edges form a cycle.' }])
+  if (!ranks.size) return new Map()
   const columns = Math.max(...ranks.values()) + 1
   const byRank = new Map<number, SpecNode[]>()
   for (const node of spec.nodes) {
@@ -263,6 +265,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
   const comparisonLayerSets: Layer[] = []
   const bulletLayerSets: Layer[] = []
   const sequenceLayerSets: Layer[] = []
+  const databaseIndexLayerSets: Layer[] = []
   const titleLayerSets: Layer[] = []
   const emphasis = new Map<string, { start: number; end: number }[]>()
   const flowRange = new Map<string, { start: number; end: number }>()
@@ -350,6 +353,9 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
       const messageFrames = sequence.messages.map((message, index) => cueFrame(`${sequence.id}.${message.id}`) ?? sequenceStart + 8 + Math.floor((index * spread) / Math.max(1, sequence.messages.length)))
       sequenceLayerSets.push(...sequenceLayers(ctx, sequence, framing, start, end, sequenceStart, messageFrames))
     }
+    if (specScene.databaseIndex) {
+      databaseIndexLayerSets.push(...databaseIndexLayers(ctx, specScene.id, specScene.databaseIndex.mode, start, end))
+    }
 
     const sceneId = `scene_${specScene.id}`
     const segmentId = `segment_${specScene.id}`
@@ -425,7 +431,7 @@ export function compileLessonSpec(input: unknown, options: CompileOptions): Moti
     layers.push(...nodeLayers(ctx, node, placements.get(node.id)!, revealFrame.get(node.id) ?? 0, hideFrame.get(node.id), emphasis.get(node.id) ?? [], totalFrames, options.artwork))
   }
   // Top-level layers stack first-on-top (a group's children stack last-on-top), so cards go first.
-  layers.unshift(...titleLayerSets, ...cardLayerSets, ...comparisonLayerSets, ...bulletLayerSets, ...sequenceLayerSets)
+  layers.unshift(...titleLayerSets, ...cardLayerSets, ...comparisonLayerSets, ...bulletLayerSets, ...sequenceLayerSets, ...databaseIndexLayerSets)
   layers.push(...narrationLayers)
 
   const connectors: Connector[] = spec.edges.map((edge) => {

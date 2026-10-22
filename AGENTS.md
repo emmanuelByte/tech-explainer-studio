@@ -78,19 +78,32 @@ for the human, not for the CLI.
 
 ```bash
 npm run lesson -- validate lessons/x.lesson.json   # structure and references
-npm run lesson -- narrate  lessons/x.lesson.json   # Chatterbox voice -> real timings (needs the worker)
 npm run lesson -- build    lessons/x.lesson.json   # writes data/projects/lesson_<id>.json
 npm run lesson -- lint     lessons/x.lesson.json   # layout and pacing checks
 npm run lesson -- stills   lessons/x.lesson.json   # data/exports/stills/<id>/NN-<scene>.png - read them
+npm run lesson -- narrate  lessons/x.lesson.json   # Chatterbox voice -> real timings (needs the worker)
 npm run lesson -- notes    lessons/x.lesson.json   # the human's review notes (--done marks them handled)
 ```
 
-Loop: edit spec -> `validate` -> `narrate` (only changed phrases are re-spoken)
--> `build` -> `lint` -> `stills` -> read the PNGs -> fix -> repeat. When the
-human leaves notes, apply them **to the spec**, never to a generated project.
+### Approval-gated production workflow
+
+1. **Visual pass first — no narration and no MP4 export.** The AI authors the
+   spec, then runs `validate` -> `build` -> `lint` -> `stills` in each requested
+   aspect. The human reviews and plays the scene visuals at `/review/<project id>`
+   and gives per-scene notes. Iterate on the spec until every scene is approved.
+2. **Narrated preview second — still no final export.** Only after visual approval,
+   run `narrate`, rebuild, and let the human preview the synchronized narration,
+   captions, and approved visuals. Apply any final notes to the spec and repeat
+   this preview as needed.
+3. **Export last.** Run `produce` (render, ffprobe verify, and decoded-frame
+   inspection) only after the human explicitly approves the narrated preview.
+
+When the human leaves notes, apply them **to the spec**, never to a generated
+project. Do not begin narration or an export merely because a spec validates.
 
 **One command does the whole chain** (validate, narrate, build, lint, stills,
-render, ffprobe verify), resumable and incremental, in 16:9 and/or 9:16:
+render, ffprobe verify), resumable and incremental, in 16:9 and/or 9:16. It is
+the post-approval export command, not the default first review step:
 
 ```bash
 npm run produce -- lessons/x.lesson.json --aspect both          # from a spec
