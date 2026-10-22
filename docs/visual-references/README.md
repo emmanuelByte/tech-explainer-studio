@@ -84,7 +84,7 @@ This entire folder is **design evidence only**. The lesson engine must not load 
 
 ## Six additional reference videos (2026-10-22)
 
-The [six-video annotated reference library](extra-six/README.md) adds **36 timestamped screenshots**, **six contact sheets**, an [all-six overview](extra-six/ALL_SIX_OVERVIEW.webp), and a machine-readable [manifest](extra-six/manifest.json). These supplement the primary CodewithIddris benchmark; they do not replace its visual identity.
+The [six-video annotated reference library](extra-six/README.md) adds **36 timestamped screenshots**, **six contact sheets**, an [all-six overview](extra-six/ALL_SIX_OVERVIEW.webp), and a machine-readable [manifest](extra-six/manifest.json). All seven references (CodewithIddris and these six) carry equal weight. Techniques from every video are catalogued together in [TECHNIQUES.md](TECHNIQUES.md); our own house style comes from the approved hero shot in `src/remotion/hero/`.
 
 | Creator/video | Technique to study | Frames |
 | --- | --- | --- |

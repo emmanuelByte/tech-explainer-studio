@@ -18,11 +18,16 @@ It supersedes the old "manual-first" documents.
 
 ## Visual-quality benchmark and approval gate (2026-10-22)
 
-Read [the reference benchmark](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md)
-[the primary annotated visual screenshots](docs/visual-references/README.md),
-and [six additional visual references](docs/visual-references/extra-six/README.md)
-before any lesson visual design or production work. Extract strengths selectively;
-do not combine incompatible styles or assume the current engine supports every shot. The user wants polished
+Read [the reference benchmark](docs/2026-10-22-VISUAL-REFERENCE-BENCHMARK.md),
+[the technique catalog](docs/visual-references/TECHNIQUES.md), and the annotated
+screenshots of **all seven reference videos**
+([CodewithIddris](docs/visual-references/README.md) and
+[the other six](docs/visual-references/extra-six/README.md)) before any lesson
+visual design or production work. The seven references carry **equal weight**:
+there is no primary or secondary reference. Take each technique from whichever
+video does it best (the KodeKloud protocol and authentication videos are the
+richest source of sequence and state techniques), render it in our own house
+style, and do not assume the current engine supports every shot. The user wants polished
 application-driven technical motion graphics, **including evolving fictional
 app UI, architecture, data flow, meaningful state changes, typography, pacing,
 and transitions**, not disconnected diagrams or a pure sketch slideshow.
@@ -41,8 +46,11 @@ it with a generic overlay. Never change approved words without approval.
 
 `src/remotion/hero/` is a hand-built 30 s, 9:16 shot that the user approved as
 **exactly the target look**. Watch `docs/hero-reference/caching-hero.mp4` (or run
-`npm run hero:studio`) before any visual work. It outranks the third-party
-references when they disagree, because it is ours and it renders in this engine.
+`npm run hero:studio`) before any visual work. It defines our **house style**
+(tokens, type, composition) and proves these techniques render in this engine.
+It does not rank the references: they are all equal sources of technique, and
+the techniques it does not cover yet are listed in
+`docs/visual-references/TECHNIQUES.md`.
 
 What it establishes, and what every lesson should now do:
 
@@ -60,6 +68,8 @@ What it establishes, and what every lesson should now do:
 into a lesson-spec component or action (see `src/remotion/hero/README.md`), then
 rebuild this shot from a lesson JSON and compare it with the hand-built render.
 Do not edit the hero files to fit the compiler; extend the compiler to reach the hero.
+Then work through the **build** rows in `docs/visual-references/TECHNIQUES.md`,
+starting with whatever the next lesson's storyboard needs.
 
 ## The workflow
 

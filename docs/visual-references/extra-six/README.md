@@ -6,16 +6,19 @@ Generated 2026-10-22 from six user-provided video files. All screenshots are **a
 
 **Scope:** Screenshots and visual review only; no frame-by-frame animation analysis, narration transcription, or guarantee of technical correctness.
 
-## Triage
+## What each reference teaches
 
-| Priority | Reference | What to learn |
-| --- | --- | --- |
-| Very high | 04 System Design 101 | Product-led end-to-end architecture narrative |
-| Very high | 05 TCP/TLS/HTTP | Protocol flow choreography, anchored message movement |
-| Very high | 06 Authentication | Stateful UI↔backend sequences and security edge cases |
-| High | 03 Computer Vision | Dynamic application UIs and data visualization |
-| Medium | 01 Kernel | Visual minimalism, layering, semantic color |
-| Selective | 02 Wi-Fi | Motion/depth and visual metaphor, costly if 3D |
+All seven references (these six and CodewithIddris) carry equal weight. The full
+cross-reference list is in [TECHNIQUES.md](../TECHNIQUES.md).
+
+| Reference | What to learn |
+| --- | --- |
+| 01 Kernel | Visual minimalism, layering, semantic color |
+| 02 Wi-Fi | Spatial continuity, motion/depth and visual metaphor (3D is costly; reproduce the idea in 2D first) |
+| 03 Computer Vision | Dynamic application UIs and data visualization |
+| 04 System Design 101 | Product-led end-to-end architecture narrative |
+| 05 TCP/TLS/HTTP | Protocol flow choreography, layered lanes, anchored message movement |
+| 06 Authentication | Stateful UI↔backend sequences, data objects, expiry and security edge cases |
 
 ## Per-video frames
 
@@ -113,7 +116,7 @@ The contact sheet for each clip arranges six representative moments in timestamp
 
 ## Design implications for tech-explainer-studio
 
-1. Continue to use the first CodewithIddris reference as the core dark, app-driven visual identity; blend in selected techniques without turning the output into a collage of other creators’ aesthetics.
+1. Treat all seven references as equal sources of technique. Our visual identity is our own house style (the approved hero shot in `src/remotion/hero/`); render every borrowed technique in that style rather than turning the output into a collage of other creators’ aesthetics.
 2. Keep a persistent state model for visible application UI and corresponding infrastructure actors (browser/mobile, API, load balancer, database, Redis, storage). A tap must visibly trigger a request and response.
 3. Extend the scene vocabulary only for confirmed limitations: app screens with changing state, tables/counters, routed packets/tokens, protocol lanes, and stateful transitions. Try a representative scene with the existing deterministic Remotion/lesson compiler first.
 4. Prioritize legibility in vertical, purposeful motion and hold times, meaningful failure/recovery, and narration alignment. A set of valid stills cannot establish animation quality.
@@ -128,7 +131,7 @@ The contact sheet for each clip arranges six representative moments in timestamp
 
 ## Repository integration and provenance
 
-- Location: `docs/visual-references/extra-six/`; earlier CodewithIddris reference remains the primary benchmark.
+- Location: `docs/visual-references/extra-six/`; the CodewithIddris reference sits one folder up; all seven references carry equal weight.
 - The screenshots are **actual sampled frames** from the six uploaded clips, converted to WebP for repository-size control. They were not generated or redrawn by AI.
 - Each title/timestamp is grounded in the supplied clips. The images document visual techniques, **not** the correctness of technical claims in the narrations.
 - For each video, study motion and transitions by inspecting the associated supplied video where legally available. A still alone does not show choreography.
