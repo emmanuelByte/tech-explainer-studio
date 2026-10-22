@@ -2,6 +2,8 @@
 
 **Status:** Approved target visual direction; discovery and acceptance brief, **not an implemented feature or an approved production script**.
 
+**Screenshot evidence:** [Four annotated contact sheets and nine timestamped reference frames](visual-references/README.md). Inspect them together with this specification. The images are third-party reference material, **never production assets**.
+
 **Source:** A user-provided reference MP4 in the Engineering Explained conversation: *“Replication vs Partitioning vs Sharding: When to Use Each”* (CodewithIddris). Inspected visual contact sheets and technical metadata on 2026-10-22. Approx. 9m 38.5s, 576×1024, 24 fps, H.264/AAC. The reference itself is **not in GitHub**: a future coding agent must receive it separately if frame-level comparison is required. Do not put someone else's video, watermark, branding, or recognizable app assets in the repository or published output.
 
 > **Decision:** This is the project's concrete visual benchmark. Keep our existing local, deterministic, AI-authored/human-reviewed pipeline, but raise the result from generic whiteboard/diagram slides to **polished, application-driven technical motion graphics**. A coherent fictional application, its user-visible state, and the corresponding backend mechanism must evolve together. This refines the visual goal, **not** the previously approved implementation architecture or the script-approval gate.
